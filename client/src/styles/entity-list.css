@@ -23,10 +23,10 @@
 
 .entity-hero { position: relative; display: flex; align-items: stretch; min-height: 7.5rem; margin-bottom: .9rem; overflow: hidden; background: linear-gradient(90deg, var(--surface-2), var(--surface) 70%); border: 1px solid var(--border); border-radius: var(--radius-md); min-width: 0; }
 /* Artwork: flush left, full card height, cover-cropped, faded into the neutral gradient on its right edge. */
-.entity-hero .entity-image { position: relative; width: clamp(6.5rem, 30%, 11rem); aspect-ratio: auto; border-radius: 0; border: 0; background: transparent; -webkit-mask-image: linear-gradient(90deg, #000 55%, transparent); mask-image: linear-gradient(90deg, #000 55%, transparent); }
+.entity-hero .entity-image { position: relative; width: clamp(6.5rem, 30%, 11rem); aspect-ratio: auto; border-radius: 0; border: 0; background: transparent; --hero-art-fade: linear-gradient(90deg, #000 22%, rgb(0 0 0 / 88%) 43%, rgb(0 0 0 / 38%) 76%, transparent); -webkit-mask-image: var(--hero-art-fade); mask-image: var(--hero-art-fade); }
 .entity-hero .entity-image img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .entity-hero .entity-image--placeholder { display: flex; font-size: 2rem; background: var(--surface-2); color: var(--text-muted); }
-.entity-hero .entity-text { justify-content: center; padding: 1rem 1.25rem 1rem .5rem; }
+.entity-hero .entity-text { justify-content: center; padding: 1rem 1.25rem 1rem .75rem; }
 .entity-hero > .entity-text:first-child { padding-left: 1.25rem; }
 .entity-hero-name { font-size: 1.5rem; font-weight: 700; line-height: 1.15; letter-spacing: -.01em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
 .entity-hero-count { margin-top: .2rem; font-size: 1.15rem; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
@@ -55,7 +55,7 @@
   /* The list's inline max-height:none (desktop fills the slot) must yield to a bounded scroll area here. */
   .country-ranking .entity-scroll { max-height: 22rem !important; }
   .entity-hero { min-height: 6.5rem; }
-  .entity-hero .entity-text { padding: .8rem .85rem .8rem .35rem; }
+  .entity-hero .entity-text { padding: .8rem .85rem .8rem .5rem; }
   .entity-hero > .entity-text:first-child { padding-left: .85rem; }
   .entity-hero-name { font-size: 1.25rem; }
   .entity-secondary, .entity-rank { font-size: .72rem; }
