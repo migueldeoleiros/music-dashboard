@@ -133,7 +133,14 @@ def test_representative_cold_alltime_and_health_load(stats, capsys):
         c.execute(text("ANALYZE listens"))
         c.execute(text("ANALYZE listen_artists"))
     measurements = {}
-    for family in ("rankings/artists", "pies/genres", "evolution/genres", "heatmap", "health"):
+    for family in (
+        "rankings/artists",
+        "rankings/albums",
+        "pies/genres",
+        "evolution/genres",
+        "heatmap",
+        "health",
+    ):
         cold = SQLStatisticsQueries(q.engine)
         begin = time.perf_counter()
         response = (
@@ -416,6 +423,143 @@ def test_unicode_identity_and_missing_states(stats):
         response = q.query(f"rankings/{dimension}", filters())
         assert all(r["metadata_state"] == "missing" for r in response["items"])
         assert sum(r["listens"] for r in response["items"]) == 4
+
+
+RG = "7a29cb18-db62-4598-9b85-9d3d9eb9638b"
+RG2 = "11111111-2222-4333-8444-555555555555"
+COVER = "https://coverartarchive.org/release-group/" + RG + "/front"
+
+
+def add_listen(c, day, artist, album, rg=None, release=None):
+    c.execute(
+        text("""
+      INSERT INTO listens(user_name,listened_at,recording_msid,artist_name,release_name,
+                          release_group_mbid,release_mbid)
+      VALUES ('identity-test',CAST(:at AS timestamptz),CAST(:msid AS uuid),:artist,:album,
+              CAST(:rg AS uuid),CAST(:release AS uuid))
+    """),
+        {
+            "at": f"{day}T12:00:00Z",
+            "msid": str(uuid.uuid4()),
+            "artist": artist,
+            "album": album,
+            "rg": rg,
+            "release": release,
+        },
+    )
+
+
+def albums(q, start, end=None, **kw):
+    r = q.query("rankings/albums", filters(start, end, **kw))
+    return {i["key"]: i for i in r["items"]}, r
+
+
+@pytest.fixture
+def identity(stats):
+    q, writer = stats
+    with writer.begin() as c:
+        c.execute(text("DELETE FROM listens"))
+        c.execute(text("DELETE FROM artwork"))
+        c.execute(
+            text(
+                "INSERT INTO artwork(entity_type,entity_mbid,source,image_url,status) "
+                "VALUES ('album',CAST(:m AS uuid),'caa',:u,'resolved')"
+            ),
+            {"m": RG, "u": COVER},
+        )
+    return q, writer
+
+
+def test_album_fallback_merges_into_unique_canonical_with_cover(identity):
+    q, writer = identity
+    with writer.begin() as c:
+        for _ in range(10):  # recent: only unmapped, differently cased/width name
+            add_listen(c, "2026-01-10", "Polyphia", "ＢＥ NOT AFRAID")
+        for _ in range(3):  # older + recent mapped history
+            add_listen(c, "2026-01-02", "polyphia", "Be Not Afraid", rg=RG)
+        c.execute(text("UPDATE data_generation SET ingestion_generation=ingestion_generation+1"))
+    # Window holds ONLY unmapped listens: identity still resolves from history (stable).
+    only_recent, r = albums(q, "2026-01-10")
+    assert list(only_recent) == [RG]
+    assert only_recent[RG]["listens"] == 10
+    assert only_recent[RG]["image_url"] == COVER
+    assert only_recent[RG]["metadata_state"] == "resolved"
+    assert only_recent[RG]["mbid"] == RG
+    # Wider window: summed once, no double count, same key, cover kept.
+    wide, r = albums(q, "2026-01-01", "2026-01-31")
+    assert list(wide) == [RG] and wide[RG]["listens"] == 13
+    assert wide[RG]["label"] == "Be Not Afraid"  # label from the mapped listens
+    assert r["coverage"]["albums"]["included_listens"] == 13
+    assert sum(i["listens"] for i in r["items"]) == 13
+    # Only-mapped window unchanged.
+    old, _ = albums(q, "2026-01-02")
+    assert old[RG]["listens"] == 3
+
+
+def test_album_fallback_ambiguous_or_distinct_ids_preserved(identity):
+    q, writer = identity
+    with writer.begin() as c:
+        add_listen(c, "2026-01-02", "Polyphia", "Be Not Afraid", rg=RG)
+        add_listen(c, "2026-01-02", "Polyphia", "Be Not Afraid", rg=RG2)  # ambiguous name
+        add_listen(c, "2026-01-03", "Polyphia", "be not afraid")
+        add_listen(c, "2026-01-03", "Polyphia", "be not afraid")
+        # distinct known IDs never merge with each other
+        # fuzzy/different artist or album: no match
+        add_listen(c, "2026-01-03", "Polyphia", "Be Not Afraid (Deluxe)")
+        add_listen(c, "2026-01-03", "Other", "Be Not Afraid")
+        add_listen(c, "2026-01-03", "Polyphia", "Be Not Afraid ")  # trims -> ambiguous group too
+        # release-only id vs release group id for same names also ambiguous
+        add_listen(
+            c, "2026-01-04", "Solo", "Record", release="99999999-2222-4333-8444-555555555555"
+        )
+        add_listen(c, "2026-01-04", "Solo", "Record", rg=RG)
+        add_listen(c, "2026-01-05", "Solo", "record")
+        # missing artist or album never matches
+        add_listen(c, "2026-01-06", None, "Be Not Afraid")
+        add_listen(c, "2026-01-06", "Polyphia", None)
+        c.execute(text("UPDATE data_generation SET ingestion_generation=ingestion_generation+1"))
+    items, r = albums(q, "2026-01-01", "2026-01-31")
+    assert items[RG]["listens"] == 2  # Polyphia + Solo (rg listens), fallbacks not merged
+    assert items[RG2]["listens"] == 1
+    assert items['name:["polyphia", "be not afraid"]']["listens"] == 3  # incl. trimmed
+    assert items['name:["polyphia", "be not afraid (deluxe)"]']["listens"] == 1
+    assert items['name:["other", "be not afraid"]']["listens"] == 1
+    assert items['name:["solo", "record"]']["listens"] == 1
+    assert r["coverage"]["albums"]["total_listens"] == 12
+    assert sum(i["listens"] for i in r["items"] if i["metadata_state"] != "missing") == 11
+
+
+def test_album_merge_is_per_user_agnostic_and_no_raw_mutation(identity):
+    q, writer = identity
+    with writer.begin() as c:
+        add_listen(c, "2026-01-02", "Polyphia", "Be Not Afraid", rg=RG)
+        add_listen(c, "2026-01-03", "Polyphia", "Be Not Afraid")
+        c.execute(text("UPDATE data_generation SET ingestion_generation=ingestion_generation+1"))
+    albums(q, "2026-01-01", "2026-01-31")
+    with writer.connect() as c:
+        row = c.execute(
+            text("SELECT count(*) FILTER (WHERE release_group_mbid IS NULL) FROM listens")
+        ).scalar_one()
+    assert row == 1  # raw history untouched
+
+
+def test_album_identity_timezone_window_madrid(identity):
+    q, writer = identity
+    with writer.begin() as c:
+        # 2026-01-09T23:30Z is 2026-01-10 00:30 in Europe/Madrid; mapped history is outside.
+        c.execute(
+            text("""
+          INSERT INTO listens(user_name,listened_at,recording_msid,artist_name,release_name)
+          VALUES ('identity-test','2026-01-09T23:30:00Z',CAST(:m AS uuid),'Polyphia',
+                  'Be Not Afraid')"""),
+            {"m": str(uuid.uuid4())},
+        )
+        add_listen(c, "2025-06-01", "Polyphia", "Be Not Afraid", rg=RG)
+        c.execute(text("UPDATE data_generation SET ingestion_generation=ingestion_generation+1"))
+    madrid, _ = albums(q, "2026-01-10", tz="Europe/Madrid")
+    assert madrid[RG]["listens"] == 1
+    utc, _ = albums(q, "2026-01-10", tz="UTC")
+    assert utc == {}
 
 
 def test_zero_and_full_enrichment_and_rebuild_determinism(stats):
