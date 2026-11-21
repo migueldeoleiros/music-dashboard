@@ -105,19 +105,33 @@ WITH bounds AS (
  WHERE l.release_group_mbid IS NOT NULL
  UNION ALL
  SELECT id, day, 3, 'artist', CAST(mbid AS uuid) FROM unique_credits WHERE mbid IS NOT NULL
-), genre_tags AS (
- -- First nonempty level wins (recording -> release group -> artist). Any tag row counts,
- -- including zero/negative-vote tags; votes never weight anything.
- SELECT c.id, c.day, c.priority, e.genre_mbid, g.name AS label,
-   min(c.priority) OVER (PARTITION BY c.id) AS best
+), genre_votes AS (
+ SELECT c.*, e.genre_mbid, g.name AS label, e.votes,
+   sum(greatest(e.votes,0)) OVER (PARTITION BY c.id,c.priority,c.entity_mbid) AS positive,
+   count(*) OVER (PARTITION BY c.id,c.priority,c.entity_mbid) AS n,
+   min(c.priority) OVER (PARTITION BY c.id) AS best,
+   row_number() OVER (PARTITION BY c.id,c.priority,c.entity_mbid
+                      ORDER BY e.genre_mbid) AS entity_row
  FROM candidates c JOIN entity_genres e USING (entity_type,entity_mbid)
  JOIN genres g ON g.genre_mbid=e.genre_mbid
+), winning_votes AS (
+ SELECT *, sum(CASE WHEN entity_row=1 THEN 1 ELSE 0 END)
+              OVER (PARTITION BY id) AS entities
+ FROM genre_votes WHERE priority=best
 ), genre_values AS (
- -- One full appearance per DISTINCT genre per listen (duplicate tags and several
- -- winning-level artists collapse). Repeated plays are separate listens.
- SELECT DISTINCT t.id, t.day, t.genre_mbid::text AS key, t.label,
-        t.genre_mbid::text AS mbid, 'resolved' AS state, 1.0 AS weight
- FROM genre_tags t WHERE t.priority=t.best
+ SELECT v.id, v.day, v.genre_mbid::text AS key, v.label,
+        v.genre_mbid::text AS mbid, 'resolved' AS state,
+        (CASE WHEN v.positive>0 THEN greatest(v.votes,0)::numeric/v.positive
+              ELSE 1.0/v.n END) / v.entities AS weight
+ FROM winning_votes v WHERE v.positive=0 OR v.votes>0
+), genre_ranking_values AS (
+ -- RANKINGS ONLY (pies/evolution keep the vote-weighted genre_values above). First nonempty
+ -- level wins, then one full count per DISTINCT genre per listen: votes never weight, and
+ -- zero/negative-vote tags count. Repeated plays are separate listens; duplicate same-genre
+ -- tags (e.g. several credited artists) collapse.
+ SELECT DISTINCT id, day, genre_mbid::text AS key, label,
+        genre_mbid::text AS mbid, 'resolved' AS state, 1.0 AS weight
+ FROM winning_votes
 ), country_credits AS (
  SELECT DISTINCT a.id, a.mbid, c.country_code AS code
  FROM unique_credits a JOIN artist_countries c ON c.artist_mbid=CAST(a.mbid AS uuid)
@@ -233,7 +247,7 @@ TABLES = {
 
 
 # Closed, internal identifier substitution only. Every user value remains bound.
-def totals_sql(dimension: str) -> str:
+def totals_sql(dimension: str, table: str | None = None) -> str:
     return f"""
  SELECT key,
         coalesce(min(label) FILTER (WHERE mbid IS NOT NULL), min(label)) AS label,
@@ -241,7 +255,7 @@ def totals_sql(dimension: str) -> str:
         CASE WHEN bool_or(state='missing') THEN 'missing'
              WHEN bool_or(state='resolved') THEN 'resolved' ELSE 'unmapped' END AS state,
         sum(weight)::float8 AS listens
- FROM {TABLES[dimension]} GROUP BY key
+ FROM {table or TABLES[dimension]} GROUP BY key
  """
 
 
@@ -439,11 +453,14 @@ class SQLStatisticsQueries:
                 kind, dimension = family.split("/")
                 result["dimension"] = dimension
                 included = result["coverage"][dimension]["included_listens"]
-                if dimension == "genres":
-                    # Share/cutoff denominator is total genre appearances (one per distinct
-                    # genre per listen), not unique listens: shares then sum to 1.
+                # Genre rankings alone use appearance counting; see genre_ranking_values.
+                source = (
+                    "genre_ranking_values" if kind == "rankings" and dimension == "genres" else None
+                )
+                if source:
+                    # Shares use total appearances (sum to 1); coverage unchanged.
                     included = c.execute(
-                        text(COMMON + "SELECT count(*) FROM genre_values"), params
+                        text(COMMON + f"SELECT count(*) FROM {source}"), params
                     ).scalar_one()
                 if kind == "evolution":
                     result.update(self._evolution(c, dimension, {**params, "included": included}))
@@ -483,7 +500,7 @@ class SQLStatisticsQueries:
                             text(
                                 COMMON
                                 + ", totals AS ("
-                                + totals_sql(dimension)
+                                + totals_sql(dimension, source)
                                 + """),
                       ranked AS (SELECT *, row_number() OVER (ORDER BY listens DESC,key) AS rank
                                  FROM totals)

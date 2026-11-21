@@ -204,20 +204,25 @@ def test_all_endpoints_real_role_and_contract(stats):
         app.dependency_overrides.clear()
 
 
-def test_fixture_genre_appearances_and_fallback_precedence(stats):
+def test_fixture_weights_and_fallback_precedence(stats):
     q, _ = stats
     data = q.query("rankings/genres", filters())
     RankingResponse.model_validate(data)
     assert data["coverage"]["genres"]["included_listens"] == 4
-    # One full count per distinct genre per listen (votes never weight):
-    # recording Rock+Pop+Folk(-1 vote still a tag); rg Jazz+Folk; artist duo
+    # Rankings only: one full count per distinct genre per listen (votes ignored, the
+    # recording's -1 Folk tag included): recording Rock+Pop+Folk; rg Jazz+Folk; artist duo
     # Electronic+Rock+Pop; zero-vote Jazz+Folk.
     values = {r["label"]: r["listens"] for r in data["items"]}
     assert values == {"Rock": 2, "Pop": 2, "Electronic": 1, "Jazz": 2, "Folk": 3}
-    appearances = sum(values.values())
-    assert appearances == 10
     for item in data["items"]:
-        assert item["share"] == pytest.approx(item["listens"] / appearances)
+        assert item["share"] == pytest.approx(item["listens"] / 10)  # 10 appearances
+    # Pies/evolution stay vote-weighted (main behaviour):
+    # recording 0.75 rock + 0.25 pop; rg .8 jazz + .2 folk;
+    # artist duo .5 electronic + .25 rock + .25 pop; zero votes .5 jazz + .5 folk.
+    pie = q.query("pies/genres", filters())
+    assert {s["label"]: s["listens"] for s in pie["slices"]} == pytest.approx(
+        {"Rock": 1, "Pop": 0.5, "Electronic": 0.5, "Jazz": 1.3, "Folk": 0.7}
+    )
     for family, field in (
         ("pies/genres", "slices"),
         ("countries", "countries"),
@@ -226,12 +231,9 @@ def test_fixture_genre_appearances_and_fallback_precedence(stats):
         response = q.query(family, filters(limit=1))
         assert_coverage(response)
         dimension = "countries" if family == "countries" else family.split("/")[1]
-        denominator = (
-            appearances
-            if dimension == "genres"
-            else response["coverage"][dimension]["included_listens"]
+        assert sum(r["listens"] for r in response[field]) == pytest.approx(
+            response["coverage"][dimension]["included_listens"]
         )
-        assert sum(r["listens"] for r in response[field]) == pytest.approx(denominator)
         assert sum(r["share"] for r in response[field]) == pytest.approx(1)
     countries = q.query("countries", filters())
     CountryResponse.model_validate(countries)
@@ -395,12 +397,10 @@ def test_evolution_zero_fill_other_and_partial(stats):
     EvolutionResponse.model_validate(daily)
     assert daily["bucket_unit"] == "day"
     assert len(daily["buckets"]) == 4
-    assert sum(s["values"][1] for s in daily["series"]) == pytest.approx(10)
+    assert sum(s["values"][1] for s in daily["series"]) == pytest.approx(4)
     assert all(s["values"][0] == s["values"][2] == s["values"][3] == 0 for s in daily["series"])
-    # Every genre holds at least 1 of 10 appearances (> 2%): no Other.
-    labels = [s["label"] for s in daily["series"]]
-    assert set(labels) == {"Jazz", "Rock", "Folk", "Electronic", "Pop"}
-    assert labels[0] == "Folk" and labels[-1] == "Electronic"
+    # Genres Jazz 1.3, Rock 1, Folk .7, Pop .5, Electronic .5 of 4 are all above 2%: no Other.
+    assert [s["label"] for s in daily["series"]] == ["Jazz", "Rock", "Folk", "Electronic", "Pop"]
     assert not any(s["is_other"] for s in daily["series"])
     weekly = q.query("evolution/artists", filters("2026-01-01", "2026-05-02", limit=1))
     assert weekly["bucket_unit"] == "week"
@@ -755,10 +755,7 @@ def test_zero_and_full_enrichment_and_rebuild_determinism(stats):
     full = q.query("pies/genres", filters())
     assert full["coverage"]["genres"]["excluded_listens"] == 0
     assert full["coverage"]["countries"]["excluded_listens"] == 0
-    full_ranking = q.query("rankings/genres", filters(limit=100))
-    assert sum(s["listens"] for s in full["slices"]) == pytest.approx(
-        sum(i["listens"] for i in full_ranking["items"])
-    )
+    assert sum(s["listens"] for s in full["slices"]) == pytest.approx(5)
 
 
 def seed_multi_genre(writer):
@@ -818,20 +815,41 @@ def seed_multi_genre(writer):
     return ids
 
 
-def test_multi_genre_listens_count_each_distinct_genre_once(stats):
-    q, writer = stats
-    seed_multi_genre(writer)
-    ranking = q.query("rankings/genres", filters())
-    by_label = {r["label"]: r for r in ranking["items"]}
-    # Rock: listens 1,2,3 + rg listen 5. Jazz: 1,2,3. Metal: only listen 5 (rg shadowed on 1,2).
-    assert {k: v["listens"] for k, v in by_label.items()} == {"Rock": 4, "Jazz": 3, "Metal": 1}
-    assert "Pop" not in by_label
+def weighted(q, family):
+    data = q.query(family, filters())
+    if family.startswith("pies"):
+        return {r["label"]: r["listens"] for r in data["slices"]}, data
+    return {r["label"]: sum(r["values"]) for r in data["series"]}, data
 
 
-def test_genre_coverage_counts_unique_listens_not_appearances(stats):
+def test_genre_ranking_counts_distinct_genres_but_charts_stay_vote_weighted(stats):
     q, writer = stats
     seed_multi_genre(writer)
-    data = q.query("rankings/genres", filters())
+    ranking = q.query("rankings/genres", filters(limit=100))
+    RankingResponse.model_validate(ranking)
+    # Rock: listens 1,2,3 + rg listen 5 (-1 vote). Jazz: 1,2 (zero vote!),3. Metal: listen 5.
+    assert {r["label"]: r["listens"] for r in ranking["items"]} == {
+        "Rock": 4,
+        "Jazz": 3,
+        "Metal": 1,
+    }
+    # Charts: votes weight, nonpositive tags are dropped when positives exist (so the
+    # zero-vote Jazz on listens 1-2 and the -1 Rock on listen 5 contribute nothing),
+    # artist level 1/2 per artist. Totals equal the 4 covered listens.
+    for family in ("pies/genres", "evolution/genres"):
+        values, data = weighted(q, family)
+        assert values == pytest.approx({"Rock": 2.75, "Jazz": 0.25, "Metal": 1})
+        assert sum(values.values()) == pytest.approx(data["coverage"]["genres"]["included_listens"])
+    pie = q.query("pies/genres", filters())
+    assert {s["label"]: s["share"] for s in pie["slices"]} == pytest.approx(
+        {"Rock": 2.75 / 4, "Jazz": 0.25 / 4, "Metal": 1 / 4}
+    )
+
+
+def test_genre_ranking_coverage_and_share_conservation(stats):
+    q, writer = stats
+    seed_multi_genre(writer)
+    data = q.query("rankings/genres", filters(limit=100))
     assert_coverage(data)
     assert data["coverage"]["genres"] == {
         "total_listens": 5,
@@ -839,54 +857,34 @@ def test_genre_coverage_counts_unique_listens_not_appearances(stats):
         "excluded_listens": 1,
     }
     assert sum(r["listens"] for r in data["items"]) == 8  # appearances exceed covered listens
-    assert data["coverage"]["artists"]["included_listens"] == 5  # other dimensions unchanged
+    assert {r["label"]: r["share"] for r in data["items"]} == pytest.approx(
+        {"Rock": 4 / 8, "Jazz": 3 / 8, "Metal": 1 / 8}
+    )
+    assert sum(r["share"] for r in data["items"]) == pytest.approx(1)
+    # Other dimensions and chart coverage are untouched.
+    assert data["coverage"]["artists"]["included_listens"] == 5
+    assert q.query("pies/genres", filters())["coverage"]["genres"] == data["coverage"]["genres"]
 
 
-def test_genre_shares_use_appearance_denominator_and_conserve(stats):
+def test_genre_ranking_limit_and_duplicate_tags(stats):
     q, writer = stats
     seed_multi_genre(writer)
-    ranking = q.query("rankings/genres", filters(limit=100))
-    shares = {r["label"]: r["share"] for r in ranking["items"]}
-    assert shares == pytest.approx({"Rock": 4 / 8, "Jazz": 3 / 8, "Metal": 1 / 8})
-    pie = q.query("pies/genres", filters())
-    PieResponse.model_validate(pie)
-    assert sum(s["listens"] for s in pie["slices"]) == pytest.approx(8)
-    assert sum(s["share"] for s in pie["slices"]) == pytest.approx(1)
-    evolution = q.query("evolution/genres", filters())
-    EvolutionResponse.model_validate(evolution)
-    assert sum(sum(s["values"]) for s in evolution["series"]) == pytest.approx(8)
-    # Metal is 12.5% of appearances (1 of 8 > 2% and >= 1%): named, no Other in either view.
-    assert not any(s["is_other"] for s in pie["slices"] + evolution["series"])
-
-
-def test_genre_cutoffs_use_appearance_denominator(stats):
-    q, writer = stats
-    ids = seed_multi_genre(writer)
+    top = q.query("rankings/genres", filters(limit=2))
+    assert [(r["label"], r["listens"]) for r in top["items"]] == [("Rock", 4), ("Jazz", 3)]
+    # A duplicated credit and two artists tagging the same genre add Rock once for listen 3
+    # (Rock total already proven 4 above); repeat plays of the same listen count separately.
     with writer.begin() as c:
-        # rec2 becomes Rock-tagged (covers listen 4) plus 91 bulk listens: Rock 96, Jazz 3,
-        # Metal 1 -> 100 appearances, Metal exactly 1%.
         c.execute(
             text("""
           INSERT INTO listens(user_name,listened_at,recording_msid,artist_name,recording_mbid)
-          SELECT 'multi-genre-bulk',timestamptz '2026-01-05T13:00Z'+g*interval '1 second',
-                 gen_random_uuid(),'Artist',CAST(:r AS uuid) FROM generate_series(1,91) g
-        """),
-            {"r": ids["rec2"]},
+          SELECT 'multi-genre',timestamptz '2026-01-05T14:00Z',gen_random_uuid(),'Artist',
+                 recording_mbid FROM listens WHERE user_name='multi-genre'
+                 AND recording_mbid IS NOT NULL AND release_group_mbid IS NOT NULL LIMIT 1
+        """)
         )
-        c.execute(
-            text(
-                "INSERT INTO entity_genres(entity_type,entity_mbid,genre_mbid,votes) "
-                "VALUES ('recording',CAST(:r AS uuid),CAST(:g AS uuid),1)"
-            ),
-            {"r": ids["rec2"], "g": ids["rock"]},
-        )
-        c.execute(text("UPDATE data_generation SET enrichment_generation=enrichment_generation+1"))
-    pie = q.query("pies/genres", filters())
-    assert {s["label"] for s in pie["slices"]} == {"Rock", "Jazz", "Metal"}  # 1% inclusive
-    evolution = q.query("evolution/genres", filters())
-    # Strictly above 2%: Metal (1%) folds into Other; Jazz (3%) stays.
-    assert {s["label"] for s in evolution["series"]} == {"Rock", "Jazz", "Other"}
-    assert sum(sum(s["values"]) for s in evolution["series"]) == pytest.approx(100)
+        c.execute(text("UPDATE data_generation SET ingestion_generation=ingestion_generation+1"))
+    again = q.query("rankings/genres", filters(limit=100))
+    assert {r["label"]: r["listens"] for r in again["items"]} == {"Rock": 5, "Jazz": 4, "Metal": 1}
 
 
 def test_role_no_raw_or_sync_tables(stats):

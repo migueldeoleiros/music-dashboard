@@ -157,9 +157,9 @@ Each sync command prints one JSON stats object (counts only, no payloads/credent
 Failures print a generic actionable message. Open http://127.0.0.1:8080 for the dashboard.
 Initial enrichment can take hours or days; charts show partial coverage meanwhile, and
 unresolved genres/countries are excluded from those views only (coverage notes show
-total/included/excluded). Genre charts count one full appearance per distinct genre per
-listen (a Rock + Jazz listen adds 1 to each; votes are ignored), so genre totals can exceed
-covered listens and genre shares use total appearances. Do not run commands in a loop to hurry enrichment or probe LB.
+total/included/excluded). Genre rankings count one full appearance per distinct genre per
+listen (votes ignored), so their total can exceed covered listens; genre pies and evolution stay
+vote-weighted. Do not run commands in a loop to hurry enrichment or probe LB.
 
 Other commands: `music-dashboard reconcile` (re-run the export; imports old edits and remaps,
 and deletes only with a trusted snapshot manifest, which the real service does not provide;

@@ -34,10 +34,10 @@ No raw/sync/cache tables are read to manufacture health freshness.
   excluded from artist views and their coverage, not rolled into Other. Album and
   track missing metadata remain explicit ranked states and count as included.
 - Country whitelist is ISO 3166-1 alpha-2, including territories; XW/XE/ZZ and
-  invented codes are omitted. Genre precedence (first nonempty level) and appearance
-  counting (1 per distinct genre per listen, votes ignored, duplicates collapsed) are
-  computed at read time from resolution tables, not raw metadata/cache. Genre shares and
-  pie/evolution cutoffs use total genre appearances as denominator; coverage counts unique listens.
+  invented codes are omitted. Genre precedence and positive/equal vote policies
+  (pies, evolution) are computed from resolution tables, not raw metadata/cache. Genre
+  rankings alone count 1 per distinct genre per listen (votes ignored, duplicates collapsed),
+  shares over total appearances; coverage counts unique listens.
 - Heatmap cells are sparse, ordered daily totals; absent dates mean zero. Monday
   is the declared week start. This permits all-time without millions of empty cells.
 - Evolution uses daily (<90 days), Monday-weekly (<730 days), otherwise monthly

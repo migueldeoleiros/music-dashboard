@@ -110,7 +110,7 @@ export function EvolutionChart({ data }: { data: EvolutionResponse }) {
       }
       table={
         <table>
-          <caption className="sr-only">{dimension === 'genres' ? 'Genre appearances' : 'Weighted listens'} per {unit}</caption>
+          <caption className="sr-only">Weighted listens per {unit}</caption>
           <thead>
             <tr>
               <th scope="col">Bucket start</th>
@@ -157,7 +157,7 @@ export function PieChart({ data }: { data: PieResponse }) {
           <thead>
             <tr>
               <th scope="col">Name</th>
-              <th scope="col">{dimension === 'genres' ? 'Genre appearances' : 'Weighted listens'}</th>
+              <th scope="col">Weighted listens</th>
               <th scope="col">Share</th>
             </tr>
           </thead>
