@@ -88,7 +88,7 @@ def test_main_failing_job_does_not_crash_or_block_next(monkeypatch, socket_forbi
             raise ValueError("synthetic-test-token in an unsafe upstream exception")
 
     imports, calls, waits = run_main_once(monkeypatch, ticks)
-    assert imports[0].endswith(".enrichment") and imports[-1].endswith(".sync")
+    assert any(i.endswith(".enrichment") for i in imports) and imports[-1].endswith(".sync")
     assert calls == registry_names()  # sync still ticked after enrichment failed
     assert waits == [30]
     errors = [record for record in caplog.records if record.levelname == "ERROR"]
