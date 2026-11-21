@@ -7,20 +7,20 @@ runtime for canvas charts) and never hard-code the values below.
 
 | Token | Role | Initial value |
 | --- | --- | --- |
-| `--bg` | Page background | `#0e1013` |
-| `--surface` | Cards, panels | `#15181d` |
-| `--surface-2` | Raised/inset surfaces: inputs, buttons, image placeholders | `#1b2027` |
-| `--border` | Hairlines and outlines | `#2b3038` |
-| `--text` | Primary text | `#e9edf2` |
-| `--text-muted` | Secondary text, captions | `#a2aab6` |
-| `--accent` | Primary accent: active state, focus ring, key marks | `#8ee5bd` |
-| `--accent-soft` | Translucent accent for fills, hover and selected backgrounds | `rgb(142 229 189 / 14%)` |
+| `--bg` | Page background | `#0a0f17` |
+| `--surface` | Cards, panels | `#121a26` |
+| `--surface-2` | Raised/inset surfaces: inputs, buttons, image placeholders | `#1b2635` |
+| `--border` | Hairlines and outlines | `#2f3e54` |
+| `--text` | Primary text | `#f3f7fc` |
+| `--text-muted` | Secondary text, captions | `#aebbcc` |
+| `--accent` | Primary accent: active state, focus ring, key marks | `#2ca7d3` |
+| `--accent-soft` | Translucent accent for fills, hover and selected backgrounds | `rgb(44 167 211 / 18%)` |
 | `--radius-sm` | Inputs, buttons, small tiles | `5px` |
 | `--radius-md` | Cards, panels, images | `8px` |
 | `--radius-lg` | Pills, hero cards | `30px` |
 | `--font` | Font stack | `'Inter Variable', system-ui, sans-serif` |
-| `--series-1` … `--series-10` | Ordered categorical chart series colors | distinct hues, similar lightness |
-| `--series-other` | The "Other" aggregate series and no-data marks | `#8a8f98` |
+| `--series-1` … `--series-10` | Ordered categorical chart series colors | `hsl(H 72% ~60%)` with H = 197, 12, 145, 262, 40, 330, 172, 85, 225, 295 (see `global.css`) |
+| `--series-other` | The "Other" aggregate series and no-data marks | `#7d8696` |
 
 `--muted` is a deprecated alias of `--text-muted`, kept so existing rules keep working. New code
 uses `--text-muted`.
