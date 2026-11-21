@@ -38,6 +38,7 @@ from music_dashboard.domain.statistics.policies import (
     validate_country_code,
     validate_filters,
 )
+from music_dashboard.infrastructure.artwork.urls import validate_image_url
 from music_dashboard.infrastructure.persistence.timezones import load_timezones
 
 # Preserve full Unicode casefold (ß, sigma, ligatures, etc.), not locale lower().
@@ -161,13 +162,19 @@ COUNTRY_ARTISTS = """
 , credit_weights AS (
  SELECT id, mbid, code, 1.0 / count(*) OVER (PARTITION BY id) AS weight FROM country_credits
 )
-SELECT w.mbid AS key, min(u.label) AS label, w.mbid AS mbid,
+SELECT w.mbid AS key, min(u.label) AS label, w.mbid AS mbid, max(art.image_url) AS image_url,
        CASE WHEN bool_or(u.state='missing') THEN 'missing'
             WHEN bool_or(u.state='resolved') THEN 'resolved' ELSE 'unmapped' END AS state,
        sum(w.weight)::float8 AS listens
 FROM credit_weights w JOIN unique_credits u ON u.id=w.id AND u.mbid=w.mbid
+LEFT JOIN artwork art ON art.entity_type='artist' AND art.status='resolved'
+ AND art.entity_mbid=CAST(w.mbid AS uuid)  -- PK (entity_type, entity_mbid): at most one row
 WHERE w.code=:country GROUP BY w.mbid ORDER BY listens DESC, key LIMIT :limit
 """
+# Artwork is keyed by exact MBID: albums by release group, tracks by recording, artists by MBID.
+# Genres and unmapped `name:` keys never match, so their image_url stays NULL.
+ARTWORK_TYPES = {"artists": "artist", "albums": "album", "tracks": "track"}
+UUID_KEY = "'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'"
 TABLES = {
     "artists": "artist_values",
     "albums": "album_values",
@@ -353,7 +360,7 @@ class SQLStatisticsQueries:
                         "listens": r["listens"],
                         # Same denominator as /api/countries: shares sum to that country's share.
                         "share": self._share(r["listens"], included),
-                        "image_url": None,  # artwork joins here in lane U-040
+                        "image_url": validate_image_url(r["image_url"]),
                     }
                     for r in c.execute(text(COMMON + COUNTRY_ARTISTS), params).mappings()
                 ]
@@ -384,6 +391,15 @@ class SQLStatisticsQueries:
                     result.update(self._evolution(c, dimension, params))
                 else:
                     # LIMIT N+1 cannot give Other's exact sum, so SQL returns top N + sum(tail).
+                    art_type = ARTWORK_TYPES.get(dimension)
+                    # PK (entity_type, entity_mbid) makes the join at most one row per item.
+                    art_join = (
+                        " LEFT JOIN artwork art ON art.entity_type=:art_type AND "
+                        "art.status='resolved' AND art.entity_mbid="
+                        f"(CASE WHEN r.key ~ {UUID_KEY} THEN CAST(r.key AS uuid) END)"
+                        if art_type
+                        else ""
+                    )
                     rows = (
                         c.execute(
                             text(
@@ -393,15 +409,22 @@ class SQLStatisticsQueries:
                                 + """),
                       ranked AS (SELECT *, row_number() OVER (ORDER BY listens DESC,key) AS rank
                                  FROM totals)
-                      SELECT key,label,mbid,state,listens,false AS is_other FROM ranked
-                      WHERE rank<=:limit
+                      SELECT r.key,r.label,r.mbid,r.state,r.listens,false AS is_other,
+                             """
+                                + ("art.image_url" if art_type else "NULL::text")
+                                + """ AS image_url
+                      FROM ranked r"""
+                                + art_join
+                                + """
+                      WHERE r.rank<=:limit
                       UNION ALL
-                      SELECT 'other','Other',NULL,'resolved',sum(listens),true FROM ranked
+                      SELECT 'other','Other',NULL,'resolved',sum(listens),true,NULL::text
+                      FROM ranked
                       WHERE rank>:limit HAVING count(*)>0
                       ORDER BY is_other, listens DESC, key
                     """
                             ),
-                            params,
+                            {**params, "art_type": art_type} if art_type else params,
                         )
                         .mappings()
                         .all()
@@ -415,7 +438,7 @@ class SQLStatisticsQueries:
                                 "metadata_state": r["state"],
                                 "listens": r["listens"],
                                 "share": self._share(r["listens"], included),
-                                "image_url": None,  # artwork joins here in lane U-040
+                                "image_url": validate_image_url(r["image_url"]),
                             }
                             for r in rows
                             if not r["is_other"]

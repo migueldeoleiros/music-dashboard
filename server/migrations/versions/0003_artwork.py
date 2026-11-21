@@ -42,7 +42,8 @@ def upgrade() -> None:
             name="ck_artwork_image_url",
         ),
         sa.CheckConstraint(
-            "(status = 'resolved') = (image_url IS NOT NULL AND source <> 'none')",
+            "(status = 'resolved') = (image_url IS NOT NULL) "
+            "AND (status = 'resolved') = (source <> 'none')",
             name="ck_artwork_resolved_has_url",
         ),
     )
