@@ -590,6 +590,19 @@
       "RankedEntity": {
         "additionalProperties": false,
         "properties": {
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Artwork URL; null until artwork enrichment (placeholder)",
+            "title": "Image Url"
+          },
           "key": {
             "description": "Stable MBID or normalized namespaced fallback identity",
             "title": "Key",
@@ -789,6 +802,97 @@
           }
         },
         "summary": "Get",
+        "tags": [
+          "statistics"
+        ]
+      }
+    },
+    "/api/countries/{code}/artists": {
+      "get": {
+        "operationId": "countries_artists",
+        "parameters": [
+          {
+            "description": "Uppercase ISO 3166-1 alpha-2 country code",
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "description": "Uppercase ISO 3166-1 alpha-2 country code",
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Inclusive local start date",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "description": "Inclusive local start date",
+              "format": "date",
+              "title": "From",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Inclusive local end date",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "description": "Inclusive local end date",
+              "format": "date",
+              "title": "To",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Supported IANA timezone, canonicalized",
+            "in": "query",
+            "name": "tz",
+            "required": true,
+            "schema": {
+              "description": "Supported IANA timezone, canonicalized",
+              "title": "Tz",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RankingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "Country Artists",
         "tags": [
           "statistics"
         ]

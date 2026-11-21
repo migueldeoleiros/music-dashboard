@@ -23,10 +23,11 @@ class FixtureStatisticsQueries:
             and filters.to_date.isoformat() == "2026-01-05"
             and filters.timezone == "Etc/UTC"
             and (filters.limit == 1 or (family.startswith("rankings/") and filters.limit == 2))
+            and (family != "countries/artists" or filters.country_code == "US")
         ):
             examples = json.loads(Path(__file__).with_name("aggregate_responses.json").read_text())
             example = cast(dict[str, Any], examples[family])
-            if family.startswith("rankings/"):
+            if family.startswith("rankings/") or family == "countries/artists":
                 example["items"] = example["items"][: filters.limit]
             return example
         result: dict[str, Any] = {
@@ -41,7 +42,9 @@ class FixtureStatisticsQueries:
             "fixture": True,
         }
         kind, _, dimension = family.partition("/")
-        if kind == "rankings":
+        if family == "countries/artists":
+            result.update(dimension="artists", items=[])
+        elif kind == "rankings":
             result.update(dimension=dimension, items=[])
         elif kind == "heatmap":
             result.update(week_starts_on="monday", cells=[])

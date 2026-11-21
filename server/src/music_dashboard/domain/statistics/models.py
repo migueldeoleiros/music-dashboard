@@ -13,6 +13,8 @@ class StatisticsFilter:
     to_date: date
     timezone: str
     limit: int
+    # Only for the path-param family countries/artists (validated against COUNTRY_CODES).
+    country_code: str | None = None
 
 
 @dataclass(frozen=True)

@@ -57,6 +57,10 @@ class RankedEntity(ContractModel):
     metadata_state: Literal["resolved", "unmapped", "missing"]
     listens: NonNegative
     share: float = Field(ge=0, le=1, description="Fraction of dimension included listens")
+    image_url: str | None = Field(
+        default=None,
+        description="Artwork URL; null until artwork enrichment (placeholder)",
+    )
 
 
 class RankingResponse(AggregateResponse):

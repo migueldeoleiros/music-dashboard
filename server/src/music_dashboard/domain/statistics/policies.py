@@ -18,6 +18,10 @@ FAMILIES = frozenset(
     + [f"{f}/{d}" for f in ("pies", "evolution") for d in ("artists", "genres")]
     + ["heatmap", "countries"]
 )
+# Path-param family: route /api/countries/{code}/artists. The code travels in
+# StatisticsFilter.country_code, so FAMILIES (code-free) stays unchanged.
+COUNTRY_ARTISTS_FAMILY = "countries/artists"
+SUPPORTED_FAMILIES = FAMILIES | {COUNTRY_ARTISTS_FAMILY}
 DIMENSIONS = ("artists", "albums", "tracks", "genres", "countries", "listens")
 CACHE_TTL_SECONDS = 30.0
 CACHE_MAX_ENTRIES = 128
@@ -45,6 +49,13 @@ class InvalidStatisticsRequest(ValueError):
 
 class StatisticsUnavailable(RuntimeError):
     pass
+
+
+def validate_country_code(code: str) -> str:
+    """Strict: uppercase ISO alpha-2 from COUNTRY_CODES; never pseudo-countries XW/XE/ZZ."""
+    if code not in COUNTRY_CODES:
+        raise InvalidStatisticsRequest("Unsupported country code")
+    return code
 
 
 def validate_filters(from_date: date, to_date: date, limit: int) -> None:

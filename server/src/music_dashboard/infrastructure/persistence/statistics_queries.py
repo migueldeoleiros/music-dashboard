@@ -27,13 +27,15 @@ from music_dashboard.domain.statistics.policies import (
     CACHE_MAX_BYTES,
     CACHE_MAX_ENTRIES,
     CACHE_TTL_SECONDS,
+    COUNTRY_ARTISTS_FAMILY,
     COUNTRY_CODES,
     DIMENSIONS,
-    FAMILIES,
     MAX_BUCKETS,
     MAX_EVOLUTION_VALUES,
+    SUPPORTED_FAMILIES,
     InvalidStatisticsRequest,
     StatisticsUnavailable,
+    validate_country_code,
     validate_filters,
 )
 from music_dashboard.infrastructure.persistence.timezones import load_timezones
@@ -153,6 +155,19 @@ SELECT count(*) AS total,
  (SELECT count(DISTINCT id) FROM country_values) AS countries
 FROM selected
 """
+# Same country_credits (1/N over unique country-resolved credits) as country_values, so each
+# country's artist listens sum to its /api/countries total for identical filters.
+COUNTRY_ARTISTS = """
+, credit_weights AS (
+ SELECT id, mbid, code, 1.0 / count(*) OVER (PARTITION BY id) AS weight FROM country_credits
+)
+SELECT w.mbid AS key, min(u.label) AS label, w.mbid AS mbid,
+       CASE WHEN bool_or(u.state='missing') THEN 'missing'
+            WHEN bool_or(u.state='resolved') THEN 'resolved' ELSE 'unmapped' END AS state,
+       sum(w.weight)::float8 AS listens
+FROM credit_weights w JOIN unique_credits u ON u.id=w.id AND u.mbid=w.mbid
+WHERE w.code=:country GROUP BY w.mbid ORDER BY listens DESC, key LIMIT :limit
+"""
 TABLES = {
     "artists": "artist_values",
     "albums": "album_values",
@@ -248,6 +263,8 @@ class SQLStatisticsQueries:
     @staticmethod
     def _params(filters: StatisticsFilter) -> dict[str, Any]:
         validate_filters(filters.from_date, filters.to_date, filters.limit)
+        if filters.country_code is not None:
+            validate_country_code(filters.country_code)
         zones = load_timezones()
         if filters.timezone not in zones:
             raise InvalidStatisticsRequest("Unsupported IANA timezone")
@@ -259,6 +276,7 @@ class SQLStatisticsQueries:
             "casefold": CASEFOLD,
             "whitespace": "".join(chr(i) for i in range(0x3100) if chr(i).isspace()),
             "country_codes": COUNTRY_CODES,
+            "country": filters.country_code,
         }
 
     def _coverage(self, c: Connection, params: dict[str, Any], generation: int) -> dict[str, Any]:
@@ -278,7 +296,7 @@ class SQLStatisticsQueries:
         return result
 
     def query(self, family: str, filters: StatisticsFilter) -> dict[str, Any]:
-        if family not in FAMILIES:
+        if family not in SUPPORTED_FAMILIES:
             raise InvalidStatisticsRequest("Unsupported chart family")
         params = self._params(filters)
         with self._connection() as c:
@@ -289,6 +307,7 @@ class SQLStatisticsQueries:
                 params["to_date"],
                 params["tz"],
                 filters.limit,
+                filters.country_code,
                 snapshot["generation"],
             )
             cached = self.cache.get(key)
@@ -320,6 +339,24 @@ class SQLStatisticsQueries:
                         ).mappings()
                     ],
                 )
+            elif family == COUNTRY_ARTISTS_FAMILY:
+                if filters.country_code is None:
+                    raise InvalidStatisticsRequest("Unsupported country code")
+                included = result["coverage"]["countries"]["included_listens"]
+                result["dimension"] = "artists"
+                result["items"] = [
+                    {
+                        "key": r["key"],
+                        "label": r["label"],
+                        "mbid": r["mbid"],
+                        "metadata_state": r["state"],
+                        "listens": r["listens"],
+                        # Same denominator as /api/countries: shares sum to that country's share.
+                        "share": self._share(r["listens"], included),
+                        "image_url": None,  # artwork joins here in lane U-040
+                    }
+                    for r in c.execute(text(COMMON + COUNTRY_ARTISTS), params).mappings()
+                ]
             elif family == "countries":
                 included = result["coverage"]["countries"]["included_listens"]
                 result["countries"] = [
@@ -378,6 +415,7 @@ class SQLStatisticsQueries:
                                 "metadata_state": r["state"],
                                 "listens": r["listens"],
                                 "share": self._share(r["listens"], included),
+                                "image_url": None,  # artwork joins here in lane U-040
                             }
                             for r in rows
                             if not r["is_other"]

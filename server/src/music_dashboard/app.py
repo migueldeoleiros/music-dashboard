@@ -54,6 +54,8 @@ def public_openapi() -> dict[str, Any]:
     # FastAPI's removed 422 response components are not part of the frozen contract.
     for name in ("HTTPValidationError", "ValidationError"):
         schema.get("components", {}).get("schemas", {}).pop(name, None)
+    # FastAPI drops null values (exclude_none), so state the explicit null default here.
+    schema["components"]["schemas"]["RankedEntity"]["properties"]["image_url"]["default"] = None
     return schema
 
 
