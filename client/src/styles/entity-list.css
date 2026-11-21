@@ -15,7 +15,7 @@
 
 .entity-row { display: flex; align-items: center; gap: .7rem; padding: .45rem .5rem; border-radius: var(--radius-md); min-width: 0; }
 .entity-row + .entity-row { border-top: 1px solid var(--border); border-top-left-radius: 0; border-top-right-radius: 0; }
-.entity-row:hover { background: var(--accent-soft); }
+@media (hover: hover) { .entity-row:hover { background: var(--accent-soft); } }
 .entity-rank { flex: none; min-width: 1.6rem; font-size: .65rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .entity-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .15rem; }
 .entity-label { font-size: .8rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -30,15 +30,26 @@
 .entity-hero-count { font-size: 1rem; color: var(--accent); font-variant-numeric: tabular-nums; }
 .entity-hero-count small { color: var(--text-muted); font-size: .65rem; }
 
-.country-panel { display: flex; flex-direction: column; gap: .6rem; width: 100%; max-width: 100%; box-sizing: border-box; padding: .9rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.country-panel { position: sticky; top: 1rem; display: flex; flex-direction: column; gap: .6rem; width: 100%; max-width: 100%; box-sizing: border-box; padding: .9rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); }
 .country-panel-header { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; }
 .country-panel-header h3 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
 .country-panel-header p { margin: .15rem 0 0; }
-.country-panel-close, .country-panel .entity-empty button { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .25rem .6rem; cursor: pointer; font: inherit; }
-.country-panel-close:hover, .country-panel .entity-empty button:hover { border-color: var(--accent); }
+.country-panel-close, .country-panel .entity-empty button { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .25rem .6rem; cursor: pointer; font: inherit; min-width: 36px; }
+@media (hover: hover) { .country-panel-close:hover, .country-panel .entity-empty button:hover { border-color: var(--accent); } }
 .country-panel-close:focus-visible, .country-panel .entity-empty button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* Single breakpoint hook for the later mobile lane (bottom sheet). */
+/* Mobile (720px, docs/ui-tokens.md): hero/rows tighten; country panel becomes a modal bottom sheet. */
 @media (max-width: 720px) {
   .entity-hero { gap: .75rem; padding: .75rem; }
+  .entity-ribbon { top: .4rem; right: .5rem; }
+  .entity-hero .entity-text { padding-right: 2.2rem; }
+  .entity-secondary, .entity-rank { font-size: .72rem; }
+  .entity-label { font-size: .85rem; }
+  .country-panel-close, .country-panel .entity-empty button { min-width: var(--tap-size); min-height: var(--tap-size); font-size: 1.1rem; }
+  .sheet-backdrop { position: fixed; inset: 0; z-index: 40; background: var(--scrim); }
+  .country-panel { position: fixed; z-index: 41; top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: min(85vh, 85dvh); overflow: hidden; overscroll-behavior: contain; border-radius: var(--radius-md) var(--radius-md) 0 0; border-bottom: 0; padding: .4rem max(.9rem, env(safe-area-inset-right)) max(.9rem, env(safe-area-inset-bottom)) max(.9rem, env(safe-area-inset-left)); box-shadow: 0 -8px 32px var(--scrim); animation: sheet-in .22s ease-out; transition: transform .15s; }
+  .country-panel .entity-scroll { flex: 1 1 auto; min-height: 0; max-height: none; }
+  .sheet-handle { flex: none; display: flex; justify-content: center; padding: .5rem 0 .3rem; margin-inline: -.9rem; touch-action: none; cursor: grab; }
+  .sheet-handle span { width: 2.5rem; height: 4px; border-radius: 2px; background: var(--border); }
 }
+@keyframes sheet-in { from { transform: translateY(100%); } to { transform: none; } }

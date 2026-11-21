@@ -14,7 +14,17 @@ export type ChartTheme = {
   /** --series-1 … --series-10, in order */
   series: string[]
   other: string
+  /** Tooltip/emphasis shadow color derived from --bg. */
+  shadow: string
+  /** Primary pointer is touch: tooltips open on tap, map pans/pinches, bigger marks. */
+  coarse: boolean
+  /** Viewport at or below the mobile breakpoint (keep in sync with `--bp-mobile` in docs/ui-tokens.md). */
+  narrow: boolean
+  reducedMotion: boolean
 }
+
+export const MOBILE_QUERY = '(max-width: 720px)'
+const matches = (query: string) => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(query).matches
 
 const FALLBACK_SERIES = [
   'hsl(200 62% 68%)', 'hsl(155 60% 68%)', 'hsl(260 60% 72%)', 'hsl(320 58% 70%)', 'hsl(10 62% 68%)',
@@ -41,6 +51,10 @@ export function readTheme(el?: Element): ChartTheme {
     radiusMd: px('--radius-md', 8),
     series: FALLBACK_SERIES.map((f, i) => v(`--series-${i + 1}`, f)),
     other: v('--series-other', '#8a8f98'),
+    shadow: mixColors(v('--bg', '#0a0f17'), '#000000', 0.5),
+    coarse: matches('(pointer: coarse)'),
+    narrow: matches(MOBILE_QUERY),
+    reducedMotion: matches('(prefers-reduced-motion: reduce)'),
   }
 }
 
@@ -103,12 +117,15 @@ export function esc(s: string): string {
 export function tooltipStyle(t: ChartTheme) {
   return {
     confine: true,
+    // Touch has no hover: open on tap. Mouse keeps hover + click.
+    triggerOn: t.coarse ? ('click' as const) : ('mousemove|click' as const),
+    enterable: false,
     backgroundColor: t.surface,
     borderColor: t.border,
     borderWidth: 1,
     padding: [8, 10],
     textStyle: { color: t.text, fontFamily: t.font, fontSize: 12 },
-    extraCssText: `border-radius:${t.radiusMd}px;box-shadow:0 6px 20px rgb(0 0 0 / 35%);font-variant-numeric:tabular-nums;`,
+    extraCssText: `border-radius:${t.radiusMd}px;box-shadow:0 6px 20px ${t.shadow};font-variant-numeric:tabular-nums;`,
   }
 }
 

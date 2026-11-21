@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChartPanel } from '../features/dashboard/ChartPanel'
 import { useChartQuery } from '../features/dashboard/ChartSection'
 import { Controls } from '../features/dashboard/Controls'
 import { clampToToday, presetRange, readFilters, readPeriod, rollingYearRange, utcFallback, validateFilters, writeFilters, type Filters, type Period } from '../features/dashboard/filters'
+import { CountryArtistsPanel } from '../features/origin-map/CountryArtistsPanel'
 import { CoverageNote } from '../components/ui/CoverageNote'
 import { SyncStatus } from '../components/ui/SyncStatus'
 
@@ -21,6 +22,10 @@ function PeriodCoverage({ filters }: { filters: Filters }) {
 export function App() {
   const [{ filters, period }, setState] = useState(readState)
   const [timezoneNotice, setTimezoneNotice] = useState('')
+  // Kept across period changes: the panel refetches with the new shared filters (an empty range shows its empty state).
+  const [selectedCountry, setSelectedCountry] = useState<string | null>(null)
+  const originsRef = useRef<HTMLElement>(null)
+  const closeCountry = useCallback(() => setSelectedCountry(null), [])
   const apply = useCallback((next: Filters, nextPeriod: Period) => {
     const clamped = clampToToday(next)
     window.history.pushState(null, '', writeFilters(clamped, window.location.search, nextPeriod))
@@ -57,12 +62,15 @@ export function App() {
     {timezoneNotice && <p className="notice" role="status">{timezoneNotice}</p>}
     {import.meta.env.VITE_MOCK_API === 'true' && <p className="notice">Standalone synthetic preview — no API or music-service requests. <a href="?from=2026-01-05&to=2026-01-05&tz=UTC&fixture=partial">Load foundation sample</a> · <a href="?from=2026-01-05&to=2026-01-05&tz=UTC&fixture=full">100% coverage</a> · <a href="?from=2026-01-05&to=2026-01-05&tz=UTC&fixture=empty">Empty sample</a></p>}
     {error ? <p className="error" role="alert">{error} Adjust the period above.</p> : <>
-      {/* SLOT rankings (C3): top artists/albums/tracks/genres; swap the grid body for the On Repeat layout. */}
-      <section id="rankings" className="dash-section" aria-label="Rankings"><div className="grid-4 slot">{(['artists', 'albums', 'tracks', 'genres'] as const).map(dimension => <ChartPanel key={dimension} path={`/api/rankings/${dimension}`} label={`Top ${dimension}`} {...shared} />)}</div></section>
-      {/* SLOT map (C2/C3): artist origins map; country artists panel attaches beside/below it. */}
-      <section id="origins" className="dash-section" aria-label="Artist origins"><div className="grid-1 slot"><ChartPanel path="/api/countries" label="Artist origins" {...shared} /></div></section>
-      <section id="evolution" className="dash-section" aria-label="Evolution"><div className="grid-2 slot">{(['artists', 'genres'] as const).map(dimension => <ChartPanel key={dimension} path={`/api/evolution/${dimension}`} label={`${dimension === 'artists' ? 'Artist' : 'Genre'} evolution`} {...shared} />)}</div></section>
-      <section id="shares" className="dash-section" aria-label="Shares"><div className="grid-2 slot">{(['artists', 'genres'] as const).map(dimension => <ChartPanel key={dimension} path={`/api/pies/${dimension}`} label={`${dimension === 'artists' ? 'Artist' : 'Genre'} shares`} {...shared} />)}</div></section>
+      <section id="rankings" className="dash-section" aria-label="Rankings"><div className="grid-4">{(['artists', 'albums', 'tracks', 'genres'] as const).map(dimension => <ChartPanel key={dimension} path={`/api/rankings/${dimension}`} label={`Top ${dimension}`} {...shared} />)}</div></section>
+      <section id="origins" ref={originsRef} tabIndex={-1} className="dash-section" aria-label="Artist origins">
+        <div className={`origins-layout${selectedCountry ? ' has-panel' : ''}`}>
+          <ChartPanel path="/api/countries" label="Artist origins" selectedCountry={selectedCountry} onCountrySelect={setSelectedCountry} {...shared} />
+          <CountryArtistsPanel code={selectedCountry} filters={filters} onClose={closeCountry} restoreFocusRef={originsRef} />
+        </div>
+      </section>
+      <section id="evolution" className="dash-section" aria-label="Evolution"><div className="grid-2">{(['artists', 'genres'] as const).map(dimension => <ChartPanel key={dimension} path={`/api/evolution/${dimension}`} label={`${dimension === 'artists' ? 'Artist' : 'Genre'} evolution`} {...shared} />)}</div></section>
+      <section id="shares" className="dash-section" aria-label="Shares"><div className="grid-2">{(['artists', 'genres'] as const).map(dimension => <ChartPanel key={dimension} path={`/api/pies/${dimension}`} label={`${dimension === 'artists' ? 'Artist' : 'Genre'} shares`} {...shared} />)}</div></section>
     </>}
   </main>
 }

@@ -1,5 +1,15 @@
 /* C2 chart polish. Colors come from the token contract (docs/ui-tokens.md) only. */
 .chart canvas { max-width: 100%; }
+.chart-stage { position: relative; min-width: 0; }
+.chart-canvas { width: 100%; max-width: 100%; height: var(--chart-h); }
+/* Heatmap: wide canvas scrolls sideways inside its own box (parked at the latest weeks by the component). */
+.chart-scroll { overflow-x: auto; overscroll-behavior-x: contain; max-width: 100%; border-radius: var(--radius-sm); }
+.chart-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chart-scroll > .chart-canvas { width: auto; min-width: 100%; }
+
+/* Map zoom buttons (touch has no wheel; also work from the keyboard). */
+.map-zoom { position: absolute; right: .4rem; bottom: .4rem; display: flex; flex-direction: column; gap: .3rem; }
+.map-zoom button { width: 32px; min-height: 32px; padding: 0; line-height: 1; font-size: 1rem; background: var(--surface); }
 
 .heat-legend { display: flex; align-items: center; justify-content: flex-end; gap: 3px; margin-top: .35rem; font-size: .65rem; color: var(--text-muted); }
 .heat-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
@@ -12,5 +22,17 @@
 
 /* Keyboard alternative to clicking a country: compact, scrollable toggle chips. */
 .map-picker { display: flex; flex-wrap: wrap; gap: .3rem; max-height: 5.5rem; overflow-y: auto; margin-top: .6rem; }
-.map-picker button { min-height: 0; padding: .15rem .5rem; font-size: .68rem; border-radius: var(--radius-lg); background: var(--surface-2); color: var(--text-muted); }
+.map-picker button { min-height: 28px; padding: .15rem .6rem; font-size: .72rem; flex: none; border-radius: var(--radius-lg); background: var(--surface-2); color: var(--text-muted); }
 .map-picker button[aria-pressed='true'] { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+
+@media (max-width: 720px), (pointer: coarse) {
+  .map-zoom button { width: var(--tap-size); min-height: var(--tap-size); }
+  .map-picker button { min-height: var(--tap-size); padding-inline: 1rem; font-size: .85rem; }
+}
+@media (max-width: 720px) {
+  .chart-canvas { height: var(--chart-h-narrow, var(--chart-h)); }
+  /* Country chips: one swipeable row instead of a tall wrapped block. */
+  .map-picker { flex-wrap: nowrap; overflow-x: auto; max-height: none; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .map-picker::-webkit-scrollbar { display: none; }
+  .heat-legend, .map-legend { font-size: .72rem; }
+}

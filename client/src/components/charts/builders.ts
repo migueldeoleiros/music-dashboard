@@ -21,11 +21,12 @@ const legendStyle = (t: ChartTheme) => ({
   icon: 'circle',
   itemWidth: 8,
   itemHeight: 8,
-  itemGap: 12,
+  itemGap: t.narrow ? 10 : 12,
+  pageIconSize: t.narrow ? 16 : 12,
   pageIconColor: t.textMuted,
   pageIconInactiveColor: t.border,
   pageTextStyle: { color: t.textMuted },
-  textStyle: { color: t.textMuted, fontFamily: t.font, fontSize: 11 },
+  textStyle: { color: t.textMuted, fontFamily: t.font, fontSize: t.narrow ? 12 : 11 },
 })
 
 // ---------- Evolution (stacked areas) ----------
@@ -36,12 +37,12 @@ export function buildEvolutionOption(data: EvolutionResponse, t: ChartTheme): Op
   const labelOf = new Map(series.map((s) => [seriesId(s), s.label]))
   const colors = series.map((s, i) => seriesColor(t, i, s.is_other))
   return {
-    animation: true,
+    animation: !t.reducedMotion,
     animationDuration: 500,
     animationEasing: 'cubicOut',
     color: colors,
     textStyle: { fontFamily: t.font },
-    grid: { left: 8, right: 16, top: 16, bottom: 40, containLabel: true },
+    grid: { left: t.narrow ? 4 : 8, right: t.narrow ? 10 : 16, top: 16, bottom: t.narrow ? 46 : 40, containLabel: true },
     legend: { ...legendStyle(t), formatter: (n: string) => labelOf.get(n) ?? n },
     tooltip: {
       ...tooltipStyle(t),
@@ -111,7 +112,7 @@ export function buildPieOption(data: PieResponse, t: ChartTheme): Opt {
   const { slices } = data
   const labelOf = new Map(slices.map((s) => [seriesId(s), s.label]))
   return {
-    animation: true,
+    animation: !t.reducedMotion,
     animationDuration: 500,
     animationEasing: 'cubicOut',
     animationDurationUpdate: 300,
@@ -134,15 +135,15 @@ export function buildPieOption(data: PieResponse, t: ChartTheme): Opt {
     series: [
       {
         type: 'pie',
-        radius: ['46%', '70%'],
-        center: ['50%', '45%'],
+        radius: t.narrow ? ['42%', '66%'] : ['46%', '70%'],
+        center: ['50%', t.narrow ? '42%' : '45%'],
         minAngle: 3,
         padAngle: 2,
         avoidLabelOverlap: true,
         label: { show: false },
         labelLine: { show: false },
         itemStyle: { borderRadius: 6, borderWidth: 0 },
-        emphasis: { focus: 'self', scale: true, scaleSize: 8, itemStyle: { shadowBlur: 12, shadowColor: 'rgb(0 0 0 / 35%)' } },
+        emphasis: { focus: 'self', scale: true, scaleSize: 8, itemStyle: { shadowBlur: 12, shadowColor: t.shadow } },
         blur: { itemStyle: { opacity: 0.4 } },
         data: slices.map((s, i) => ({
           name: seriesId(s),
@@ -310,7 +311,7 @@ export function buildCountryOption(
         code,
         value: [m[0], m[1], c.listens],
         share: c.share,
-        symbolSize: isSel ? 15 : 11,
+        symbolSize: (isSel ? 15 : 11) + (t.coarse ? 8 : 0),
         itemStyle: {
           color: mapColor(t, c.listens, max),
           borderColor: isSel ? t.accent : t.text,
@@ -320,7 +321,7 @@ export function buildCountryOption(
     })
   const hover = mixColors(t.surface2, t.border, 0.6)
   return {
-    animation: true,
+    animation: !t.reducedMotion,
     animationDurationUpdate: 250,
     animationEasingUpdate: 'cubicOut',
     textStyle: { fontFamily: t.font },
@@ -338,7 +339,9 @@ export function buildCountryOption(
     geo: {
       map: MAP_NAME,
       nameProperty: 'code',
-      roam: false,
+      // Touch: pan + pinch. Mouse: drag-pan only (wheel stays page scroll); zoom buttons cover both.
+      roam: t.coarse ? true : 'move',
+      scaleLimit: { min: 1, max: 8 },
       layoutCenter: ['50%', '50%'],
       layoutSize: '100%',
       itemStyle: { areaColor: noDataColor(t), borderColor: t.border, borderWidth: 0.5 },
@@ -364,7 +367,7 @@ export function buildCountryOption(
             },
             emphasis: {
               itemStyle: {
-                areaColor: mixColors(mapColor(t, c.listens, max), '#ffffff', 0.18),
+                areaColor: mixColors(mapColor(t, c.listens, max), t.text, 0.18),
                 borderColor: isSel ? t.accent : t.text,
                 borderWidth: isSel ? 2 : 1,
               },

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react'
 import type { components } from '../../api/schema'
 import worldGeoJson from '../../assets/maps/world-countries.geo.json'
 import {
@@ -6,6 +6,7 @@ import {
   buildEvolutionOption,
   buildHeatmapOption,
   buildPieOption,
+  buildRollingGrid,
   countryName,
   HEAT_LEVELS,
   MAP_NAME,
@@ -15,7 +16,7 @@ import {
   polygonCodes,
 } from './builders'
 import { echarts } from './echarts'
-import { useECharts, type Opt } from './useECharts'
+import { useECharts, type ChartHandle, type Opt } from './useECharts'
 import type { ChartTheme } from './theme'
 
 export { stableColor } from './stableColor'
@@ -29,6 +30,13 @@ function Frame(props: {
   label: string
   summary: string
   height: number
+  /** Canvas height at the mobile breakpoint (CSS decides; defaults to `height`). */
+  narrowHeight?: number
+  /** Wide charts (heatmap): the canvas keeps this min width inside its own horizontal scroller, parked at the end. */
+  scrollX?: { minWidth: number; scrollLabel: string; key: unknown }
+  /** Controls drawn over the canvas (map zoom). */
+  overlay?: ReactNode
+  handleRef?: { current: ChartHandle | null }
   build: (t: ChartTheme) => Opt
   note?: ReactNode
   legend?: ReactNode
@@ -36,15 +44,27 @@ function Frame(props: {
   register?: () => void
   onClick?: (p: { componentType?: string; name?: string; data?: unknown }) => void
 }) {
-  const ref = useECharts(props.build, { register: props.register, onClick: props.onClick })
+  const ref = useECharts(props.build, { register: props.register, onClick: props.onClick }, props.handleRef)
+  const scroller = useRef<HTMLDivElement>(null)
+  const scrollKey = props.scrollX?.key
+  useEffect(() => {
+    const el = scroller.current
+    if (el) el.scrollLeft = el.scrollWidth
+  }, [scrollKey])
+  const style = {
+    '--chart-h': `${props.height}px`,
+    '--chart-h-narrow': `${props.narrowHeight ?? props.height}px`,
+    ...(props.scrollX ? { minWidth: props.scrollX.minWidth } : {}),
+  } as CSSProperties
+  const canvas = <div ref={ref} role="img" aria-label={`${props.label}. ${props.summary}`} className="chart-canvas" style={style} />
   return (
     <figure className="chart" style={{ margin: 0, minWidth: 0 }}>
-      <div
-        ref={ref}
-        role="img"
-        aria-label={`${props.label}. ${props.summary}`}
-        style={{ width: '100%', height: props.height, maxWidth: '100%' }}
-      />
+      <div className="chart-stage">
+        {props.scrollX ? (
+          <div ref={scroller} className="chart-scroll" role="region" tabIndex={0} aria-label={props.scrollX.scrollLabel}>{canvas}</div>
+        ) : canvas}
+        {props.overlay}
+      </div>
       {props.legend}
       {props.note ? <p className="chart-note">{props.note}</p> : null}
       <figcaption>
@@ -70,6 +90,7 @@ export function EvolutionChart({ data }: { data: EvolutionResponse }) {
       label={`Evolution of ${dimension}, ${series.length} series per ${unit}`}
       summary={`${series.length} series over ${buckets.length} ${unit} buckets from ${data.range.from} to ${data.range.to} (${data.range.tz}). Not cumulative.`}
       height={360}
+      narrowHeight={300}
       build={build}
       note={
         partial
@@ -117,6 +138,7 @@ export function PieChart({ data }: { data: PieResponse }) {
       label={`Share of ${dimension}`}
       summary={`${slices.length} slices${slices[0] ? `; largest: ${slices[0].label} (${pct(slices[0].share)})` : ''}.`}
       height={340}
+      narrowHeight={300}
       build={build}
       table={
         <table>
@@ -149,11 +171,13 @@ export function HeatmapChart({ data }: { data: HeatmapResponse }) {
   const total = useMemo(() => data.cells.reduce((s, c) => s + c.listens, 0), [data.cells])
   const active = useMemo(() => data.cells.filter((c) => c.listens > 0), [data.cells])
   const build = useMemo(() => (t: ChartTheme) => buildHeatmapOption(data, t), [data])
+  const heatWidth = useMemo(() => buildRollingGrid(data.cells, data.range.from, data.range.to).cols * 15 + 40, [data])
   return (
     <Frame
       label="Daily listening heatmap, weeks start Monday"
       summary={`${nf.format(total)} listens across ${active.length} active days from ${data.range.from} to ${data.range.to} (${data.range.tz}); busiest day ${nf.format(max)} listens.`}
       height={7 * 16 + 28}
+      scrollX={{ minWidth: heatWidth, scrollLabel: 'Daily listening heatmap, scroll sideways for earlier weeks', key: data }}
       build={build}
       legend={
         <div className="heat-legend" aria-hidden="true">
@@ -207,7 +231,18 @@ export type CountryChartProps = {
   onCountrySelect?: (code: string | null) => void
 }
 
+function MapZoom({ handleRef }: { handleRef: { current: ChartHandle | null } }) {
+  return (
+    <div className="map-zoom" role="group" aria-label="Map view">
+      <button type="button" aria-label="Zoom in" onClick={() => handleRef.current?.zoomBy(1.5)}>+</button>
+      <button type="button" aria-label="Zoom out" onClick={() => handleRef.current?.zoomBy(1 / 1.5)}>−</button>
+      <button type="button" aria-label="Reset map view" onClick={() => handleRef.current?.resetView()}>⟲</button>
+    </div>
+  )
+}
+
 export function CountryChart({ data, selectedCountry = null, onCountrySelect }: CountryChartProps) {
+  const handleRef = useRef<ChartHandle | null>(null)
   const countries = data.countries
   const max = countries.reduce((m, c) => Math.max(m, c.listens), 0)
   const sel = selectedCountry?.toUpperCase() ?? null
@@ -236,6 +271,9 @@ export function CountryChart({ data, selectedCountry = null, onCountrySelect }: 
       label="Listens by artist country"
       summary={`${countries.length} countries${markerCount ? ` (${markerCount} shown as markers because they have no polygon)` : ''}${countries[0] ? `; top: ${countryName(countries[0].code)} (${pct(countries[0].share)})` : ''}. ${data.partial_credit_note}`}
       height={380}
+      narrowHeight={280}
+      handleRef={handleRef}
+      overlay={<MapZoom handleRef={handleRef} />}
       build={build}
       onClick={onClick}
       register={registerWorldMap}

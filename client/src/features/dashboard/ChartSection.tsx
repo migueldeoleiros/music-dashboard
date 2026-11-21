@@ -29,6 +29,6 @@ export function ChartSection({ path, label, filters, variant = 'default', onTime
   return <section className={classes} aria-label={label} aria-busy={query.isPending}>
     {query.isPending && <p className="loading" role="status">Loading {label.toLowerCase()}…</p>}
     {query.isError && <div className="error" role="alert"><p>{query.error.message}</p>{query.error instanceof ApiError && query.error.body.details.length > 0 && <ul>{query.error.body.details.map(detail => <li key={detail}>{detail}</li>)}</ul>}<button type="button" onClick={() => { void query.refetch() }}>Retry this view</button></div>}
-    {query.data && <>{children(query.data)}{query.data.fixture && <span className="fixture-tag">Synthetic fixture</span>}</>}
+    {query.data && children(query.data)}
   </section>
 }

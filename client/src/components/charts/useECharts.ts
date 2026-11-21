@@ -6,6 +6,9 @@ export type Opt = Parameters<ReturnType<typeof echarts.init>['setOption']>[0]
 type Chart = ReturnType<typeof echarts.init>
 type ClickParams = { componentType?: string; name?: string; data?: unknown }
 
+/** Imperative view controls for charts with a pannable geo (the country map). */
+export type ChartHandle = { zoomBy: (factor: number) => void; resetView: () => void }
+
 /**
  * Init chart on a div, build the option from the current CSS-token theme, re-read the theme on
  * mount/option change/resize (re-applying only when it changed), dispose on unmount.
@@ -13,6 +16,7 @@ type ClickParams = { componentType?: string; name?: string; data?: unknown }
 export function useECharts(
   build: (theme: ChartTheme) => Opt,
   deps: { register?: () => void; onClick?: (p: ClickParams) => void } = {},
+  handleRef?: { current: ChartHandle | null },
 ) {
   const ref = useRef<HTMLDivElement>(null)
   const chartRef = useRef<Chart | null>(null)
@@ -21,12 +25,16 @@ export function useECharts(
   const clickRef = useRef(deps.onClick)
   const register = deps.register
 
-  const apply = () => {
+  const apply = (keepView = true) => {
     const chart = chartRef.current
     if (!chart) return
     const theme = readTheme()
     themeKey.current = JSON.stringify(theme)
-    chart.setOption(buildRef.current(theme), true)
+    const option = buildRef.current(theme) as { geo?: Record<string, unknown> }
+    // Rebuilding (selection, theme) must not throw away the user's pan/zoom.
+    const view = keepView && option.geo ? (chart.getOption?.() as { geo?: { zoom?: number; center?: number[] }[] } | undefined)?.geo?.[0] : undefined
+    if (view && option.geo) option.geo = { ...option.geo, zoom: view.zoom, center: view.center }
+    chart.setOption(option as Opt, true)
   }
 
   useEffect(() => {
@@ -40,6 +48,12 @@ export function useECharts(
     const chart = echarts.init(el, undefined, { renderer: 'canvas' })
     chartRef.current = chart
     chart.on?.('click', (p: ClickParams) => clickRef.current?.(p))
+    if (handleRef) {
+      handleRef.current = {
+        zoomBy: (factor) => chart.dispatchAction({ type: 'geoRoam', componentType: 'geo', zoom: factor, originX: chart.getWidth() / 2, originY: chart.getHeight() / 2 }),
+        resetView: () => apply(false),
+      }
+    }
     let ro: ResizeObserver | undefined
     const onResize = () => {
       chart.resize()
@@ -56,7 +70,9 @@ export function useECharts(
       window.removeEventListener('resize', onResize)
       chart.dispose()
       chartRef.current = null
+      if (handleRef) handleRef.current = null
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [register])
 
   useEffect(() => {
