@@ -18,7 +18,6 @@ export function RankingList({ data }: { data: components['schemas']['RankingResp
   const [first, ...rest] = data.items
   return <EntityList label={`Top ${data.dimension}`} className="ranking-entities">
     <li className="entity-hero">
-      <span className="entity-ribbon">#1</span>
       {showImage && <EntityImage src={first.image_url} label={name(first)} size="hero" decorative />}
       <span className="entity-text">
         <span className="entity-hero-name" title={name(first)}>{name(first)}</span>

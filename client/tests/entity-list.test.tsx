@@ -82,6 +82,20 @@ it('RankingList: hero first, rows after, no percentages', () => {
   expect(container.textContent).not.toContain('%')
 })
 
+it('RankingList hero: no #1 badge, image inside hero as first child, rows keep their numbering', () => {
+  const data = ranking('artists')
+  data.items[0].image_url = 'https://example.com/a.png'
+  const { container } = render(<RankingList data={data} />)
+  const hero = container.querySelector('li.entity-hero')!
+  expect(container.textContent).not.toContain('#1')
+  expect(container.querySelector('.entity-ribbon')).toBeNull()
+  expect(hero.firstElementChild?.className).toContain('entity-image')
+  expect(hero.querySelector('img')).not.toBeNull()
+  expect(hero.querySelector('.entity-hero-name')?.textContent).toBe('Item 1')
+  expect(hero.querySelector('.entity-hero-count')?.textContent).toContain('listens')
+  expect(container.querySelector('.entity-row .entity-rank')?.textContent).toBe('02')
+})
+
 it('RankingList genres render no image and no initials tile, and no percentages', () => {
   const { container } = render(<RankingList data={ranking('genres')} />)
   expect(container.querySelector('.entity-image, .entity-image--placeholder, img')).toBeNull()
@@ -89,6 +103,7 @@ it('RankingList genres render no image and no initials tile, and no percentages'
   const artists = render(<RankingList data={ranking('artists')} />)
   expect(artists.container.querySelector('.entity-image')).not.toBeNull() // other dimensions keep their image/initials
   expect(container.textContent).not.toContain('%')
+  expect(container.querySelector('.entity-hero')?.firstElementChild?.className).toContain('entity-text')
 })
 
 function Harness({ initial = 'US' }: { initial?: string | null }) {
