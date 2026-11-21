@@ -81,7 +81,9 @@ has no MBID at all) the name fallback below runs; see "Artwork name fallback". G
   recording) first, then Deezer `track/isrc:` -> placeholder. Compilation covers are a known risk.
 - **Artist**: only through the MusicBrainz artist URL relation to a Deezer id (or a Wikidata
   Deezer artist id, P2722, reached through that relation) -> `artist/{id}`. Never "primary artist
-  of an ISRC hit" (that is name matching). Otherwise placeholder.
+  of an ISRC hit" (that is name matching). If ID and name lookups find no artist photo,
+  artist rankings and country artist lists reuse the most-played eligible album cover from
+  that artist's history. Otherwise they show initials. This adds no upstream requests.
 
 ### Artwork resolution and Deezer terms (lane L-ART)
 
@@ -279,7 +281,8 @@ Keep identifiable unmapped entities in ranks and artist charts; explicit missing
 state rather than dropping listens. Artist keys: resolved MBID, else Unicode-normalized
 casefold composite with prefix. No arbitrary feat/& splitting, no blind ambiguous-name merge.
 Only unique unambiguous aliases may resolve fallback names; document that policy in T-005.
-Albums prefer release-group, then release, then artist+album fallback identity.
+Albums prefer release-group, then release, then a normalized artist+album key. A name-only
+listen joins an ID-backed album only when that exact pair maps to one known album across history.
 All listens count in heatmap. Omit unresolved genre only from genre views, unresolved country
 only from map. Genre/country weights sum to included count within tolerance. Other is known
 categories outside the view's threshold (pies <1%, evolution <=2%), never unknown metadata.
@@ -288,7 +291,7 @@ zero-fills daily/weekly/monthly buckets, noncumulative, marks partial final buck
 
 Visitor timezone is always the browser Intl zone (never in the URL), with a visible UTC fallback
 when the API rejects it. The URL carries `from`/`to` only for custom ranges; presets are bare and
-a bare page is Last 30 days. Legacy `tz`/`preset` params are ignored and stripped. Links are not
+a bare page defaults to 7 days. Legacy `tz`/`preset` parameters are stripped; a supported legacy preset without dates is used on initial load, but a legacy timezone is ignored. Links are not
 immutable snapshots. Controlled timezone alias metadata is bundled
 from tzdata 2025b (PyPI 2025.2), shared by request validation and database seed. PostgreSQL is
 sole authority for date boundaries and buckets: inclusive local from through day after local

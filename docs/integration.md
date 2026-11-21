@@ -1,8 +1,6 @@
 # T-008 synthetic integration receipt
 
-Scope: `feat/end-to-end-integration`; no real ListenBrainz/MusicBrainz requests or credentials.
-T-007 (actual user history, export completeness and live enrichment) remains open. No deployment,
-merge or push. No OpenAPI/generated-type changes or migrations were needed.
+Historical receipt for `feat/end-to-end-integration`. These checks used synthetic data and no real ListenBrainz/MusicBrainz requests. Later local runs imported real history and ran enrichment; see the [current export behavior](development.md#export-completeness-verified-shapes-and-the-two-notion-policy). This receipt does not cover later UI revisions.
 
 ## Reproduce
 

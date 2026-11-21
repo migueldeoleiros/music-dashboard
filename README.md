@@ -1,28 +1,15 @@
 # Music Dashboard
 
-Public, read-only ListenBrainz aggregate dashboard. ListenBrainz remains the source of truth;
-PostgreSQL is a rebuildable derived store. No authentication/admin API, raw history endpoint,
-scrobble submission or privacy guarantee.
+My listening history from ListenBrainz, with top artists, albums, tracks and genres, a listening heatmap, and charts for how my listening changes over time.
 
-**Status:** full stack in this branch: frozen OpenAPI, migrations and least-privilege roles,
-React/ECharts client, PostgreSQL SQL statistics (timezone-aware, cached), LB export
-bootstrap/reconcile and incremental sync, and metadata enrichment commands. Synthetic fixture
-mode (default) needs no token and never calls upstream. API `MUSIC_FIXTURE_MODE=false`
-queries PostgreSQL without upstream credentials. Real worker actions explicitly require
-`MUSIC_WORKER_FIXTURE_MODE=false`, private LB username/token for sync, and a metadata User-Agent
-for enrichment.
+## Run locally
 
-**Not yet proven:** the authenticated LB export has not been smoke-tested against the real
-service; the export completeness check relies on an assumed `listen_count` field (see
-[development](docs/development.md#real-data-first-run)). Coverage is partial by nature and no
-threshold is promised. Public DNS/TLS deployment is not included; a reverse-proxy sketch for
-the eventual `music.miguel.md` is in [deployment](docs/deployment.md).
+You'll need Docker Compose. For a preview without a ListenBrainz account, follow the [sample-data setup](docs/development.md#local-compose-synthetic-mode). To use your own history, follow the [ListenBrainz setup](docs/development.md#real-data-first-run).
 
-- [Development and local startup](docs/development.md)
-- [Architecture, semantics and task ownership](docs/architecture.md)
-- [Deployment and backup/restore](docs/deployment.md)
-- [Synthetic integration evidence and remaining gates](docs/integration.md)
-- Frozen contract: `contracts/openapi.json`; generated client: `client/src/api/schema.d.ts`
+Open http://127.0.0.1:8080 once the stack is running.
 
-Start with the development guide. Synthetic fixture mode never needs a ListenBrainz token.
-No public deployment is included. Aggregates are public and can reveal listening patterns.
+- [Development](docs/development.md)
+- [How the data is counted](docs/architecture.md#statistics-date-and-display-semantics-t-005t-006-constraints)
+- [Deployment and backups](docs/deployment.md)
+
+The dashboard has no login. If you publish it, anyone can see the stats. Deletes on ListenBrainz aren't automatically reflected here.

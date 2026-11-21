@@ -94,10 +94,4 @@ not rerun on existing volumes; rotate passwords/settings with a private admin se
 
 ## Remaining operational gates
 
-Not proven by this documentation: upstream deletion propagation (the real export status has
-no snapshot manifest, so reconcile never tombstones), upstream version
-behavior, real SQL budgets/cache under real history, worker restart under real load, enrichment
-limiter against live MusicBrainz and real-user coverage. Synthetic browser/security receipts
-are recorded separately in `docs/integration.md`; they are not a real-data signoff. Initial
-enrichment can take hours/days and coverage stays partial. Aggregates are public and can
-expose listening patterns; the product makes no privacy guarantee.
+Real imports, incremental sync, and enrichment have run locally. That is not a public deployment or a production load test. ListenBrainz's export has no trusted snapshot manifest, so reconcile imports rows but does not propagate deletions. Initial enrichment can take hours or days and some metadata may never resolve. Public aggregates can reveal listening patterns.
