@@ -27,12 +27,16 @@ Safety rules:
   if the server asks for longer than ``max_backoff`` the transport raises ``RateLimitedError``
   (with ``retry_after``) instead of retrying early; the caller owns durable backoff. When
   ``X-RateLimit-Remaining`` reaches 0 the next request waits for the reset window (or raises
-  ``RateLimitedError`` if it exceeds ``max_backoff``). Default response body cap: 64 MiB.
+  ``RateLimitedError`` if it exceeds ``max_backoff``). Default response body cap: 64 MiB (an
+  oversized body raises ``ResponseTooLargeError`` immediately and is never retried).
+  Header delays must be plain
+  finite decimals and are clamped to ``MAX_RETRY_AFTER_SECONDS`` (24 h).
 """
 
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 import urllib.error
@@ -51,6 +55,10 @@ DEFAULT_USER_AGENT = (
 )
 _RETRY_STATUSES = frozenset({500, 502, 503, 504})
 _CONTROL = re.compile(r"[\x00-\x20\x7f\\]")
+_DECIMAL = re.compile(r"\d{1,20}(\.\d{1,20})?")
+# Upstream-supplied delays are clamped here so a hostile/buggy header can neither overflow
+# datetime arithmetic downstream nor park the worker for longer than a day.
+MAX_RETRY_AFTER_SECONDS = 86_400.0
 
 
 class ListenBrainzError(Exception):
@@ -75,6 +83,10 @@ class RateLimitedError(HttpStatusError):
     def __init__(self, retry_after: float | None) -> None:
         super().__init__(429)
         self.retry_after = retry_after
+
+
+class ResponseTooLargeError(TransportError):
+    """Response body exceeded the configured cap. Deterministic: never retried."""
 
 
 class ProtocolError(ListenBrainzError):
@@ -118,6 +130,7 @@ class UrllibHttpTransport:
         self._max = max_body_bytes
 
     def send(self, request: HttpRequest) -> HttpResponse:
+        # NB: ResponseTooLargeError is not an OSError, so the retry loop never repeats it.
         req = urllib.request.Request(  # noqa: S310 - scheme validated by caller
             request.url, data=request.body, headers=dict(request.headers), method=request.method
         )
@@ -131,9 +144,12 @@ class UrllibHttpTransport:
                 exc.close()
 
     def _read(self, resp: Any) -> bytes:
+        declared = resp.headers.get("Content-Length")
+        if declared is not None and declared.strip().isdigit() and int(declared) > self._max:
+            raise ResponseTooLargeError("response exceeds the configured size limit")
         data: bytes = resp.read(self._max + 1)
         if len(data) > self._max:
-            raise OSError("response too large")
+            raise ResponseTooLargeError("response exceeds the configured size limit")
         return data
 
 
@@ -299,20 +315,25 @@ class ListenBrainzTransport:
 
     def _number(self, headers: Mapping[str, str], name: str) -> float | None:
         raw = self._header(headers, name)
-        try:
-            value = float(raw) if raw is not None else None
-        except ValueError:
-            return None
-        return value if value is not None and value >= 0 and value == value else None
+        if raw is None or not _DECIMAL.fullmatch(raw.strip()):
+            return None  # rejects NaN/inf/negative/exponent/underscore forms
+        value = float(raw)
+        return min(value, MAX_RETRY_AFTER_SECONDS) if math.isfinite(value) else None
 
     def _http_date(self, raw: str) -> float | None:
         try:
             when = parsedate_to_datetime(raw)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None
         if when.tzinfo is None:
             when = when.replace(tzinfo=UTC)
-        return max(0.0, when.timestamp() - self.wall_clock())
+        try:
+            delta = when.timestamp() - self.wall_clock()
+        except (OverflowError, OSError, ValueError):
+            return None
+        if not math.isfinite(delta):
+            return None
+        return min(max(0.0, delta), MAX_RETRY_AFTER_SECONDS)
 
     def _retry_after(self, headers: Mapping[str, str]) -> float | None:
         value = self._number(headers, "retry-after")

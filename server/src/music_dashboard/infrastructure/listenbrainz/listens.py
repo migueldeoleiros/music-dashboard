@@ -87,6 +87,7 @@ from music_dashboard.infrastructure.listenbrainz.transport import (
     ListenBrainzError,
     ListenBrainzTransport,
     ProtocolError,
+    ResponseTooLargeError,
 )
 
 MAX_PAGE_COUNT = 1000
@@ -119,6 +120,14 @@ class ExportCorruptError(ExportError):
 
 class ExportIncompleteError(ExportError):
     pass
+
+
+class ExportTooLargeError(ExportError):
+    """Download exceeded the configured cap. Deterministic: retrying cannot succeed; raise
+    MUSIC_EXPORT_MAX_BYTES deliberately instead."""
+
+    # Honoured by application.sync_listens.failure_stats: job-level (not upstream-wide) backoff.
+    min_retry_seconds = 86_400.0
 
 
 def _is_int(value: object) -> bool:
@@ -195,9 +204,12 @@ class ListenBrainzClient:
             if isinstance(manifest, int) and not isinstance(manifest, bool) and manifest >= 0
             else None
         )
-        blob = self._t.download(f"/1/export/{export_id}/download", authenticated=True)
+        try:
+            blob = self._t.download(f"/1/export/{export_id}/download", authenticated=True)
+        except ResponseTooLargeError:
+            raise ExportTooLargeError("export archive exceeds size limit") from None
         if len(blob) > self._max_zip:
-            raise ExportCorruptError("export archive exceeds size limit")
+            raise ExportTooLargeError("export archive exceeds size limit")
         zf, members = self._open_zip(blob, user)
         return ExportSnapshot(
             rows=self._rows(zf, members, expected, min_records),

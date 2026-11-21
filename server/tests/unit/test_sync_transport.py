@@ -16,6 +16,7 @@ from music_dashboard.infrastructure.listenbrainz.listens import (
     ExportFailedError,
     ExportIncompleteError,
     ExportTimeoutError,
+    ExportTooLargeError,
     ListenBrainzClient,
 )
 from music_dashboard.infrastructure.listenbrainz.transport import (
@@ -26,6 +27,7 @@ from music_dashboard.infrastructure.listenbrainz.transport import (
     ListenBrainzTransport,
     ProtocolError,
     RateLimitedError,
+    ResponseTooLargeError,
     TransportError,
     UrllibHttpTransport,
 )
@@ -165,6 +167,111 @@ def test_429_longer_than_max_backoff_raises_without_early_retry(header: str) -> 
     with pytest.raises(RateLimitedError) as err:
         make(http, clock, max_backoff=30).request("GET", "/1/x")
     assert err.value.retry_after == 9999 and clock.sleeps == [] and len(http.requests) == 1
+
+
+@pytest.mark.parametrize("header", ["Retry-After", "X-RateLimit-Reset-In"])
+@pytest.mark.parametrize(
+    "bad", ["inf", "-inf", "nan", "Infinity", "1e999", "-5", "1_0", "0x10", ""]
+)
+def test_non_finite_or_malformed_delay_headers_are_ignored(header: str, bad: str) -> None:
+    clock = Clock()
+    http = FakeHttp(status(429, {header: bad}), ok({}))
+    make(http, clock).request("GET", "/1/x")
+    assert clock.sleeps == [1.0]  # fell back to ordinary backoff, never inf/nan
+
+
+@pytest.mark.parametrize("header", ["Retry-After", "X-RateLimit-Reset-In"])
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("86399", 86399), ("86400", 86400), ("86401", 86400), ("99999999999999999999", 86400)],
+)
+def test_delay_header_clamped_to_24h_boundary(header: str, raw: str, expected: float) -> None:
+    http = FakeHttp(status(429, {header: raw}), ok({}))
+    with pytest.raises(RateLimitedError) as err:
+        make(http, max_backoff=30).request("GET", "/1/x")
+    assert err.value.retry_after == expected and len(http.requests) == 1
+
+
+def test_far_future_http_date_clamped_and_year_overflow_ignored() -> None:
+    http = FakeHttp(status(429, {"Retry-After": "Fri, 31 Dec 9999 23:59:59 GMT"}), ok({}))
+    with pytest.raises(RateLimitedError) as err:
+        make(http, max_backoff=30).request("GET", "/1/x")
+    assert err.value.retry_after == 86400
+    http = FakeHttp(status(429, {"Retry-After": "Fri, 31 Dec 99999999 23:59:59 GMT"}), ok({}))
+    clock = Clock()
+    make(http, clock).request("GET", "/1/x")
+    assert clock.sleeps == [1.0]
+
+
+def test_exhausted_window_with_oversized_reset_is_clamped() -> None:
+    http = FakeHttp(ok({}, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset-In": "1e999"}))
+    t = make(http, max_backoff=30)
+    t.request("GET", "/1/x")  # inf reset ignored: next request is not blocked
+    t.request("GET", "/1/x")
+    assert len(http.requests) == 2
+    http = FakeHttp(ok({}, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset-In": "9" * 15}))
+    t = make(http, max_backoff=30)
+    t.request("GET", "/1/x")
+    with pytest.raises(RateLimitedError) as err:
+        t.request("GET", "/1/x")
+    assert err.value.retry_after <= 86400
+
+
+class _Resp:
+    def __init__(self, body: bytes, headers: dict[str, str] | None = None) -> None:
+        self.status, self.headers, self._b = 200, headers or {}, body
+
+    def read(self, n: int) -> bytes:
+        return self._b[:n]
+
+    def __enter__(self) -> "_Resp":
+        return self
+
+    def __exit__(self, *a: Any) -> None:
+        return None
+
+
+@pytest.mark.parametrize("headers", [{}, {"Content-Length": "100"}])
+def test_oversized_response_fails_distinctly_without_retry(
+    monkeypatch: pytest.MonkeyPatch, headers: dict[str, str]
+) -> None:
+    http = UrllibHttpTransport(max_body_bytes=10)
+    calls: list[int] = []
+
+    def opener(*a: Any, **k: Any) -> _Resp:
+        calls.append(1)
+        return _Resp(b"x" * 100, headers)
+
+    monkeypatch.setattr(http._opener, "open", opener)
+    clock = Clock()
+    with pytest.raises(ResponseTooLargeError) as err:
+        make(http, clock, max_retries=4).download("/1/export/1/download", authenticated=True)  # type: ignore[arg-type]
+    assert len(calls) == 1 and clock.sleeps == []
+    assert TOKEN not in str(err.value)
+
+
+def test_response_at_exact_cap_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    http = UrllibHttpTransport(max_body_bytes=10)
+    monkeypatch.setattr(http._opener, "open", lambda *a, **k: _Resp(b"x" * 10))
+    assert http.send(HttpRequest("GET", "https://x/1", {}, None, 1)).body == b"x" * 10
+
+
+def test_export_download_too_large_is_distinct_export_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seq = export_http(b"")
+    n = {"i": 0}
+
+    class Http:
+        def send(self, request: HttpRequest) -> HttpResponse:
+            n["i"] += 1
+            if request.url.endswith("/download"):
+                raise ResponseTooLargeError("x")
+            return seq.send(request)
+
+    with pytest.raises(ExportTooLargeError) as err:
+        client(Http()).export("u")  # type: ignore[arg-type]
+    assert not isinstance(err.value, ExportCorruptError)
 
 
 def test_429_retry_after_http_date() -> None:
@@ -627,7 +734,7 @@ def test_export_user_json_missing_or_unreadable_never_verifies(doc: bytes | None
 
 def test_export_size_limits_checked_before_decompression_or_crc() -> None:
     blob = make_zip(RECORDS)
-    with pytest.raises(ExportCorruptError):
+    with pytest.raises(ExportTooLargeError):
         client(export_http(blob), max_zip_bytes=10).export("u")
     with pytest.raises(ExportCorruptError):
         client(export_http(blob), max_unzipped_bytes=10).export("u")
