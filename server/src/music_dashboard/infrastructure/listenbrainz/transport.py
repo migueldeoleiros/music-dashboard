@@ -22,9 +22,12 @@ Safety rules:
 * Errors never contain the token, request URL, query string, headers, or response bodies;
   network failures are reduced to the exception class name.
 * 429 / 5xx / network errors are retried with bounded exponential backoff (injectable
-  ``sleep``/``clock``); ``Retry-After`` and ``X-RateLimit-Reset-In`` are honoured but each wait
-  is capped at ``max_backoff``. When ``X-RateLimit-Remaining`` reaches 0 the next request waits
-  for the reset window.
+  ``sleep``/``clock``); ``Retry-After`` (seconds or HTTP-date) and
+  ``X-RateLimit-Reset-In`` are honoured exactly:
+  if the server asks for longer than ``max_backoff`` the transport raises ``RateLimitedError``
+  (with ``retry_after``) instead of retrying early; the caller owns durable backoff. When
+  ``X-RateLimit-Remaining`` reaches 0 the next request waits for the reset window (or raises
+  ``RateLimitedError`` if it exceeds ``max_backoff``). Default response body cap: 64 MiB.
 """
 
 from __future__ import annotations
@@ -36,6 +39,8 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import UTC
+from email.utils import parsedate_to_datetime
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
@@ -108,7 +113,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class UrllibHttpTransport:
-    def __init__(self, *, max_body_bytes: int = 1 << 30) -> None:
+    def __init__(self, *, max_body_bytes: int = 64 << 20) -> None:
         self._opener = urllib.request.build_opener(_NoRedirect)
         self._max = max_body_bytes
 
@@ -145,6 +150,7 @@ class ListenBrainzTransport:
     max_backoff: float = 60.0
     sleep: Callable[[float], None] = time.sleep
     clock: Callable[[], float] = time.monotonic
+    wall_clock: Callable[[], float] = time.time
     _not_before: float = field(default=0.0, init=False, repr=False)
     _origin: tuple[str, int] = field(default=("", 0), init=False, repr=False)
 
@@ -236,8 +242,10 @@ class ListenBrainzTransport:
 
     def _wait_for_window(self) -> None:
         delay = self._not_before - self.clock()
+        if delay > self.max_backoff:
+            raise RateLimitedError(delay)  # never retry early; caller owns durable backoff
         if delay > 0:
-            self.sleep(min(delay, self.max_backoff))
+            self.sleep(delay)
 
     def _send(
         self,
@@ -267,7 +275,9 @@ class ListenBrainzTransport:
                     return resp
                 retry_after = self._retry_after(resp.headers)
                 if resp.status == 429:
-                    if attempt >= self.max_retries:
+                    if attempt >= self.max_retries or (
+                        retry_after is not None and retry_after > self.max_backoff
+                    ):
                         raise RateLimitedError(retry_after)
                     wait = retry_after
                 elif resp.status in _RETRY_STATUSES:
@@ -277,7 +287,7 @@ class ListenBrainzTransport:
                 else:
                     raise HttpStatusError(resp.status)
             backoff = min(self.max_backoff, self.base_backoff * 2**attempt)
-            self.sleep(min(self.max_backoff, wait) if wait is not None else backoff)
+            self.sleep(wait if wait is not None else backoff)
             attempt += 1
 
     @staticmethod
@@ -293,10 +303,22 @@ class ListenBrainzTransport:
             value = float(raw) if raw is not None else None
         except ValueError:
             return None
-        return value if value is not None and value >= 0 else None
+        return value if value is not None and value >= 0 and value == value else None
+
+    def _http_date(self, raw: str) -> float | None:
+        try:
+            when = parsedate_to_datetime(raw)
+        except (TypeError, ValueError):
+            return None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        return max(0.0, when.timestamp() - self.wall_clock())
 
     def _retry_after(self, headers: Mapping[str, str]) -> float | None:
         value = self._number(headers, "retry-after")
+        if value is None:
+            raw = self._header(headers, "retry-after")
+            value = self._http_date(raw) if raw else None
         if value is None:
             value = self._number(headers, "x-ratelimit-reset-in")
         return value

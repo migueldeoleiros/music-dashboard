@@ -1,10 +1,22 @@
+import io
+import json
 import threading
 import uuid
+import zipfile
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import create_engine, text
 
+from music_dashboard.application.reconcile_history import reconcile_history
+from music_dashboard.infrastructure.listenbrainz.listens import (
+    ExportCorruptError,
+    ListenBrainzClient,
+)
+from music_dashboard.infrastructure.listenbrainz.transport import (
+    HttpResponse,
+    ListenBrainzTransport,
+)
 from music_dashboard.infrastructure.persistence.repositories.listening_sync import SyncRepository
 
 pytestmark = pytest.mark.integration
@@ -26,6 +38,87 @@ def repo(migrated_db, admin_url):
         )
     yield SyncRepository(eng)
     eng.dispose()
+
+
+def export_client(rows, manifest=True):
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipped:
+        zipped.writestr("listens.jsonl", "".join(json.dumps(row) + "\n" for row in rows))
+    ready = {"status": "ready"}
+    if manifest:
+        ready["listen_count"] = len(rows)
+    responses = [
+        {"valid": True, "user_name": USER},
+        {"payload": {"count": len(rows)}},
+        {"export_id": "test"},
+        ready,
+    ]
+    queue = [HttpResponse(200, {}, json.dumps(data).encode()) for data in responses]
+    queue.append(HttpResponse(200, {}, archive.getvalue()))
+
+    class HTTP:
+        def send(self, request):
+            return queue.pop(0)
+
+    return ListenBrainzClient(ListenBrainzTransport(HTTP(), token="synthetic-token"))
+
+
+def test_mock_http_to_database_manifest_reconcile_deletion_and_duplicate_safety(repo):
+    rows = [listen(n) for n in range(10)]
+    reconcile_history(export_client(rows), repo, USER, now=NOW)
+    assert q(repo, "SELECT count(*) FROM listens") == 10
+    reconcile_history(export_client(rows[:-1]), repo, USER, now=NOW + timedelta(days=1))
+    assert q(repo, "SELECT count(*) FROM listens") == 9  # exactly 10% allowed
+    assert q(repo, "SELECT count(*) FROM raw_listens WHERE tombstoned_at IS NOT NULL") == 1
+    # Inflate a truncated artifact with a duplicate: must fail before activation,
+    # even if the operator explicitly permits a large deletion.
+    truncated = rows[:7] + [rows[0], rows[0]]
+    with pytest.raises(ExportCorruptError):
+        reconcile_history(
+            export_client(truncated),
+            repo,
+            USER,
+            now=NOW + timedelta(days=2),
+            allow_large_delete=True,
+        )
+    assert q(repo, "SELECT count(*) FROM listens") == 9
+    assert repo.load_checkpoint(USER)["last_export_at"] == NOW + timedelta(days=1)
+
+
+def test_no_snapshot_manifest_never_deletes_or_marks_reconcile_complete(repo):
+    rows = [listen(n) for n in range(10)]
+    reconcile_history(export_client(rows), repo, USER, now=NOW)
+    with pytest.raises(ValueError):
+        reconcile_history(
+            export_client(rows[:1], manifest=False),
+            repo,
+            USER,
+            now=NOW + timedelta(days=1),
+            allow_large_delete=True,
+        )
+    assert q(repo, "SELECT count(*) FROM listens") == 10
+    assert repo.load_checkpoint(USER)["last_export_at"] == NOW
+
+
+def test_manifest_with_missing_identity_retains_quarantine_without_deleting(repo):
+    rows = [listen(n) for n in range(10)]
+    reconcile_history(export_client(rows), repo, USER, now=NOW)
+    with pytest.raises(ValueError):
+        reconcile_history(
+            export_client([rows[0], {"listened_at": T0}]),
+            repo,
+            USER,
+            now=NOW + timedelta(days=1),
+            allow_large_delete=True,
+        )
+    assert q(repo, "SELECT count(*) FROM listens") == 10
+    assert q(repo, "SELECT count(*) FROM quarantined_listens") == 1
+    assert repo.load_checkpoint(USER)["last_export_at"] == NOW
+
+
+def activate(repo, *a, **k):
+    k.setdefault("snapshot_complete", True)
+    return repo.activate_snapshot(*a, **k)
 
 
 def msid(n):
@@ -202,7 +295,7 @@ def test_snapshot_tombstones_scope_and_preserves_new(repo):
     # arrives during snapshot: listened_at in scope but fetched_at after
     repo.ingest(USER, [listen(51, ts=T0 + 5000)], "api", snap_at + timedelta(seconds=1))
     g = gen(repo)
-    res = repo.activate_snapshot(USER, snap_rows(range(19)), snap_at, allow_large_delete=False)
+    res = activate(repo, USER, snap_rows(range(19)), snap_at, allow_large_delete=False)
     assert res["tombstoned"] == 1 and res["deleted_listens"] == 1
     assert res["changed"] == 0 and res["deletions_blocked"] == 0
     assert gen(repo) == g + 1
@@ -211,7 +304,7 @@ def test_snapshot_tombstones_scope_and_preserves_new(repo):
     assert q(repo, "SELECT count(*) FROM listens WHERE recording_msid = :m", m=msid(19)) == 0
     assert q(repo, "SELECT count(*) FROM listen_artists") == 21
     # reappearing revives raw and normalized
-    res = repo.activate_snapshot(USER, snap_rows(range(20)), snap_at)
+    res = activate(repo, USER, snap_rows(range(20)), snap_at)
     assert res["revived"] == 1 and res["changed"] == 1
     assert q(repo, "SELECT count(*) FROM listens") == 22
     assert q(repo, "SELECT count(*) FROM raw_listens WHERE tombstoned_at IS NOT NULL") == 0
@@ -221,12 +314,12 @@ def test_snapshot_large_delete_guard_and_override(repo):
     seed_history(repo, 20)
     g = gen(repo)
     with pytest.raises(ValueError, match="override") as e:
-        repo.activate_snapshot(USER, snap_rows(range(10)) + [listen(99)], NOW + timedelta(days=1))
+        activate(repo, USER, snap_rows(range(10)) + [listen(99)], NOW + timedelta(days=1))
     assert "Song" not in str(e.value)
     # rolled back entirely: new row 99 not applied
     assert q(repo, "SELECT count(*) FROM listens") == 20 and gen(repo) == g
-    res = repo.activate_snapshot(
-        USER, snap_rows(range(10)), NOW + timedelta(days=1), allow_large_delete=True
+    res = activate(
+        repo, USER, snap_rows(range(10)), NOW + timedelta(days=1), allow_large_delete=True
     )
     assert res["tombstoned"] == 10
     assert q(repo, "SELECT count(*) FROM listens") == 10
@@ -235,10 +328,10 @@ def test_snapshot_large_delete_guard_and_override(repo):
 def test_snapshot_empty_or_invalid_blocks_deletes(repo):
     seed_history(repo, 20)
     snap_at = NOW + timedelta(days=1)
-    res = repo.activate_snapshot(USER, [], snap_at, allow_large_delete=True)
+    res = activate(repo, USER, [], snap_at, allow_large_delete=True)
     assert res["deletions_blocked"] == 1 and res["tombstoned"] == 0
     rows = [*snap_rows(range(5)), {"listened_at": T0, "recording_msid": "bad"}]
-    res = repo.activate_snapshot(USER, rows, snap_at, allow_large_delete=True)
+    res = activate(repo, USER, rows, snap_at, allow_large_delete=True)
     assert res["deletions_blocked"] == 1 and res["invalid"] == 1 and res["quarantined"] == 1
     assert q(repo, "SELECT count(*) FROM listens") == 20
     assert q(repo, "SELECT count(*) FROM raw_listens WHERE tombstoned_at IS NOT NULL") == 0
@@ -254,10 +347,10 @@ def test_snapshot_parse_error_mutates_nothing(repo):
         raise RuntimeError("stream broke")
 
     with pytest.raises(RuntimeError):
-        repo.activate_snapshot(USER, rows(), NOW + timedelta(days=1), allow_large_delete=True)
+        activate(repo, USER, rows(), NOW + timedelta(days=1), allow_large_delete=True)
     with pytest.raises(ValueError):
-        repo.activate_snapshot(
-            USER, [listen(100), {"listened_at": T0, "x": {1, 2}}], NOW + timedelta(days=1)
+        activate(
+            repo, USER, [listen(100), {"listened_at": T0, "x": {1, 2}}], NOW + timedelta(days=1)
         )
     assert q(repo, "SELECT count(*) FROM listens") == 20 and gen(repo) == g
     assert q(repo, "SELECT count(*) FROM raw_listens") == 20
@@ -268,7 +361,7 @@ def test_snapshot_upserts_remaps_and_new_rows(repo):
     rows = snap_rows(range(20))
     rows[3] = listen(3, track="Remapped")
     rows.append(listen(77))
-    res = repo.activate_snapshot(USER, rows, NOW + timedelta(days=1))
+    res = activate(repo, USER, rows, NOW + timedelta(days=1))
     assert res["changed"] == 2 and res["inserted"] == 1 and res["updated"] == 1
     assert q(repo, "SELECT track_name FROM listens WHERE recording_msid = :m", m=msid(3)) == (
         "Remapped"
@@ -328,9 +421,7 @@ def test_guard_denominator_ignores_newer_arrivals(repo):
     # 100 listens fetched after the snapshot started must not dilute the 10% guard
     repo.ingest(USER, [listen(200 + i) for i in range(100)], "api", late)
     with pytest.raises(ValueError, match="override"):
-        repo.activate_snapshot(
-            USER, snap_rows(range(10)) + [listen(200 + i) for i in range(100)], snap_at
-        )
+        activate(repo, USER, snap_rows(range(10)) + [listen(200 + i) for i in range(100)], snap_at)
     assert q(repo, "SELECT count(*) FROM listens") == 120
 
 
@@ -340,3 +431,94 @@ def test_next_retry_uses_stats_next_retry_at(repo):
     repo.finish_run(rid, "failed", {"next_retry_at": retry.isoformat(), "attempts": 2})
     assert repo.next_retry(USER) == retry
     assert repo.next_retry(USER, "export") == retry
+
+
+def rich(n, **kw):
+    p = listen(n, **kw)
+    p["mbid_mapping"] = {
+        "recording_mbid": RICH["rec"],
+        "artists": [{"artist_credit_name": "Artist", "artist_mbid": RICH["art"]}],
+    }
+    return p
+
+
+RICH = {"rec": str(uuid.uuid4()), "art": str(uuid.uuid4())}
+
+
+def test_sparse_api_never_erases_export_enrichment(repo):
+    snap_at = NOW + timedelta(days=1)
+    activate(repo, USER, [rich(1)], snap_at)
+    g = gen(repo)
+    # sparse API payloads: omitted, null and empty mapping must not erase anything
+    for sparse in (
+        listen(1),
+        {**listen(1), "mbid_mapping": None},
+        {**listen(1), "mbid_mapping": {}},
+    ):
+        assert repo.ingest(USER, [sparse], "api", snap_at + timedelta(hours=1)) == 0
+    assert gen(repo) == g
+    assert str(q(repo, "SELECT recording_mbid FROM listens")) == RICH["rec"]
+    assert str(q(repo, "SELECT artist_mbid FROM listen_artists")) == RICH["art"]
+    assert q(repo, "SELECT payload ? 'mbid_mapping' FROM raw_listens") is True
+    # a non-empty API remap still wins
+    new = str(uuid.uuid4())
+    assert (
+        repo.ingest(USER, [{**listen(1), "mbid_mapping": {"recording_mbid": new}}], "api", NOW) == 1
+    )
+    assert str(q(repo, "SELECT recording_mbid FROM listens")) == new
+    assert str(q(repo, "SELECT artist_mbid FROM listen_artists")) == RICH["art"]
+    # export is authoritative: remap, then clear; identity stable
+    other = str(uuid.uuid4())
+    remap = rich(1)
+    remap["mbid_mapping"]["recording_mbid"] = other
+    res = activate(repo, USER, [remap], snap_at)
+    assert res["changed"] == 1
+    assert str(q(repo, "SELECT recording_mbid FROM listens")) == other
+    g = gen(repo)
+    assert activate(repo, USER, [remap], snap_at)["changed"] == 0 and gen(repo) == g
+    res = activate(repo, USER, [listen(1)], snap_at)
+    assert res["changed"] == 1
+    assert q(repo, "SELECT recording_mbid FROM listens") is None
+    assert q(repo, "SELECT artist_mbid FROM listen_artists") is None
+    assert q(repo, "SELECT count(*) FROM listens") == 1
+    assert q(repo, "SELECT count(*) FROM raw_listens") == 1
+
+
+def test_no_completeness_evidence_blocks_deletes(repo):
+    seed_history(repo, 20)
+    res = repo.activate_snapshot(USER, snap_rows(range(19)), NOW + timedelta(days=1))
+    assert res["deletions_blocked"] == 1 and res["tombstoned"] == 0
+    res = repo.activate_snapshot(
+        USER, snap_rows(range(2)), NOW + timedelta(days=1), allow_large_delete=True
+    )
+    assert res["deletions_blocked"] == 1
+    assert q(repo, "SELECT count(*) FROM listens") == 20
+    assert q(repo, "SELECT count(*) FROM raw_listens WHERE tombstoned_at IS NOT NULL") == 0
+
+
+def test_run_stats_and_scan_state(repo):
+    assert repo.load_scan(USER) is None
+    scan = {"upper": 100, "lower": 10, "next_max_ts": 90}
+    rid = repo.begin_run(USER, "incremental", {"scan": scan})
+    assert repo.load_scan(USER) == scan
+    repo.update_run_stats(rid, {"scan": {**scan, "next_max_ts": 50}})
+    assert repo.load_scan(USER)["next_max_ts"] == 50
+    repo.finish_run(rid, "failed", {"next_retry_at": NOW.isoformat()}, "boom")
+    assert repo.load_scan(USER)["next_max_ts"] == 50  # merged, scan preserved
+    assert repo.next_retry(USER) == NOW
+    repo.finish_run(repo.begin_run(USER, "incremental"), "succeeded")
+    assert repo.load_scan(USER) is None
+    stale = repo.begin_run(USER, "incremental", {"scan": scan})
+    assert repo.load_scan(USER) == scan
+    fresh = repo.begin_run(USER, "incremental")  # restart: stale run aborted
+    assert q(repo, "SELECT status FROM sync_runs WHERE id = :i", i=stale) == "aborted"
+    assert q(repo, "SELECT finished_at IS NOT NULL FROM sync_runs WHERE id = :i", i=stale)
+    assert repo.load_scan(USER) is None
+    repo.update_run_stats(fresh, {"scan": scan})
+    repo.finish_run(fresh, "ambiguous")
+    assert repo.load_scan(USER) is None  # only running/failed
+    other = repo.begin_run(USER, "export", {"scan": scan})
+    assert repo.load_scan(USER) is None  # incremental only
+    repo.finish_run(other, "failed")
+    with pytest.raises(ValueError):
+        repo.update_run_stats(10**9, {})

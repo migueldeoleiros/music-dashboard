@@ -9,6 +9,7 @@ from tempfile import TemporaryFile
 from typing import Any, Protocol
 
 from music_dashboard.application.sync_listens import SyncBusy, failure_stats
+from music_dashboard.domain.listening.entities import ExportSnapshot
 from music_dashboard.domain.listening.repositories import SyncRepositoryPort
 
 
@@ -36,14 +37,24 @@ def reconcile_history(
             # Spool to disk rather than hydrate full history. Lazy download/parsing
             # failures happen BEFORE the repository can touch active history.
             with TemporaryFile(mode="w+t", encoding="utf-8") as staged:
+                snapshot = client.export(user)
+                trusted = (
+                    isinstance(snapshot, ExportSnapshot)
+                    and snapshot.complete
+                    and snapshot.user.casefold() == user.casefold()
+                    and snapshot.expected_count is not None
+                )
                 count = 0
-                for row in client.export(user):
+                for row in snapshot:
                     if not isinstance(row, dict):
                         raise ValueError("Export contains a non-object record")
                     staged.write(json.dumps(row, allow_nan=False) + "\n")
                     count += 1
                 if count == 0:
                     raise ValueError("Empty export cannot replace history; no data deleted")
+                if isinstance(snapshot, ExportSnapshot) and snapshot.expected_count is not None:
+                    if count != snapshot.expected_count:
+                        raise ValueError("Export does not match the completed snapshot manifest")
                 staged.seek(0)
 
                 def rows() -> Iterator[dict[str, Any]]:
@@ -51,7 +62,11 @@ def reconcile_history(
                         yield json.loads(line)
 
                 stats = repository.activate_snapshot(
-                    user, rows(), snapshot_at, allow_large_delete=allow_large_delete
+                    user,
+                    rows(),
+                    snapshot_at,
+                    allow_large_delete=allow_large_delete,
+                    snapshot_complete=trusted,
                 )
             if stats.get("deletions_blocked"):
                 raise ValueError("Export identity validation failed; reconcile is still required")
@@ -68,5 +83,5 @@ def reconcile_history(
             repository.finish_run(run, "succeeded", stats)
             return stats
         except Exception as exc:
-            repository.finish_run(run, "failed", failure_stats(snapshot_at), type(exc).__name__)
+            repository.finish_run(run, "failed", failure_stats(), type(exc).__name__)
             raise

@@ -155,6 +155,55 @@ def _parse(payload: Any, user: str) -> _Parsed:
     return out
 
 
+_API_MBID_KEYS = ("recording_mbid", "release_mbid", "release_group_mbid", "artist_mbids")
+
+
+def _present(value: Any) -> bool:
+    return value not in (None, "", [], {})
+
+
+def _fill(incoming: dict[str, Any], existing: dict[str, Any]) -> dict[str, Any]:
+    """existing values fill keys the incoming dict omits or leaves null/empty."""
+    out = dict(incoming)
+    for k, v in existing.items():
+        if not _present(out.get(k)) and _present(v):
+            out[k] = v
+    return out
+
+
+def _merge_api(incoming: Any, existing: Any) -> Any:
+    """API observations are NON-authoritative for enrichment: omitted/null/empty mapping,
+    credits and MBIDs never erase what a stored payload (export or API) already holds;
+    non-empty incoming values still override (a real remap). Only exports clear."""
+    if not isinstance(incoming, dict) or not isinstance(existing, dict):
+        return incoming
+    out = dict(incoming)
+    ex_tm, in_tm = _dict(existing.get("track_metadata")), _dict(incoming.get("track_metadata"))
+    tm = dict(in_tm)
+    for holder_in, holder_ex, target in (
+        (in_tm, ex_tm, tm),
+        (incoming, existing, out),
+    ):
+        if _present(holder_ex.get("mbid_mapping")):
+            target["mbid_mapping"] = _fill(
+                _dict(holder_in.get("mbid_mapping")), _dict(holder_ex["mbid_mapping"])
+            )
+    info = _fill(
+        _dict(in_tm.get("additional_info")),
+        {k: v for k, v in _dict(ex_tm.get("additional_info")).items() if k in _API_MBID_KEYS},
+    )
+    if info:
+        tm["additional_info"] = info
+    if tm or "track_metadata" in out:
+        out["track_metadata"] = tm
+    return out
+
+
+def _json_clean(stats: dict[str, Any] | None) -> dict[str, Any]:
+    cleaned: dict[str, Any] = json.loads(json.dumps(stats or {}, default=str))
+    return cleaned
+
+
 def _dumps(value: Any) -> str:
     try:
         return json.dumps(value)
@@ -277,19 +326,51 @@ class SyncRepository:
             )
 
     # -- runs ------------------------------------------------------------------------------
-    def begin_run(self, user: str, kind: str) -> int:
+    def begin_run(self, user: str, kind: str, stats: dict[str, Any] | None = None) -> int:
         if kind not in RUN_KINDS:
             raise ValueError(f"invalid run kind: {kind}")
         with self._engine.begin() as c:
+            # a still-"running" row for this user/kind is stale (callers hold the sync lock)
+            c.execute(
+                text(
+                    "UPDATE sync_runs SET status = 'aborted', finished_at = now() "
+                    "WHERE user_name = :u AND kind = :k AND status = 'running'"
+                ),
+                {"u": user, "k": kind},
+            )
             return int(
                 c.execute(
                     text(
-                        "INSERT INTO sync_runs (kind, status, user_name) "
-                        "VALUES (:k, 'running', :u) RETURNING id"
+                        "INSERT INTO sync_runs (kind, status, user_name, stats) "
+                        "VALUES (:k, 'running', :u, CAST(:st AS jsonb)) RETURNING id"
                     ),
-                    {"k": kind, "u": user},
+                    {"k": kind, "u": user, "st": json.dumps(_json_clean(stats))},
                 ).scalar_one()
             )
+
+    def update_run_stats(self, run_id: int, stats: dict[str, Any]) -> None:
+        """Durably merge top-level keys into a run's stats (e.g. resumable scan state)."""
+        with self._engine.begin() as c:
+            n = c.execute(
+                text("UPDATE sync_runs SET stats = stats || CAST(:st AS jsonb) WHERE id = :id"),
+                {"st": json.dumps(_json_clean(stats)), "id": run_id},
+            ).rowcount
+        if n != 1:
+            raise ValueError(f"unknown sync run: {run_id}")
+
+    def load_scan(self, user: str) -> dict[str, Any] | None:
+        """`stats.scan` of the latest incremental run, only if it is running or failed."""
+        with self._engine.connect() as c:
+            row = c.execute(
+                text(
+                    "SELECT status, stats -> 'scan' FROM sync_runs "
+                    "WHERE user_name = :u AND kind = 'incremental' ORDER BY id DESC LIMIT 1"
+                ),
+                {"u": user},
+            ).first()
+        if row is None or row[0] not in ("running", "failed") or not isinstance(row[1], dict):
+            return None
+        return dict(row[1])
 
     def finish_run(
         self,
@@ -300,13 +381,13 @@ class SyncRepository:
     ) -> None:
         if status not in RUN_STATUSES or status == "running":
             raise ValueError(f"invalid final run status: {status}")
-        clean = json.loads(json.dumps(stats or {}, default=str))
+        clean = _json_clean(stats)
         err = error.strip()[:_MAX_ERROR_CHARS] if error else None
         with self._engine.begin() as c:
             n = c.execute(
                 text(
                     "UPDATE sync_runs SET status = :s, finished_at = now(), "
-                    "stats = CAST(:st AS jsonb), error = :e WHERE id = :id"
+                    "stats = stats || CAST(:st AS jsonb), error = :e WHERE id = :id"
                 ),
                 {"s": status, "st": json.dumps(clean), "e": err, "id": run_id},
             ).rowcount
@@ -337,11 +418,39 @@ class SyncRepository:
         """Upsert raw + normalized listens; quarantine bad identity. Returns changed listens."""
         received_at = _aware(received_at)
         with self._engine.begin() as c:
+            if source != "export":
+                payloads = self._merge_existing(c, user, payloads)
             self._stage(c, user, payloads, source, received_at)
             counts = self._apply(c, user, source, received_at)
             if counts["changed"]:
                 self._bump_generation(c)
         return counts["changed"]
+
+    @staticmethod
+    def _merge_existing(c: Connection, user: str, payloads: list[Any]) -> list[Any]:
+        """Apply non-authoritative API merge against stored raw payloads (see _merge_api)."""
+        keyed: list[tuple[int, datetime, uuid.UUID]] = []
+        for i, pl in enumerate(payloads):
+            p = _parse(pl, user)
+            if p.listened_at is not None and p.msid is not None and not p.missing:
+                keyed.append((i, p.listened_at, p.msid))
+        out = list(payloads)
+        for off in range(0, len(keyed), _CHUNK):
+            chunk = keyed[off : off + _CHUNK]
+            rows = c.execute(
+                text(
+                    "SELECT r.listened_at, r.recording_msid, r.payload FROM raw_listens r "
+                    "WHERE r.user_name = :u AND (r.listened_at, r.recording_msid) IN "
+                    "(SELECT * FROM unnest(CAST(:ts AS timestamptz[]), CAST(:ms AS uuid[])))"
+                ),
+                {"u": user, "ts": [k[1] for k in chunk], "ms": [k[2] for k in chunk]},
+            ).all()
+            stored = {(r[0], r[1]): r[2] for r in rows}
+            for i, at, ms in chunk:
+                old = stored.get((at, ms))
+                if old is not None:
+                    out[i] = _merge_api(payloads[i], old)
+        return out
 
     # -- snapshot --------------------------------------------------------------------------
     def activate_snapshot(
@@ -350,12 +459,15 @@ class SyncRepository:
         rows: Iterable[dict[str, Any]],
         snapshot_at: datetime,
         allow_large_delete: bool = False,
+        snapshot_complete: bool = False,
     ) -> dict[str, int]:
         """Stage the complete export, then upsert and tombstone atomically.
 
         Raises ValueError (no mutation) if staging fails or deletions exceed 10% of the
         in-scope active listens without `allow_large_delete`. Empty snapshot or any invalid
-        identity blocks every deletion (`deletions_blocked` = 1); quarantine/upserts still run.
+        identity blocks every deletion (`deletions_blocked` = 1), and so does
+        `snapshot_complete=False` (default): only a caller holding validated evidence that the
+        export is complete may pass True; quarantine/upserts still run.
         """
         snapshot_at = _aware(snapshot_at)
         with self._engine.begin() as c:
@@ -367,7 +479,7 @@ class SyncRepository:
                 "AND NOT EXISTS (SELECT 1 FROM snapshot_rows s "
                 "WHERE s.listened_at = r.listened_at AND s.recording_msid = r.recording_msid)"
             )
-            blocked = valid == 0 or invalid > 0
+            blocked = not snapshot_complete or valid == 0 or invalid > 0
             to_delete = 0
             if not blocked:
                 to_delete = int(

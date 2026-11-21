@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from music_dashboard.domain.listening.entities import ExportSnapshot
 from music_dashboard.infrastructure.persistence import seed_data as d
 
 
@@ -42,5 +43,5 @@ class FixtureListenBrainzClient:
             reverse=True,
         )[:count]
 
-    def export(self, user: str) -> list[dict[str, Any]]:
-        return self.rows
+    def export(self, user: str) -> ExportSnapshot:
+        return ExportSnapshot(self.rows, user, len(self.rows), complete=True)

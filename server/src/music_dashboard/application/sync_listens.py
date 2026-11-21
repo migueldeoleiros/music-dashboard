@@ -37,9 +37,9 @@ def _timestamps(page: list[dict[str, Any]]) -> list[int]:
     return result
 
 
-def failure_stats(now: datetime) -> dict[str, Any]:
-    # Durable bounded backoff; the transport owns shorter HTTP retries.
-    return {"next_retry_at": (now + timedelta(minutes=15)).isoformat()}
+def failure_stats() -> dict[str, Any]:
+    # Deadline is based on failure time, never the potentially much earlier start.
+    return {"next_retry_at": (datetime.now(UTC) + timedelta(minutes=15)).isoformat()}
 
 
 def sync_listens(
@@ -66,11 +66,20 @@ def sync_listens(
         state = repository.load_checkpoint(user)
         if state.get("requires_reconcile"):
             raise BoundaryAmbiguity("Run music-dashboard reconcile to clear API ambiguity")
-        run = repository.begin_run(user, "incremental")
-        anchor = state.get("last_incremental_at") or now
-        floor = int((anchor - overlap).timestamp())
+        scan = repository.load_scan(user)
+        last_success = state.get("last_incremental_at")
+        if scan and last_success and datetime.fromisoformat(scan["anchor_at"]) <= last_success:
+            scan = None  # A successful export superseded an interrupted incremental.
+        if scan is None:
+            scan = {
+                "anchor_at": now.isoformat(),
+                "floor_ts": int(((last_success or now) - overlap).timestamp()),
+                "upper_ts": int(now.timestamp()) + 1,
+            }
+        floor = int(scan["floor_ts"])
         cursor = state.get("cursor_max_ts")
-        upper = int(cursor) if cursor is not None else int(now.timestamp()) + 1
+        upper = int(cursor) if cursor is not None else int(scan["upper_ts"])
+        run = repository.begin_run(user, "incremental", {"scan": scan})
         changed = 0
         pages = 0
         try:
@@ -122,7 +131,7 @@ def sync_listens(
                 user,
                 {
                     "cursor_max_ts": None,
-                    "last_incremental_at": now,
+                    "last_incremental_at": datetime.fromisoformat(scan["anchor_at"]),
                     "ambiguous_boundary_ts": None,
                     "requires_reconcile": False,
                 },
@@ -134,5 +143,7 @@ def sync_listens(
             # Never persist arbitrary exception text: an upstream exception can carry
             # credentials, URLs or private payloads.
             status = "ambiguous" if isinstance(exc, BoundaryAmbiguity) else "failed"
-            repository.finish_run(run, status, failure_stats(now), type(exc).__name__)
+            repository.finish_run(
+                run, status, {**failure_stats(), "scan": scan}, type(exc).__name__
+            )
             raise

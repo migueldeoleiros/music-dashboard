@@ -9,6 +9,7 @@ import pytest
 from music_dashboard.application.jobs.sync import SyncConfigurationError, WorkerSyncSettings
 from music_dashboard.application.reconcile_history import reconcile_history
 from music_dashboard.application.sync_listens import BoundaryAmbiguity, SyncBusy, sync_listens
+from music_dashboard.domain.listening.entities import ExportSnapshot
 
 NOW = datetime(2026, 1, 10, tzinfo=UTC)
 T = int(NOW.timestamp()) - 60
@@ -39,8 +40,8 @@ class MemoryRepository:
         self.state.update(state)
         self.checkpoints.append(state)
 
-    def begin_run(self, user, kind):
-        self.runs.append({"kind": kind, "status": "running"})
+    def begin_run(self, user, kind, stats=None):
+        self.runs.append({"kind": kind, "status": "running", "stats": stats or {}})
         return len(self.runs) - 1
 
     def finish_run(self, run_id, status, stats, error=None):
@@ -54,12 +55,20 @@ class MemoryRepository:
             self.data[key] = payload
         return changed
 
-    def activate_snapshot(self, user, rows, snapshot_at, allow_large_delete=False):
+    def load_scan(self, user):
+        for run in reversed(self.runs):
+            if run["kind"] == "incremental":
+                return run["stats"].get("scan") if run["status"] in {"running", "failed"} else None
+        return None
+
+    def activate_snapshot(
+        self, user, rows, snapshot_at, allow_large_delete=False, snapshot_complete=False
+    ):
         self.activation_calls += 1
         return {"changed": self.ingest(user, list(rows), "export", snapshot_at)}
 
-    def next_retry(self, user):
-        return self.retry
+    def next_retry(self, user, kind=None):
+        return self.retry.get(kind) if isinstance(self.retry, dict) else self.retry
 
 
 class Pages:
@@ -79,7 +88,7 @@ class Pages:
         )[:count]
 
     def export(self, user):
-        return self.rows
+        return ExportSnapshot(self.rows, user, len(self.rows), complete=True)
 
 
 def test_incremental_rerun_idempotent_and_distinct_msids():
@@ -221,3 +230,49 @@ def test_bad_schedule_config_sanitized(monkeypatch, key, value):
     monkeypatch.setenv(key, value)
     with pytest.raises(SyncConfigurationError):
         WorkerSyncSettings.from_env()
+
+
+def test_long_restart_preserves_original_window_and_next_head_scan():
+    # Interrupted first scan near its head, with an unscanned row near its floor.
+    started = NOW + timedelta(hours=1)
+    bottom = int((started - timedelta(hours=72)).timestamp()) + 1
+    rows = [row(T + n, n + 2000) for n in range(1, 1001)] + [row(bottom, 1)]
+    first, repo = Pages(rows), MemoryRepository()
+    first.fail_on = 3
+    with pytest.raises(RuntimeError):
+        sync_listens(first, repo, "u", now=started)
+    # Add an arrival ABOVE the descending cursor during a week-long outage.
+    arrival = row(int((started + timedelta(days=1)).timestamp()), 9000)
+    rows.append(arrival)
+    restart = started + timedelta(days=7)
+    sync_listens(Pages(rows), repo, "u", now=restart)
+    assert repo.state["last_incremental_at"] == started  # never advance to restart time
+    assert ("u", bottom, str(UUID(int=1))) in repo.data
+    # The successful resume may leave a newer arrival above the cursor; next scan
+    # must still reach it even though it is now older than 72h relative to restart.
+    sync_listens(Pages(rows), repo, "u", now=restart)
+    assert ("u", arrival["listened_at"], arrival["recording_msid"]) in repo.data
+    assert repo.state["last_incremental_at"] == restart
+
+
+def test_resume_original_floor_survives_first_scan_outage():
+    started = NOW + timedelta(hours=1)
+    bottom = int((started - timedelta(hours=72)).timestamp()) + 1
+    rows = [row(T + n, n + 2000) for n in range(1, 1001)] + [row(bottom, 1)]
+    first, repo = Pages(rows), MemoryRepository()
+    first.fail_on = 3
+    with pytest.raises(RuntimeError):
+        sync_listens(first, repo, "u", now=started)
+    sync_listens(Pages(rows), repo, "u", now=started + timedelta(days=7))
+    assert ("u", bottom, str(UUID(int=1))) in repo.data
+
+
+def test_invalid_snapshot_cannot_clear_reconcile_checkpoint():
+    repo = MemoryRepository()
+    repo.state["requires_reconcile"] = True
+    repo.activate_snapshot = lambda *args, **kwargs: {"deletions_blocked": 1}
+    with pytest.raises(ValueError, match="identity"):
+        reconcile_history(Pages([row()]), repo, "u", now=NOW)
+    assert repo.state["requires_reconcile"]
+    assert "last_export_at" not in repo.state
+    assert repo.runs[-1]["status"] == "failed"

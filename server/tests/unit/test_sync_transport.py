@@ -2,6 +2,7 @@ import io
 import json
 import urllib.error
 import urllib.request
+import uuid
 import zipfile
 from collections.abc import Callable
 from typing import Any
@@ -9,6 +10,7 @@ from typing import Any
 import pytest
 
 from music_dashboard.infrastructure.listenbrainz.listens import (
+    ExportAccountMismatchError,
     ExportCorruptError,
     ExportFailedError,
     ExportIncompleteError,
@@ -77,7 +79,7 @@ def make(
 def listen(ts: int, msid: str = "m1") -> dict[str, Any]:
     return {
         "listened_at": ts,
-        "recording_msid": msid,
+        "recording_msid": str(uuid.uuid5(uuid.NAMESPACE_DNS, msid)),
         "track_metadata": {"track_name": "T", "additional_info": {"x": [1, {"y": None}]}},
         "mbid_mapping": {"recording_mbid": "r"},
     }
@@ -143,10 +145,36 @@ def test_non_object_or_invalid_json_rejected_empty_body_ok() -> None:
 
 def test_429_retry_after_backoff_then_success() -> None:
     clock = Clock()
-    http = FakeHttp(status(429, {"Retry-After": "7"}), status(429, {"retry-after": "9999"}), ok({}))
+    http = FakeHttp(status(429, {"Retry-After": "7"}), status(429, {"retry-after": "30"}), ok({}))
     make(http, clock, max_backoff=30).request("GET", "/1/x")
     assert clock.sleeps == [7, 30]
     assert len(http.requests) == 3
+
+
+@pytest.mark.parametrize("header", ["Retry-After", "X-RateLimit-Reset-In"])
+def test_429_longer_than_max_backoff_raises_without_early_retry(header: str) -> None:
+    clock = Clock()
+    http = FakeHttp(status(429, {header: "9999"}), ok({}))
+    with pytest.raises(RateLimitedError) as err:
+        make(http, clock, max_backoff=30).request("GET", "/1/x")
+    assert err.value.retry_after == 9999 and clock.sleeps == [] and len(http.requests) == 1
+
+
+def test_429_retry_after_http_date() -> None:
+    clock = Clock()
+    http = FakeHttp(status(429, {"Retry-After": "Wed, 21 Oct 2015 07:28:10 GMT"}), ok({}))
+    t = make(http, clock, wall_clock=lambda: 1445412480.0 - 5)  # 07:28:00 GMT + ... -5s
+    t.request("GET", "/1/x")
+    assert clock.sleeps == [15]
+
+
+def test_exhausted_rate_window_beyond_max_backoff_raises_before_sending() -> None:
+    http = FakeHttp(ok({}, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset-In": "500"}))
+    t = make(http, max_backoff=30)
+    t.request("GET", "/1/x")
+    with pytest.raises(RateLimitedError):
+        t.request("GET", "/1/x")
+    assert len(http.requests) == 1
 
 
 def test_429_exhaustion_is_bounded_and_sanitized() -> None:
@@ -291,6 +319,8 @@ def test_page_and_count_malformed_payloads() -> None:
 
 # ---------------------------------------------------------------- export
 
+RECORDS = [listen(1), listen(1, "m2")]
+
 
 def export_http(
     blob: bytes,
@@ -298,9 +328,11 @@ def export_http(
     count: int = 2,
     create: dict[str, Any] | None = None,
     with_count: bool = True,
+    owner: dict[str, Any] | None = None,
 ) -> FakeHttp:
-    states = states if states is not None else [{"status": "complete"}]
+    states = states if states is not None else [{"status": "complete", "listen_count": 2}]
     seq: list[HttpResponse] = [
+        ok(owner if owner is not None else {"valid": True, "user_name": "U"}),
         *([ok({"payload": {"count": count}})] if with_count else []),
         ok(create if create is not None else {"export_id": 77}),
         *[ok(s) for s in states],
@@ -309,19 +341,27 @@ def export_http(
     return FakeHttp(*seq)
 
 
-RECORDS = [listen(1), listen(1, "m2")]
+def rows_of(snap: Any) -> list[dict[str, Any]]:
+    return list(snap.rows)
 
 
-def test_export_happy_path_synthetic_shape_and_calls() -> None:
+def test_export_happy_path_complete_snapshot_and_calls() -> None:
     http = export_http(
         make_zip(RECORDS),
-        [{"status": "waiting"}, {"status": "in_progress"}, {"status": "complete"}],
+        [
+            {"status": "waiting"},
+            {"status": "in_progress"},
+            {"status": "complete", "listen_count": 2},
+        ],
     )
     clock = Clock()
-    got = client(http, clock, poll_interval=2).export("u")
-    assert got == RECORDS  # metadata preserved verbatim
+    snap = client(http, clock, poll_interval=2).export("u")
+    assert snap.complete and snap.expected_count == 2 and snap.user == "u"
+    assert not isinstance(snap.rows, list)  # lazy, nothing decoded yet
+    assert rows_of(snap) == RECORDS  # metadata preserved verbatim
     calls = [(r.method, r.url.split(".org")[1]) for r in http.requests]
     assert calls == [
+        ("GET", "/1/validate-token"),
         ("GET", "/1/user/u/listen-count"),
         ("POST", "/1/export/"),
         ("GET", "/1/export/77"),
@@ -329,25 +369,66 @@ def test_export_happy_path_synthetic_shape_and_calls() -> None:
         ("GET", "/1/export/77"),
         ("GET", "/1/export/download/77"),
     ]
-    assert all("Authorization" in r.headers for r in http.requests[1:])
-    assert "Authorization" not in http.requests[0].headers
+    assert all("Authorization" in r.headers for r in http.requests if "listen-count" not in r.url)
     assert clock.sleeps == [2, 2]
+
+
+def test_export_without_manifest_is_not_complete_but_usable() -> None:
+    snap = client(export_http(make_zip(RECORDS), [{"status": "complete"}])).export("u")
+    assert not snap.complete and snap.expected_count is None
+    assert rows_of(snap) == RECORDS
+    for bad in ("2", True, -1, None, 2.0):
+        snap = client(
+            export_http(make_zip(RECORDS), [{"status": "ready", "listen_count": bad}])
+        ).export("u")
+        assert not snap.complete and snap.expected_count is None
 
 
 def test_export_documented_alt_shapes() -> None:
     http = export_http(
         make_zip(RECORDS, name="export/listens.jsonl"),
-        [{"status": "Completed", "download_url": "https://api.listenbrainz.org/dl/77.zip"}],
+        [
+            {
+                "status": "Completed",
+                "listen_count": 2,
+                "download_url": "https://api.listenbrainz.org/dl/77.zip",
+            }
+        ],
         create={"id": "abc-1"},
     )
-    assert client(http).export("u") == RECORDS
+    assert rows_of(client(http).export("u")) == RECORDS
     assert http.requests[-1].url == "https://api.listenbrainz.org/dl/77.zip"
-    assert http.requests[2].url.endswith("/1/export/abc-1")
-    # single unnamed jsonl member + "ready"
-    assert (
-        client(export_http(make_zip(RECORDS, name="dump.jsonl"), [{"status": "ready"}])).export("u")
-        == RECORDS
+    assert http.requests[3].url.endswith("/1/export/abc-1")
+    one = export_http(
+        make_zip(RECORDS, name="dump.jsonl"), [{"status": "ready", "listen_count": 2}]
     )
+    assert rows_of(client(one).export("u")) == RECORDS
+
+
+@pytest.mark.parametrize(
+    "owner",
+    [
+        {"valid": True, "user_name": "someone-else"},
+        {"valid": False, "user_name": "U"},
+        {"valid": True},
+        {"user_name": "U"},
+        {"valid": "true", "user_name": "U"},
+        {},
+    ],
+)
+def test_export_token_owner_mismatch_or_unvalidated_aborts_before_export(
+    owner: dict[str, Any],
+) -> None:
+    http = export_http(make_zip(RECORDS), owner=owner)
+    with pytest.raises(ExportAccountMismatchError) as err:
+        client(http).export("u")
+    assert TOKEN not in str(err.value)
+    assert [r.url.split(".org")[1] for r in http.requests] == ["/1/validate-token"]
+
+
+def test_export_owner_match_is_casefold() -> None:
+    http = export_http(make_zip(RECORDS), owner={"valid": True, "user_name": "MiGuEl"})
+    assert client(http).export("miguel").complete
 
 
 def test_export_foreign_download_url_rejected_before_download() -> None:
@@ -369,7 +450,15 @@ def test_export_failed_status_aborts_without_download(state: dict[str, Any]) -> 
     assert not any("download" in r.url for r in http.requests)
 
 
-@pytest.mark.parametrize("state", [{"status": "weird"}, {}, {"status": None}, {"progress": 100}])
+@pytest.mark.parametrize(
+    "state",
+    [
+        {"status": "weird", "listen_count": 2},
+        {"listen_count": 2},
+        {"status": None},
+        {"progress": 100},
+    ],
+)
 def test_export_only_explicit_ready_status_downloads(state: dict[str, Any]) -> None:
     http = export_http(make_zip(RECORDS), [state] * 3)
     clock = Clock()
@@ -386,41 +475,109 @@ def test_export_bad_id(bad: dict[str, Any]) -> None:
 
 
 def test_export_5xx_during_lifecycle_raises_after_bounded_retries() -> None:
-    http = FakeHttp(ok({"payload": {"count": 1}}), ok({"export_id": 1}), status(502))
+    http = FakeHttp(
+        ok({"valid": True, "user_name": "u"}),
+        ok({"payload": {"count": 1}}),
+        ok({"export_id": 1}),
+        status(502),
+    )
     with pytest.raises(HttpStatusError):
         ListenBrainzClient(make(http, max_retries=1)).export("u")
 
 
-def test_export_empty_always_raises() -> None:
-    with pytest.raises(ExportIncompleteError, match="no listens"):
-        client(export_http(make_zip([]), count=0)).export("u")
-    with pytest.raises(ExportIncompleteError):
-        client(export_http(make_zip(raw=b"\n\n"), with_count=False)).export("u", min_records=0)
+def test_export_empty_always_raises_on_exhaustion() -> None:
+    for raw in (b"", b"\n\n"):
+        snap = client(
+            export_http(make_zip(raw=raw), [{"status": "complete", "listen_count": 0}], count=0)
+        ).export("u")
+        with pytest.raises(ExportIncompleteError, match="no listens"):
+            rows_of(snap)
 
 
-def test_export_fewer_than_expected_records_raises_count_alone_not_enough() -> None:
-    with pytest.raises(ExportIncompleteError, match="at least 3"):
-        client(export_http(make_zip(RECORDS), count=3)).export("u")
-    with pytest.raises(ExportIncompleteError):
-        client(export_http(make_zip(RECORDS), with_count=False)).export("u", min_records=5)
-    # explicit lower bound lets a legitimately smaller (post-deletion) export through
-    assert (
-        client(export_http(make_zip(RECORDS), with_count=False)).export("u", min_records=2)
-        == RECORDS
+def test_export_manifest_mismatch_fails_at_exhaustion() -> None:
+    snap = client(export_http(make_zip(RECORDS), [{"status": "ready", "listen_count": 3}])).export(
+        "u"
     )
-    # more records than the count (listens arrived meanwhile) is fine
-    assert client(export_http(make_zip(RECORDS), count=1)).export("u") == RECORDS
+    with pytest.raises(ExportIncompleteError, match="manifest says 3"):
+        rows_of(snap)
+    # extra rows beyond manifest are also a mismatch
+    snap = client(export_http(make_zip(RECORDS), [{"status": "ready", "listen_count": 1}])).export(
+        "u"
+    )
+    with pytest.raises(ExportIncompleteError):
+        rows_of(snap)
 
 
-def test_export_corrupt_zip_crc() -> None:
+def test_export_pre_count_is_lower_bound_count_alone_not_proof() -> None:
+    snap = client(export_http(make_zip(RECORDS), count=3)).export("u")
+    with pytest.raises(ExportIncompleteError, match="at least 3"):
+        rows_of(snap)
+    snap = client(export_http(make_zip(RECORDS), with_count=False)).export("u", min_records=5)
+    with pytest.raises(ExportIncompleteError):
+        rows_of(snap)
+    # explicit lower bound lets a legitimately smaller (post-deletion) export through
+    ok_snap = client(export_http(make_zip(RECORDS), count=9, with_count=False)).export(
+        "u", min_records=2
+    )
+    assert rows_of(ok_snap) == RECORDS
+    # more rows than the global count (listens arrived meanwhile) is fine without manifest
+    snap = client(export_http(make_zip(RECORDS), [{"status": "ready"}], count=1)).export("u")
+    assert rows_of(snap) == RECORDS
+
+
+def test_export_uuid_spellings_cannot_mask_duplicate_identity() -> None:
+    first = listen(1)
+    alternate = dict(first, recording_msid=first["recording_msid"].upper().replace("-", ""))
+    adapter = client(
+        export_http(make_zip([first, alternate]), [{"status": "ready", "listen_count": 2}], count=0)
+    )
+    with pytest.raises(ExportCorruptError, match="duplicate"):
+        rows_of(adapter.export("u"))
+
+
+def test_export_duplicate_identity_rejected() -> None:
+    snap = client(
+        export_http(make_zip([listen(1), listen(1), listen(2)]), [{"status": "ready"}], count=0)
+    ).export("u")
+    with pytest.raises(ExportCorruptError, match="duplicate"):
+        rows_of(snap)
+    # same ts with different msids is NOT a duplicate
+    snap = client(
+        export_http(make_zip([listen(1, "a"), listen(1, "b")]), [{"status": "ready"}], count=0)
+    ).export("u")
+    assert len(rows_of(snap)) == 2
+
+
+def test_export_invalid_identity_rows_yielded_and_counted_toward_manifest() -> None:
+    bad = {"listened_at": None, "recording_msid": "x", "track_metadata": {}}
+    no_msid = {"listened_at": 5, "track_metadata": {}}
+    snap = client(
+        export_http(make_zip([listen(1), bad, no_msid]), [{"status": "ready", "listen_count": 3}])
+    ).export("u")
+    assert snap.complete and snap.expected_count == 3
+    # delivered for raw quarantine; the repository is the final identity safety check
+    assert rows_of(snap) == [listen(1), bad, no_msid]
+    # manifest still enforced over valid + invalid rows
+    short = client(
+        export_http(make_zip([listen(1), bad]), [{"status": "ready", "listen_count": 3}])
+    ).export("u")
+    with pytest.raises(ExportIncompleteError, match="manifest says 3"):
+        rows_of(short)
+    no_manifest = client(
+        export_http(make_zip([listen(1), bad]), [{"status": "ready"}], count=0)
+    ).export("u")
+    assert len(rows_of(no_manifest)) == 2 and not no_manifest.complete
+
+
+def test_export_corrupt_zip_crc_detected_only_at_eof_streaming() -> None:
     blob = bytearray(make_zip(RECORDS))
-    marker = blob.index(b"recording_msid")
-    blob[marker] ^= 0x01  # stored data altered, CRC no longer matches
+    blob[blob.index(b"recording_msid")] ^= 0x01  # stored data altered, CRC mismatch
+    snap = client(export_http(bytes(blob))).export("u")
     with pytest.raises(ExportCorruptError):
-        client(export_http(bytes(blob))).export("u")
+        rows_of(snap)
 
 
-def test_export_truncated_or_non_zip() -> None:
+def test_export_truncated_or_non_zip_fails_eagerly() -> None:
     blob = make_zip(RECORDS)
     for bad in (blob[: len(blob) // 2], b"<html>nope</html>", b""):
         with pytest.raises(ExportCorruptError):
@@ -437,9 +594,10 @@ def test_export_truncated_or_non_zip() -> None:
         b"not json\n",
     ],
 )
-def test_export_invalid_jsonl_all_or_nothing(raw: bytes) -> None:
+def test_export_invalid_jsonl_fails_on_exhaustion(raw: bytes) -> None:
+    snap = client(export_http(make_zip(raw=raw), [{"status": "ready"}], count=0)).export("u")
     with pytest.raises(ExportCorruptError):
-        client(export_http(make_zip(raw=raw), count=0)).export("u")
+        rows_of(snap)
 
 
 def test_export_zip_without_listens_member_or_ambiguous() -> None:
@@ -453,12 +611,32 @@ def test_export_zip_without_listens_member_or_ambiguous() -> None:
         client(export_http(make_zip(raw=b"", name="notes.txt"), count=0)).export("u")
 
 
-def test_export_size_limits() -> None:
+def test_export_size_limits_checked_before_decompression_or_crc() -> None:
     blob = make_zip(RECORDS)
     with pytest.raises(ExportCorruptError):
         client(export_http(blob), max_zip_bytes=10).export("u")
     with pytest.raises(ExportCorruptError):
         client(export_http(blob), max_unzipped_bytes=10).export("u")
+    with pytest.raises(ExportCorruptError):
+        client(export_http(blob), max_members=1).export("u")
+
+
+def test_oversized_unselected_member_and_lying_archive_rejected_pre_read() -> None:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("listens.jsonl", json.dumps(listen(1)) + "\n")
+        zf.writestr("big.bin", b"\0" * (5 << 20))  # compresses to ~5 KiB
+    blob = buf.getvalue()
+    assert len(blob) < 100_000
+    with pytest.raises(ExportCorruptError, match="uncompressed"):
+        client(export_http(blob), max_unzipped_bytes=1 << 20).export("u")
+
+
+def test_export_rows_stream_and_close() -> None:
+    snap = client(export_http(make_zip(RECORDS))).export("u")
+    it = iter(snap.rows)
+    assert next(it) == RECORDS[0]
+    it.close()  # type: ignore[attr-defined]  # abandoned stream must not raise
 
 
 def test_errors_never_contain_token() -> None:
@@ -466,4 +644,3 @@ def test_errors_never_contain_token() -> None:
     with pytest.raises(ExportFailedError) as err:
         client(http).export("u")
     assert TOKEN not in str(err.value)
-    assert isinstance(urllib.request, object)

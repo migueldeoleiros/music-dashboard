@@ -86,21 +86,29 @@ def run_sync(
             if not acquired:
                 raise SyncBusy("Another sync owns the user lock; retry later")
             if scheduled:
-                retry = repository.next_retry(config.user)
-                if retry is not None and retry > now:
-                    return {"status": "backoff"}
                 state = repository.load_checkpoint(config.user)
                 last_export = state.get("last_export_at")
-                if (
+                export_due = (
                     state.get("requires_reconcile")
                     or last_export is None
                     or now - last_export >= timedelta(seconds=config.reconcile_seconds)
-                ):
+                )
+                export_retry = repository.next_retry(config.user, "reconcile")
+                export_ready = export_retry is None or export_retry <= now
+                if export_due and export_ready:
                     kind = "reconcile"
+                elif state.get("requires_reconcile"):
+                    # Only genuine API ambiguity blocks ingestion, not ordinary
+                    # weekly export errors or the large-deletion guard.
+                    return {"status": "backoff"}
                 else:
                     last = state.get("last_incremental_at")
                     if last is not None and now - last < timedelta(seconds=config.interval_seconds):
                         return {"status": "not-due"}
+                    retry = repository.next_retry(config.user, "incremental")
+                    if retry is not None and retry > now:
+                        return {"status": "backoff"}
+                    kind = "incremental"
             if kind in {"bootstrap", "reconcile"}:
                 return reconcile_history(
                     client,
