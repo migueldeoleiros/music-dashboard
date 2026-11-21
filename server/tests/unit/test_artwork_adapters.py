@@ -410,3 +410,29 @@ def test_redirects_only_to_allowlisted_https_hosts():
         "https://evil-archive.org/x",
     ):
         assert handler.redirect_request(req, None, 307, "x", {}, target) is None
+
+
+def test_musicbrainz_artist_lookup_returns_name_and_only_trusted_aliases():
+    fake = Fake(
+        {
+            f"artist/{MBID}": js(
+                {
+                    "name": "Nat Cmiel",
+                    "aliases": [
+                        {"name": "Yeule", "type": "Artist name"},
+                        {"name": "Natalie", "type": "Legal name"},
+                        {"name": "yeule hint", "type": "Search hint"},
+                        {"name": "Plain"},
+                        {"name": "Yeule", "type": "Artist name"},
+                        {"name": 5},
+                        "junk",
+                    ],
+                    "relations": [],
+                }
+            )
+        }
+    )
+    mb = MusicBrainzArtworkLookups(MusicBrainzConfig(user_agent=UA), fake, NoLimit())  # type: ignore[arg-type]
+    links = mb.artist_links(MBID)
+    assert (links.name, links.aliases) == ("Nat Cmiel", ("Yeule", "Plain"))
+    assert "inc=url-rels+aliases" in fake.requests[0].url  # same single request

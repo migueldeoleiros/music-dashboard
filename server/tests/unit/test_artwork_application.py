@@ -39,6 +39,8 @@ class Rec:
 class Links:
     deezer_artist_id: str | None = None
     wikidata_qid: str | None = None
+    name: str | None = None
+    aliases: tuple = ()
 
 
 class MB:
@@ -84,6 +86,24 @@ class Dz:
 
     def artist_picture(self, i):
         return self._hit("artist", i)
+
+    # name search (fallback): scripted per query; every call is recorded
+    searches: dict = {}
+
+    def _search(self, *query):
+        self.calls.append(("search", *query))
+        if self.error:
+            raise self.error
+        return self.searches.get(query, [])
+
+    def search_artists(self, name):
+        return self._search("artist", name)
+
+    def search_albums(self, title, artist=None):
+        return self._search("album", title, artist)
+
+    def search_tracks(self, title, artist):
+        return self._search("track", title, artist)
 
 
 class Caa:
@@ -400,3 +420,202 @@ def test_job_discovered_by_worker_registry():
 
     assert "artwork" in {m.name for m in pkgutil.iter_modules(jobs.__path__)}
     assert callable(job.tick)
+
+
+# --- name fallbacks -------------------------------------------------------------------------
+from music_dashboard.domain.artwork.matching import (  # noqa: E402
+    AlbumCandidate,
+    ArtistCandidate,
+    ArtworkNames,
+    TrackCandidate,
+)
+
+OTHER = COVER.replace("b" * 32, "e" * 32)
+
+
+def dz_with(searches, **kw):
+    dz = Dz(**kw)
+    dz.searches = searches
+    return dz
+
+
+def name_work(kind, names, mbid=None, key="name:x", rel=None, **kw):
+    return ArtworkWork(kind, mbid, rel, 3, name_key=None if mbid else key, names=names, **kw)
+
+
+def searches_of(dz):
+    return [c for c in dz.calls if c[0] == "search"]
+
+
+def test_exact_chains_win_and_never_search():
+    names = ArtworkNames("Blue", ("Joni",))
+    dz = dz_with(
+        {("album", "Blue", "Joni"): [AlbumCandidate("1", "Blue", "Joni", OTHER)]}, upc=COVER
+    )
+    r, repo = resolver([name_work("album", names, MBID, rel=REL, album_kind="release-group")],
+                       MB(Rel("0123456789012")), dz)  # fmt: skip
+    r.run()
+    assert outcome(repo) == ArtworkOutcome("resolved", "deezer", COVER)
+    assert searches_of(dz) == []
+    # CAA exact hit also beats name search
+    dz = dz_with({("album", "Blue", "Joni"): [AlbumCandidate("1", "Blue", "Joni", OTHER)]})
+    r, repo = resolver(
+        [name_work("album", names, MBID)], MB(Rel()), dz, Caa({("release-group", MBID)})
+    )
+    r.run()
+    assert outcome(repo).source == "caa" and outcome(repo).match_kind is None
+    assert searches_of(dz) == []
+    # exact miss -> fallback runs, with provenance
+    r, repo = resolver([name_work("album", names, MBID)], MB(Rel()), dz)
+    r.run()
+    assert outcome(repo) == ArtworkOutcome(
+        "resolved", "deezer", OTHER, None, "album_title_artist", "1"
+    )
+
+
+def test_name_only_entities_skip_all_exact_providers():
+    mb, caa = MB(), Caa()
+    dz = dz_with({("album", "Blue", "Joni"): [AlbumCandidate("4", "blue", "joni", OTHER)]})
+    r, repo = resolver([name_work("album", ArtworkNames("Blue", ("Joni",)))], mb, dz, caa)
+    r.run()
+    assert mb.calls == [] and caa.calls == []
+    assert outcome(repo).match_kind == "album_title_artist"
+    assert repo.saved[0][0].ref == "name:x"
+
+
+def test_album_title_only_is_last_resort_and_rejects_ambiguity_and_conflicts():
+    cands = [AlbumCandidate("1", "Blue", "X", COVER), AlbumCandidate("2", "Blue", "Y", OTHER)]
+    # no known artist: title-only, ambiguous -> miss
+    dz = dz_with({("album", "Blue", None): cands})
+    r, repo = resolver([name_work("album", ArtworkNames("Blue"))], dz=dz)
+    r.run()
+    assert outcome(repo).status == "miss"
+    # single candidate -> accepted as title-only
+    dz = dz_with({("album", "Blue", None): cands[:1]})
+    r, repo = resolver([name_work("album", ArtworkNames("Blue"))], dz=dz)
+    r.run()
+    assert outcome(repo).match_kind == "album_title" and outcome(repo).provider_ref == "1"
+    # known artist conflicts with the only candidate -> miss; title+artist tried first
+    dz = dz_with({("album", "Blue", None): cands[:1], ("album", "Blue", "Joni"): cands[:1]})
+    r, repo = resolver([name_work("album", ArtworkNames("Blue", ("Joni",)))], dz=dz)
+    r.run()
+    assert outcome(repo).status == "miss"
+    assert [c[1:] for c in searches_of(dz)] == [("album", "Blue", "Joni"), ("album", "Blue", None)]
+
+
+def test_album_search_is_bounded_and_blank_names_never_search():
+    names = ArtworkNames("Blue", ("A & B", "A", "B"))
+    dz = dz_with({})
+    r, _ = resolver([name_work("album", names)], dz=dz)
+    r.run()
+    assert len(searches_of(dz)) == 3  # two artists + title-only
+    for blank in (ArtworkNames(), ArtworkNames("  ", ("A",)), ArtworkNames(None, ())):
+        dz = dz_with({})
+        r, repo = resolver([name_work("album", blank)], dz=dz)
+        r.run()
+        assert searches_of(dz) == [] and outcome(repo).status == "miss"
+
+
+def test_placeholder_search_results_are_misses():
+    dz = dz_with({("album", "Blue", "Joni"): [AlbumCandidate("1", "Blue", "Joni", None)]})
+    r, repo = resolver([name_work("album", ArtworkNames("Blue", ("Joni",)))], dz=dz)
+    r.run()
+    assert outcome(repo) == ArtworkOutcome("miss")
+    assert repo.bumped == 0
+
+
+def test_track_uses_track_search_album_cover_and_never_title_as_album():
+    names = ArtworkNames("Song", ("Ann",), release="Album")
+    cands = [TrackCandidate("8", "Song", "Ann", "Album", COVER)]
+    dz = dz_with({("track", "Song", "Ann"): cands})
+    r, repo = resolver([name_work("track", names)], dz=dz)
+    r.run()
+    assert outcome(repo) == ArtworkOutcome(
+        "resolved", "deezer", COVER, None, "track_title_artist", "8"
+    )
+    # no track hit: album fallback uses the listened ALBUM title, never the track title
+    dz = dz_with({("album", "Album", "Ann"): [AlbumCandidate("3", "Album", "Ann", OTHER)]})
+    r, repo = resolver([name_work("track", names)], dz=dz)
+    r.run()
+    assert outcome(repo).image_url == OTHER
+    queries = [c[1:] for c in searches_of(dz)]
+    assert ("album", "Song", "Ann") not in queries and ("album", "Song", None) not in queries
+    # a track titled like an existing album must not take that album's cover
+    same_titled = [AlbumCandidate("3", "Song", "Ann", OTHER)]
+    dz = dz_with({("album", "Song", "Ann"): same_titled, ("album", "Song", None): same_titled})
+    r, repo = resolver([name_work("track", ArtworkNames("Song", ("Ann",)))], dz=dz)
+    r.run()
+    assert outcome(repo).status == "miss"
+    assert [c[1] for c in searches_of(dz)] == ["track"]
+
+
+def test_track_without_artist_or_with_ambiguous_albums_is_a_miss():
+    dz = dz_with({})
+    r, repo = resolver([name_work("track", ArtworkNames("Song", (), release="Album"))], dz=dz)
+    r.run()
+    assert outcome(repo).status == "miss" and searches_of(dz) == []
+    ambiguous = [
+        TrackCandidate("1", "Song", "Ann", "Single", COVER),
+        TrackCandidate("2", "Song", "Ann", "Comp", OTHER),
+    ]
+    dz = dz_with({("track", "Song", "Ann"): ambiguous})
+    r, repo = resolver([name_work("track", ArtworkNames("Song", ("Ann",)))], dz=dz)
+    r.run()
+    assert outcome(repo).status == "miss"
+
+
+def test_mbid_track_falls_back_only_after_isrc_and_caa_miss():
+    names = ArtworkNames("Song", ("Ann",))
+    dz = dz_with({("track", "Song", "Ann"): [TrackCandidate("8", "Song", "Ann", "A", COVER)]})
+    mb = MB(isrcs=["USABC1234567"])
+    r, repo = resolver([name_work("track", names, MBID)], mb, dz)
+    r.run()
+    assert dz.calls[0] == ("isrc", "USABC1234567") and outcome(repo).match_kind
+    dz = dz_with({("track", "Song", "Ann"): [TrackCandidate("8", "Song", "Ann", "A", COVER)]},
+                 isrc=OTHER)  # fmt: skip
+    r, repo = resolver([name_work("track", names, MBID)], MB(isrcs=["USABC1234567"]), dz)
+    r.run()
+    assert outcome(repo) == ArtworkOutcome("resolved", "deezer", OTHER)
+    assert searches_of(dz) == []
+
+
+def test_artist_name_alias_and_ambiguity():
+    pic = lambda i, n, u: ArtistCandidate(i, n, u)  # noqa: E731
+    # name-only artist: exact name, no MusicBrainz calls
+    mb = MB()
+    dz = dz_with({("artist", "Muse"): [pic("1", "MUSE", COVER), pic("2", "Muse Quarterly", OTHER)]})
+    r, repo = resolver([name_work("artist", ArtworkNames("Muse"))], mb, dz)
+    r.run()
+    assert outcome(repo).match_kind == "artist_name" and mb.calls == []
+    # MBID artist: exact id chain misses -> MB name/alias search
+    links = Links(name="Nat Cmiel", aliases=("Yeule",))
+    dz = dz_with({("artist", "Yeule"): [pic("9", "yeule", COVER)]})
+    r, repo = resolver([name_work("artist", ArtworkNames("N. C."), MBID)], MB(links=links), dz)
+    r.run()
+    assert outcome(repo) == ArtworkOutcome("resolved", "deezer", COVER, None, "artist_alias", "9")
+    # ambiguous real name: alias must not rescue
+    dz = dz_with({("artist", "Muse"): [pic("1", "Muse", COVER), pic("2", "Muse", OTHER)],
+                  ("artist", "Yeule"): [pic("9", "Yeule", COVER)]})  # fmt: skip
+    r, repo = resolver([name_work("artist", ArtworkNames("Muse", aliases=("Yeule",)))], dz=dz)
+    r.run()
+    assert outcome(repo).status == "miss"
+    assert [c[2] for c in searches_of(dz)] == ["Muse"]
+
+
+def test_exact_artist_chain_wins_over_name_search():
+    dz = dz_with({("artist", "Muse"): [ArtistCandidate("1", "Muse", OTHER)]}, artist=COVER)
+    r, repo = resolver([name_work("artist", ArtworkNames("Muse"), MBID)],
+                       MB(links=Links(deezer_artist_id="9")), dz)  # fmt: skip
+    r.run()
+    assert outcome(repo) == ArtworkOutcome("resolved", "deezer", COVER)
+    assert searches_of(dz) == []
+
+
+def test_search_quota_stops_run_without_saving_and_transient_is_not_a_miss():
+    names = ArtworkNames("Blue", ("Joni",))
+    quota = QuotaGate()
+    r, repo = resolver([name_work("album", names)], dz=Dz(error=ArtworkQuotaError("q", 10)),
+                       quota=quota)  # fmt: skip
+    assert r.run()["quota"] == 1 and repo.saved == [] and quota.blocked(NOW)
+    r, repo = resolver([name_work("album", names)], dz=Dz(error=ArtworkTransientError("x")))
+    assert r.run()["transient"] == 1 and outcome(repo).status == "transient"

@@ -1,7 +1,7 @@
 """MusicBrainz lookups needed for artwork (separate from the genre client).
 
 Exact-MBID lookups only: release (barcode, url-rels, release-group), recording (isrcs,
-releases), artist (url-rels).
+releases), artist (url-rels + aliases; the alias list rides on the same request).
 Shares the process-wide 1 req/s MusicBrainz limiter with the enrichment client and honors the
 same 429/503/Retry-After handling. Unauthenticated: no credentials of any kind.
 """
@@ -32,6 +32,9 @@ _DEEZER_ARTIST = re.compile(_DEEZER % "artist")
 _WIKIDATA = re.compile(r"^https?://(?:www\.)?wikidata\.org/(?:wiki|entity)/(Q[0-9]+)/?$")
 MAX_ISRCS = 3
 MAX_RELEASES = 5  # bounded CAA probes per recording
+MAX_ALIASES = 8
+# Only aliases that are real alternative artist names; 'Legal name' and 'Search hint' are not.
+TRUSTED_ALIAS_TYPES = frozenset({None, "Artist name"})
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,8 @@ class RecordingInfo:
 class ArtistLinks:
     deezer_artist_id: str | None
     wikidata_qid: str | None
+    name: str | None = None  # MusicBrainz canonical artist name
+    aliases: tuple[str, ...] = ()  # trusted aliases only (see _aliases)
 
 
 def _urls(data: dict[str, Any]) -> list[str]:
@@ -60,6 +65,17 @@ def _urls(data: dict[str, Any]) -> list[str]:
         if isinstance(resource, str):
             out.append(resource)
     return out
+
+
+def _aliases(data: dict[str, Any]) -> tuple[str, ...]:
+    out: list[str] = []
+    for alias in data.get("aliases") or []:
+        if not isinstance(alias, dict) or alias.get("type") not in TRUSTED_ALIAS_TYPES:
+            continue
+        name = alias.get("name")
+        if isinstance(name, str) and name.strip() and name not in out:
+            out.append(name)
+    return tuple(out[:MAX_ALIASES])
 
 
 def _first(pattern: re.Pattern[str], urls: list[str]) -> str | None:
@@ -126,6 +142,12 @@ class MusicBrainzArtworkLookups:
         return RecordingInfo(isrcs[:MAX_ISRCS], releases[:MAX_RELEASES])
 
     def artist_links(self, mbid: str) -> ArtistLinks:
-        data = self._lookup("artist", "url-rels", mbid)
-        urls = _urls(data or {})
-        return ArtistLinks(_first(_DEEZER_ARTIST, urls), _first(_WIKIDATA, urls))
+        data = self._lookup("artist", "url-rels+aliases", mbid) or {}
+        urls = _urls(data)
+        name = data.get("name")
+        return ArtistLinks(
+            _first(_DEEZER_ARTIST, urls),
+            _first(_WIKIDATA, urls),
+            name if isinstance(name, str) and name.strip() else None,
+            _aliases(data),
+        )
