@@ -29,16 +29,25 @@ const search = () => new URLSearchParams(window.location.search)
 const calls = () => vi.mocked(fetch).mock.calls.map(([url]) => new URL(String(url), 'http://localhost'))
 const pressed = () => screen.getAllByRole('button', { pressed: true }).map(button => button.textContent)
 
-it('opens straight into content: heatmap first, no titles, taglines, footers or read-only text', async () => {
+it('opens straight into content: heatmap first, concise card titles only, no hero, taglines, footers or read-only text', async () => {
   showApp()
   expect(await screen.findByText('Blue Harbor')).toBeTruthy()
   expect(screen.getByText('Missing album')).toBeTruthy()
   expect(screen.getByText('Missing title')).toBeTruthy()
-  expect(screen.queryAllByRole('heading')).toHaveLength(0)
+  // Titles sit right above (outside) their cards and name them; nothing else is a heading.
+  const titles = screen.getAllByRole('heading').map(heading => heading.textContent)
+  expect(titles).toEqual(['Daily listening', 'Top artists', 'Top albums', 'Top tracks', 'Top genres', 'Artist origins', 'Artist evolution', 'Genre evolution', 'Artist shares', 'Genre shares'])
+  for (const heading of screen.getAllByRole('heading')) {
+    const card = heading.nextElementSibling
+    expect(card?.tagName).toBe('SECTION')
+    expect(card?.getAttribute('aria-labelledby')).toBe(heading.id)
+    expect(card?.contains(heading)).toBe(false)
+  }
+  expect(document.querySelector('details, .chart-table')).toBeNull()
   expect(screen.queryByRole('banner')).toBeNull()
   expect(screen.queryByRole('contentinfo')).toBeNull()
   expect(document.body.textContent).not.toMatch(/read.?only|public|Data freshness|available for \d+% of listens|Timezone/i)
-  const regions = screen.getAllByRole('region').map(region => region.getAttribute('aria-label'))
+  const regions = screen.getAllByRole('region').map(region => region.getAttribute('aria-label') ?? document.getElementById(region.getAttribute('aria-labelledby') ?? '')?.textContent)
   expect(regions[0]).toBe('Daily listening')
   expect(regions.indexOf('Period')).toBe(1)
   expect(regions).toEqual(expect.arrayContaining(['Rankings', 'Artist origins', 'Evolution', 'Shares', 'Top artists', 'Artist evolution', 'Genre shares']))

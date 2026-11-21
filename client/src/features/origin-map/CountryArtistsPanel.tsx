@@ -109,13 +109,13 @@ function Panel({ code, filters, onClose, restoreFocusRef }: { code: string; filt
     {sheet && <div className="sheet-handle" aria-hidden="true" onPointerDown={onHandleDown} onPointerMove={onHandleMove} onPointerUp={onHandleUp} onPointerCancel={onHandleUp}><span /></div>}
     <header className="country-panel-header">
       <div><h3>{name}</h3>{query.data && items.length > 0 && <p className="entity-secondary">{number.format(total)} listens</p>}</div>
-      <button type="button" className="country-panel-close" onClick={onClose} aria-label={`Close ${name} panel`}>×</button>
+      <button type="button" className="country-panel-close" onClick={onClose} aria-label={`Close ${name} panel`}><svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true" focusable="false"><path d="M2 2l8 8M10 2l-8 8" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" /></svg></button>
     </header>
     {query.isPending && <p role="status" className="entity-empty">Loading artists…</p>}
     {query.isError && <div role="alert" className="entity-empty"><p>Could not load artists.</p><button type="button" onClick={() => void query.refetch()}>Retry</button></div>}
-    {query.data && <EntityList label={`Artists from ${name}`} maxHeight={sheet ? 'none' : 'min(60vh, 28rem)'} empty="No artists for this country in this range.">
+    {query.data && <EntityList label={`Artists from ${name}`} maxHeight="none" empty="No artists for this country in this range.">
       {items.map((item, index) => <EntityRow key={item.key} rank={index + 1} label={item.label || 'Missing metadata'} src={item.image_url} value={number.format(item.listens)} />)}
     </EntityList>}
   </aside>
-  return sheet ? <><div className="sheet-backdrop" aria-hidden="true" onClick={() => { if (performance.now() - openedAt.current > GHOST_CLICK_MS) onClose() }} />{panel}</> : panel
+  return sheet ? <><div className="sheet-backdrop" aria-hidden="true" onClick={() => { if (performance.now() - openedAt.current > GHOST_CLICK_MS) onClose() }} />{panel}</> : <div className="country-panel-slot">{panel}</div>
 }
