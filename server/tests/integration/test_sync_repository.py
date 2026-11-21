@@ -11,6 +11,7 @@ from sqlalchemy import create_engine, text
 from music_dashboard.application.reconcile_history import reconcile_history
 from music_dashboard.infrastructure.listenbrainz.listens import (
     ExportCorruptError,
+    ExportIncompleteError,
     ListenBrainzClient,
 )
 from music_dashboard.infrastructure.listenbrainz.transport import (
@@ -40,16 +41,19 @@ def repo(migrated_db, admin_url):
     eng.dispose()
 
 
-def export_client(rows, manifest=True):
+def export_client(rows, manifest=True, count=None, username=USER):
+    """Real archive layout: user.json + listens/YYYY/MM.jsonl + feedback.jsonl."""
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, "w") as zipped:
-        zipped.writestr("listens.jsonl", "".join(json.dumps(row) + "\n" for row in rows))
-    ready = {"status": "ready"}
+        zipped.writestr("user.json", json.dumps({"user_id": 1, "username": username}))
+        zipped.writestr("feedback.jsonl", "")
+        zipped.writestr("listens/2023/11.jsonl", "".join(json.dumps(row) + "\n" for row in rows))
+    ready = {"status": "completed", "progress": "Export completed", "export_id": 9}
     if manifest:
         ready["listen_count"] = len(rows)
     responses = [
         {"valid": True, "user_name": USER},
-        {"payload": {"count": len(rows)}},
+        {"payload": {"count": len(rows) if count is None else count}},
         {"export_id": "test"},
         ready,
     ]
@@ -85,19 +89,65 @@ def test_mock_http_to_database_manifest_reconcile_deletion_and_duplicate_safety(
     assert repo.load_checkpoint(USER)["last_export_at"] == NOW + timedelta(days=1)
 
 
-def test_no_snapshot_manifest_never_deletes_or_marks_reconcile_complete(repo):
+def test_no_snapshot_manifest_imports_but_never_deletes(repo):
     rows = [listen(n) for n in range(10)]
     reconcile_history(export_client(rows), repo, USER, now=NOW)
-    with pytest.raises(ValueError):
+    # import-complete only (real status shape): 1 of 10 rows, lower bound honoured, succeeds
+    stats = reconcile_history(
+        export_client(rows[:1], manifest=False),
+        repo,
+        USER,
+        now=NOW + timedelta(days=1),
+        allow_large_delete=True,
+    )
+    assert stats["deletions_blocked"] == 1 and stats["tombstoned"] == 0
+    assert stats["import_complete"] == 1 and stats["deletion_safe"] == 0
+    assert q(repo, "SELECT count(*) FROM listens") == 10
+    assert q(repo, "SELECT count(*) FROM raw_listens WHERE tombstoned_at IS NOT NULL") == 0
+    assert repo.load_checkpoint(USER)["last_export_at"] == NOW + timedelta(days=1)
+
+
+def test_fewer_rows_than_lower_bound_activates_nothing(repo):
+    rows = [listen(n) for n in range(10)]
+    reconcile_history(export_client(rows), repo, USER, now=NOW)
+    with pytest.raises(ExportIncompleteError):
         reconcile_history(
-            export_client(rows[:1], manifest=False),
+            export_client(rows[:3] + [listen(50)], manifest=False, count=10),
             repo,
             USER,
             now=NOW + timedelta(days=1),
-            allow_large_delete=True,
         )
     assert q(repo, "SELECT count(*) FROM listens") == 10
     assert repo.load_checkpoint(USER)["last_export_at"] == NOW
+
+
+def test_float_timestamps_import_with_exact_identity_and_reimport_is_idempotent(repo):
+    rows = [dict(listen(n, ts=float(T0 + n)), inserted_at=T0 + n) for n in range(5)]
+    rows[1]["track_metadata"]["mbid_mapping"] = None  # real exports carry null mappings
+    first = reconcile_history(export_client(rows, manifest=False), repo, USER, now=NOW)
+    assert first["inserted"] == 5 and first["quarantined"] == 0
+    assert q(repo, "SELECT count(*) FROM listens") == 5
+    assert (
+        q(repo, "SELECT count(*) FROM listens WHERE extract(epoch FROM listened_at) = :t", t=T0 + 2)
+        == 1
+    )
+    again = reconcile_history(
+        export_client(rows, manifest=False), repo, USER, now=NOW + timedelta(days=1)
+    )
+    assert again["inserted"] == 0 and again["changed"] == 0 and again["tombstoned"] == 0
+    assert q(repo, "SELECT count(*) FROM listens") == 5
+    assert q(repo, "SELECT count(*) FROM raw_listens") == 5
+    # an int-spelled re-observation is the same identity, not a second row
+    repo.ingest(USER, [listen(2, ts=T0 + 2)], "api", NOW)
+    assert q(repo, "SELECT count(*) FROM raw_listens") == 5
+
+
+def test_unsafe_float_timestamps_are_quarantined_not_imported(repo):
+    rows = [listen(0), listen(1, ts=float(T0) + 0.5), listen(2, ts=-1.0), listen(3, ts="NaN")]
+    stats = reconcile_history(export_client(rows, manifest=False), repo, USER, now=NOW)
+    assert stats["inserted"] == 1 and stats["invalid"] == 3 and stats["deletions_blocked"] == 1
+    assert q(repo, "SELECT count(*) FROM listens") == 1
+    assert q(repo, "SELECT count(*) FROM quarantined_listens") == 3
 
 
 def test_manifest_with_missing_identity_retains_quarantine_without_deleting(repo):

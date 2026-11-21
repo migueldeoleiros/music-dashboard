@@ -1,4 +1,12 @@
-"""Stage an entire validated export before atomically activating any snapshot data."""
+"""Stage an entire validated export before atomically activating any snapshot data.
+
+Two distinct notions (see ``ExportSnapshot``):
+
+* import-complete: verified account, rows exhausted without error, rows >= the lower bound.
+  The run upserts, advances the checkpoint and succeeds, but never tombstones anything.
+* deletion-safe: ONLY a trusted snapshot manifest (``snapshot.complete``). The real LB export
+  status has no manifest, so real runs report ``deletions_blocked`` and delete nothing.
+"""
 
 from __future__ import annotations
 
@@ -38,12 +46,12 @@ def reconcile_history(
             # failures happen BEFORE the repository can touch active history.
             with TemporaryFile(mode="w+t", encoding="utf-8") as staged:
                 snapshot = client.export(user)
-                trusted = (
-                    isinstance(snapshot, ExportSnapshot)
-                    and snapshot.complete
-                    and snapshot.user.casefold() == user.casefold()
-                    and snapshot.expected_count is not None
-                )
+                if not isinstance(snapshot, ExportSnapshot) or (
+                    snapshot.user.casefold() != user.casefold()
+                ):
+                    raise ValueError("Export is not bound to the configured account")
+                # Deletion-safe needs a trusted manifest; import-complete does not.
+                trusted = snapshot.complete and snapshot.expected_count is not None
                 count = 0
                 for row in snapshot:
                     if not isinstance(row, dict):
@@ -52,9 +60,10 @@ def reconcile_history(
                     count += 1
                 if count == 0:
                     raise ValueError("Empty export cannot replace history; no data deleted")
-                if isinstance(snapshot, ExportSnapshot) and snapshot.expected_count is not None:
-                    if count != snapshot.expected_count:
-                        raise ValueError("Export does not match the completed snapshot manifest")
+                if snapshot.expected_count is not None and count != snapshot.expected_count:
+                    raise ValueError("Export does not match the completed snapshot manifest")
+                if snapshot.lower_bound is not None and count < snapshot.lower_bound:
+                    raise ValueError("Export has fewer rows than the listen-count lower bound")
                 staged.seek(0)
 
                 def rows() -> Iterator[dict[str, Any]]:
@@ -68,8 +77,14 @@ def reconcile_history(
                     allow_large_delete=allow_large_delete,
                     snapshot_complete=trusted,
                 )
-            if stats.get("deletions_blocked"):
+            if trusted and stats.get("deletions_blocked"):
                 raise ValueError("Export identity validation failed; reconcile is still required")
+            stats = {
+                **stats,
+                "import_complete": 1,
+                # Only a trusted manifest with every deletion check passed is deletion-safe.
+                "deletion_safe": int(trusted and not stats.get("deletions_blocked")),
+            }
             repository.save_checkpoint(
                 user,
                 {
