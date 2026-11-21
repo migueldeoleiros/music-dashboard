@@ -17,7 +17,7 @@ import {
   polygonCodes,
 } from './builders'
 import { echarts } from './echarts'
-import { useECharts, type ChartHandle, type Opt } from './useECharts'
+import { useECharts, type ChartHandle, type ChartSize, type Opt } from './useECharts'
 import type { ChartTheme } from './theme'
 
 export { stableColor } from './stableColor'
@@ -38,7 +38,7 @@ function Frame(props: {
   /** Controls drawn over the canvas (map zoom). */
   overlay?: ReactNode
   handleRef?: { current: ChartHandle | null }
-  build: (t: ChartTheme) => Opt
+  build: (t: ChartTheme, size: ChartSize) => Opt
   note?: ReactNode
   legend?: ReactNode
   table: ReactNode
@@ -247,9 +247,9 @@ export function CountryChart({ data, selectedCountry = null, onCountrySelect }: 
   const sel = selectedCountry?.toUpperCase() ?? null
   const withListens = useMemo(() => new Set(countries.map((c) => c.code.toUpperCase())), [countries])
   const build = useMemo(
-    () => (t: ChartTheme) => {
+    () => (t: ChartTheme, size: ChartSize) => {
       registerWorldMap()
-      return buildCountryOption(data, t, sel)
+      return buildCountryOption(data, t, sel, size)
     },
     [data, sel],
   )

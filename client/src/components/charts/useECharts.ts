@@ -7,6 +7,7 @@ type Chart = ReturnType<typeof echarts.init>
 type ClickParams = { componentType?: string; name?: string; data?: unknown }
 
 /** Imperative view controls for charts with a pannable geo (the country map). */
+export type ChartSize = { width: number; height: number }
 export type ChartHandle = { zoomBy: (factor: number) => void; resetView: () => void }
 
 /**
@@ -14,7 +15,7 @@ export type ChartHandle = { zoomBy: (factor: number) => void; resetView: () => v
  * mount/option change/resize (re-applying only when it changed), dispose on unmount.
  */
 export function useECharts(
-  build: (theme: ChartTheme) => Opt,
+  build: (theme: ChartTheme, size: ChartSize) => Opt,
   deps: { register?: () => void; onClick?: (p: ClickParams) => void } = {},
   handleRef?: { current: ChartHandle | null },
 ) {
@@ -29,8 +30,9 @@ export function useECharts(
     const chart = chartRef.current
     if (!chart) return
     const theme = readTheme()
-    themeKey.current = JSON.stringify(theme)
-    const option = buildRef.current(theme) as { geo?: Record<string, unknown> }
+    const size = { width: chart.getWidth(), height: chart.getHeight() }
+    themeKey.current = JSON.stringify([theme, size])
+    const option = buildRef.current(theme, size) as { geo?: Record<string, unknown> }
     // Rebuilding (selection, theme) must not throw away the user's pan/zoom.
     const view = keepView && option.geo ? (chart.getOption?.() as { geo?: { zoom?: number; center?: number[] }[] } | undefined)?.geo?.[0] : undefined
     if (view && option.geo) option.geo = { ...option.geo, zoom: view.zoom, center: view.center }
@@ -57,7 +59,7 @@ export function useECharts(
     let ro: ResizeObserver | undefined
     const onResize = () => {
       chart.resize()
-      if (JSON.stringify(readTheme()) !== themeKey.current) apply()
+      if (JSON.stringify([readTheme(), { width: chart.getWidth(), height: chart.getHeight() }]) !== themeKey.current) apply()
     }
     if (typeof ResizeObserver !== 'undefined') {
       ro = new ResizeObserver(onResize)

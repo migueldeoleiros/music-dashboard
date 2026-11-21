@@ -15,6 +15,8 @@ vi.mock('../src/components/charts/echarts', () => ({
       const c = {
         setOption: vi.fn(),
         resize: vi.fn(),
+        getWidth: () => 600,
+        getHeight: () => 380,
         dispose: vi.fn(),
         on: vi.fn((ev: string, fn: (p: unknown) => void) => {
           h.handlers[ev] = fn
@@ -27,7 +29,7 @@ vi.mock('../src/components/charts/echarts', () => ({
   },
 }))
 
-import { buildRollingGrid } from '../src/components/charts/builders'
+import { buildRollingGrid, worldWidth } from '../src/components/charts/builders'
 import { CountryChart, EvolutionChart, HeatmapChart, PieChart, stableColor } from '../src/components/charts'
 import { esc, mixColors, parseColor, readTheme, seriesColor } from '../src/components/charts/theme'
 
@@ -408,6 +410,24 @@ describe('CountryChart colors and selection', () => {
     for (const r of regions) expect(r.itemStyle.areaColor).not.toBe(t.surface2)
     expect(regions[0].itemStyle.areaColor).toBe(mixColors(t.surface2, t.accent, 1))
     expect(regions[1].itemStyle.borderColor).toBe(t.accent)
+  })
+  it('fits the world to the canvas: width-limited on phones, height-limited on wide cards, never over 97% of width', () => {
+    expect(worldWidth()).toBe('100%')
+    expect(worldWidth({ width: 270, height: 280 })).toBe(261)
+    expect(worldWidth({ width: 1146, height: 380 })).toBe(Math.floor(368 * 1.56))
+    for (const [w, h] of [[270, 280], [325, 280], [800, 380], [1378, 380]]) {
+      const width = worldWidth({ width: w, height: h }) as number
+      expect(width).toBeLessThanOrEqual(w * 0.97)
+      expect(width / 1.56).toBeLessThanOrEqual(h - 12)
+    }
+    render(<CountryChart data={data as never} />)
+    expect(lastOption().geo.layoutSize).toBe(worldWidth({ width: 600, height: 380 }))
+  })
+  it('does not restyle regions without listens on hover; listened regions keep their emphasis', () => {
+    render(<CountryChart data={data as never} />)
+    const o = lastOption()
+    expect(o.geo.emphasis.itemStyle.areaColor).toBe(o.geo.itemStyle.areaColor)
+    expect(o.series[0].data[0].emphasis.itemStyle.areaColor).not.toBe(o.series[0].data[0].itemStyle.areaColor)
   })
   it('highlights selected country with accent outline; null clears', () => {
     const { rerender } = render(<CountryChart data={data as never} selectedCountry="de" />)

@@ -332,10 +332,23 @@ export function mapColor(t: ChartTheme, listens: number, max: number): string {
 /** Muted fill for countries without listens. */
 export const noDataColor = (t: ChartTheme) => t.surface2
 
+/** Natural Earth land (without Antarctica) is ~1.56x wider than tall at the geo's native projection. */
+const WORLD_ASPECT = 1.56
+/**
+ * Default world width in px: as wide as the canvas allows (3% margin) but never taller than the
+ * canvas (6px margin), so it neither clips on narrow phones nor floats small in wide, short cards.
+ * Falls back to ECharts' own fit before the canvas is measured.
+ */
+export function worldWidth(size?: { width: number; height: number }): number | string {
+  if (!size || size.width <= 0 || size.height <= 0) return '100%'
+  return Math.floor(Math.min(size.width * 0.97, (size.height - 12) * WORLD_ASPECT))
+}
+
 export function buildCountryOption(
   data: CountryResponse,
   t: ChartTheme,
   selected: string | null = null,
+  size?: { width: number; height: number },
 ): Opt {
   const countries = data.countries
   const sel = selected?.toUpperCase() ?? null
@@ -359,7 +372,6 @@ export function buildCountryOption(
         },
       }
     })
-  const hover = mixColors(t.surface2, t.border, 0.6)
   return {
     animation: !t.reducedMotion,
     animationDurationUpdate: 250,
@@ -383,9 +395,10 @@ export function buildCountryOption(
       roam: t.coarse ? true : 'move',
       scaleLimit: { min: 1, max: 8 },
       layoutCenter: ['50%', '50%'],
-      layoutSize: '100%',
+      layoutSize: worldWidth(size),
       itemStyle: { areaColor: noDataColor(t), borderColor: t.border, borderWidth: 0.5 },
-      emphasis: { label: { show: false }, itemStyle: { areaColor: hover } },
+      // No hover restyle for regions without listens (not clickable); listened regions set their own emphasis below.
+      emphasis: { label: { show: false }, itemStyle: { areaColor: noDataColor(t), borderColor: t.border, borderWidth: 0.5 } },
       select: { disabled: true },
       // A map series bound by geoIndex does not paint its own regions: the shared geo does, so the
       // choropleth fills must live here (series itemStyle alone leaves every region at the no-data color).
