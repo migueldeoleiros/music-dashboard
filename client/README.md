@@ -43,8 +43,11 @@ For production/API integration, use `npm run dev` (Vite proxies `/api` to port
   An API timezone rejection changes to UTC visibly. If UTC is still yesterday,
   fallback and browser reset also clamp `from` when needed to avoid an invalid
   one-day range.
-- All time sends the contract's earliest accepted date, `0001-01-01`, because the
-  frozen API has no earliest-history endpoint. There is no client duration cap.
+- All time sends the contract-supported extreme bound `0001-01-01`: the API has no
+  earliest-history field, and SQL evolution trims empty edges to actual history before
+  allocating monthly buckets. This avoids guessing a start date or changing the contract.
+  Heatmap years start at the first returned listen, not year 0001, and include quiet
+  intermediate years. There is no client duration cap.
 - The heatmap uses timezone-independent civil-day grid coordinates, Monday first,
   with a bounded one-year calendar and matching daily data table. Full-range
   totals remain visible. It never builds a thousands-of-years canvas.
@@ -75,18 +78,15 @@ resize/disposal, sync freshness and fixture mode with network forbidden.
 Chart tests inspect options through a mocked ECharts instance; they do **not**
 prove rendered geometry, tooltips, accessibility contrast, or mobile layout.
 
-## Browser gate still required
+## Browser integration evidence
 
-The implementation session attempted `browser-hub skills get core --full`, but
-the shared browser container failed with Podman's `cannot re-exec process to join
- the existing user namespace` error. No alternate browser was launched, no
-screenshots were captured, and no live visual pass is claimed.
+T-008 exercised the built client through the same-origin Compose proxy on port 18150
+against the SQL-backed API and 8,000 synthetic listens, not fixture mocks. Real local
+Chromium/Playwright was used under the task's explicit fallback authorization after the
+browser hub's Podman namespace failure. At 360×800 and 1440×1000 all ten views rendered,
+with document width equal to viewport width and no console/page errors. Ranges, timezone
+override/reset, shared URL reload and zero/partial/full coverage were exercised.
 
-After the coordinator restores `browser-hub.service`, use a dedicated browser
-session and the host URL for port 18140. Check 360×800 and 1440×1000 with partial,
-full and empty fixtures; inspect page/section scroll widths, date controls,
-map/heatmap tooltips, year selector, legend toggles (including duplicate labels),
-partial bucket indicator and range consistency after Apply/presets/back/reset.
-Capture and read screenshots, inspect browser errors/network, then close the
-session. The worktree's ignored `.env` uses `WEB_PORT=18140` and
-`COMPOSE_PROJECT_NAME=md-client`; no Compose stack was started.
+See [`docs/integration.md`](../docs/integration.md) for commands, exact scope, limitations
+and screenshot paths under `/tmp/md-integration-shots/`. This is synthetic integration
+proof, not the later real ListenBrainz-data acceptance gate.

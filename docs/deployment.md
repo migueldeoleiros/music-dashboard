@@ -1,7 +1,8 @@
 # Local deployment and recovery
 
-No public deployment, DNS or TLS is part of this checkpoint. Web binds loopback by default;
-a future existing reverse proxy/TLS must be configured separately after review. Follow
+No public deployment, DNS or TLS is done or automated here. Web binds loopback by default;
+an existing reverse proxy/TLS for the eventual `music.miguel.md` must be configured
+separately after review (sketch below). Follow
 [development](development.md) for private configuration, frozen builds, explicit migrations
 and fixture seeding. PostgreSQL is derived from ListenBrainz but backups still contain
 private raw payloads and must be protected. Only worker sees the upstream token.
@@ -12,6 +13,46 @@ have no public ports. API database grants are explicit SELECT-only allowlists, n
 read-only setting alone. Bootstrap administrator credentials remain in db only. Worker is a
 non-superuser database/schema owner for ingestion and migrations. Migration ownership is a
 privileged local action; do not add a public administration endpoint.
+
+## Environment and real-data mode
+
+All configuration lives in ignored `.env` (see `.env.example`). API `MUSIC_FIXTURE_MODE=false`
+switches the API to PostgreSQL aggregates (no upstream access). Worker upstream access is
+separate: `MUSIC_WORKER_FIXTURE_MODE` defaults true (no upstream calls); set it false
+explicitly for real actions and recreate the worker. Worker-only:
+`LISTENBRAINZ_USERNAME`, `LISTENBRAINZ_TOKEN`, `MUSIC_METADATA_USER_AGENT` (descriptive contact
+User-Agent, required for metadata calls), optional `MUSIC_SYNC_INTERVAL_SECONDS` (900),
+`MUSIC_SYNC_OVERLAP_HOURS` (72), `MUSIC_RECONCILE_INTERVAL_SECONDS` (604800),
+`MUSIC_METADATA_{EMPTY,POSITIVE}_TTL_DAYS` (7/30), `MUSIC_METADATA_RETRY_{BASE,MAX}_SECONDS`
+(30/86400), `MUSIC_ENRICHMENT_BATCH_SIZE` (100); Compose forwards these to the worker.
+First-run commands and
+the unverified export-completeness caveat are in [development](development.md#real-data-first-run).
+The API container never receives the token or User-Agent.
+
+## Eventual reverse proxy (music.miguel.md)
+
+Not deployed or tested here. The `web` container already serves the static client and proxies
+same-origin `/api/` to the API; point an existing host proxy at it
+(`127.0.0.1:${WEB_PORT}`), terminating TLS there. Illustrative nginx server block:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name music.miguel.md;
+    # ssl_certificate / ssl_certificate_key: managed by your existing TLS setup
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Caveats: the container nginx throttles by `$binary_remote_addr`, which behind a host proxy
+is the proxy/gateway address, so all visitors share one 10 r/s bucket; throttle at the host
+proxy too or add real-IP handling after review. Only GET statistics and health exist (no admin
+routes), but the dashboard is public and aggregates can reveal listening patterns.
+Publish only after real-data and browser checks; no DNS/TLS step is performed by this repo.
 
 ## Backup and restore proof (local)
 
@@ -25,6 +66,9 @@ umask 077
 docker compose exec -T db pg_dump -U music_writer -Fc music_dashboard > backups/local.dump
 docker compose exec -T db createdb -U postgres -O music_writer music_dashboard_restore
 docker compose exec -T db pg_restore -U postgres --role=music_writer --no-owner --exit-on-error -d music_dashboard_restore < backups/local.dump
+# Reapply schema/database boundaries not fully represented in a per-database dump:
+docker compose exec -T db psql -U postgres -d music_dashboard_restore -v ON_ERROR_STOP=1 -c \
+  'ALTER SCHEMA public OWNER TO music_writer; REVOKE ALL ON SCHEMA public FROM PUBLIC; GRANT USAGE ON SCHEMA public TO music_api; REVOKE ALL ON DATABASE music_dashboard_restore FROM PUBLIC; GRANT CONNECT ON DATABASE music_dashboard_restore TO music_writer, music_api'
 docker compose exec -T db psql -U music_writer -d music_dashboard_restore -c 'SELECT count(*) FROM listens'
 docker compose exec -T db psql -U music_api -d music_dashboard_restore -c 'SELECT count(*) FROM listens'
 # Expected permission denial; raw payload never becomes API-readable:
@@ -48,10 +92,12 @@ on disposable fixture databases, not permission to destroy production tables. Pr
 restoring a verified backup when rollback would discard data. Role initialization hooks do
 not rerun on existing volumes; rotate passwords/settings with a private admin session.
 
-## Deferred operational gates
+## Remaining operational gates
 
-Authenticated real export smoke, upstream version behavior/completeness, same-second
-ambiguity, reconciliation deletion guards, scheduler/backoff, enrichment limiter, real SQL
-budgets/cache, Natural Earth map licensing, all charts/browser proof and real-user coverage
-are T-003 through T-008, not claims made by foundation fixture startup. Aggregates are
-public and can expose listening patterns; the product makes no privacy guarantee.
+Not proven by this documentation: authenticated real export smoke and the assumed
+`listen_count` completeness manifest (unverified against the deployed LB), upstream version
+behavior, real SQL budgets/cache under real history, worker restart under real load, enrichment
+limiter against live MusicBrainz and real-user coverage. Synthetic browser/security receipts
+are recorded separately in `docs/integration.md`; they are not a real-data signoff. Initial
+enrichment can take hours/days and coverage stays partial. Aggregates are public and can
+expose listening patterns; the product makes no privacy guarantee.
