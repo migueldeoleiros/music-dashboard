@@ -19,6 +19,8 @@ from music_dashboard.infrastructure.musicbrainz.transport import (
 
 UA = "music-dashboard/0.1 (mailto:test@example.invalid)"
 MBID = "11111111-1111-4111-8111-111111111111"
+R2 = "66666666-6666-4666-8666-666666666666"
+RG = "77777777-7777-4777-8777-777777777777"
 H = "b" * 32
 COVER = f"https://cdn-images.dzcdn.net/images/cover/{H}/1000x1000-000000-80-0-0.jpg"
 PIC = f"https://cdn-images.dzcdn.net/images/artist/{H}/1000x1000-000000-80-0-0.jpg"
@@ -167,6 +169,19 @@ def test_caa_head_returns_original_url_and_handles_statuses():
         CoverArtArchiveClient(UA, net, NoLimit()).front_url("release", MBID)  # type: ignore[arg-type]
 
 
+def test_caa_hint_url_is_exact_verified_and_validated():
+    url = f"https://coverartarchive.org/release/{MBID}/987-500.jpg"
+    fake = Fake(
+        {f"release/{MBID}/987-500.jpg": HttpResponse(200, {"content-type": "image/jpeg"}, b"")}
+    )
+    caa = CoverArtArchiveClient(UA, fake, NoLimit())  # type: ignore[arg-type]
+    assert caa.hint_url(MBID, "987") == url and fake.requests[0].method == "HEAD"
+    assert caa.hint_url(MBID, "988") is None  # 404: stale hint
+    for bad in (("not-a-uuid", "987"), (MBID, "../x"), (MBID, "0"), (MBID, "9" * 17)):
+        assert caa.hint_url(*bad) is None
+    assert len(fake.requests) == 2  # invalid hints never reach the network
+
+
 def test_wikidata_first_entity_and_validation():
     body = {
         "entities": {
@@ -205,11 +220,22 @@ def test_musicbrainz_lookups_parse_exact_fields():
             f"release/{MBID}": js(
                 {
                     "barcode": "0123456789012",
+                    "release-group": {"id": RG.upper()},
                     "relations": [rel("https://www.deezer.com/en/album/123")],
                 }
             ),
             f"recording/{MBID}": js(
-                {"isrcs": ["USABC1234567", "bad", "GBXYZ7654321", "FRAAA0000001", "ITBBB1111111"]}
+                {
+                    "isrcs": [
+                        "USABC1234567",
+                        "bad",
+                        "GBXYZ7654321",
+                        "FRAAA0000001",
+                        "ITBBB1111111",
+                    ],
+                    "releases": [{"id": R2.upper()}, {"id": "bad"}, {"id": R2}, {"id": MBID}]
+                    + [{"id": f"00000000-0000-4000-8000-00000000000{i}"} for i in range(6)],
+                }
             ),
             f"artist/{MBID}": js(
                 {
@@ -224,14 +250,18 @@ def test_musicbrainz_lookups_parse_exact_fields():
     )
     info = lookups.release(MBID)
     assert info and info.barcode == "0123456789012" and info.deezer_album_id == "123"
-    assert lookups.recording_isrcs(MBID) == ["USABC1234567", "GBXYZ7654321", "FRAAA0000001"]
+    assert info.release_group_mbid == RG
+    rec = lookups.recording(MBID)
+    assert rec.isrcs == ["USABC1234567", "GBXYZ7654321", "FRAAA0000001"]
+    assert rec.release_mbids[:2] == [R2, MBID] and len(rec.release_mbids) == 5  # dedup + bounded
     links = lookups.artist_links(MBID)
     assert (links.deezer_artist_id, links.wikidata_qid) == ("456", "Q42")
-    assert [("inc=url-rels" in r.url, "inc=isrcs" in r.url) for r in fake.requests] == [
+    assert [("inc=url-rels" in r.url, "inc=isrcs+releases" in r.url) for r in fake.requests] == [
         (True, False),
         (False, True),
         (True, False),
     ]
+    assert "inc=url-rels+release-groups" in fake.requests[0].url
     assert lookups.release("22222222-2222-4222-8222-222222222222") is None  # 404
     assert lookups.release("../../x") is None and len(fake.requests) == 4
 

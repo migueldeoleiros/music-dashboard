@@ -1,5 +1,6 @@
 """Artwork migration, grants, representative-release rule and statistics joins (disposable DB)."""
 
+import json
 import uuid
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
@@ -108,6 +109,40 @@ def test_representative_release_and_priority(env):
     ordered = [w.listens for w in repo.due(NOW, 50)]
     assert ordered == sorted(ordered, reverse=True)
     assert len(repo.due(NOW, 2)) == 2  # bounded
+
+
+def test_release_keyed_albums_and_lb_caa_hints_are_discovered(env):
+    admin, _ = env
+    rel_only, caa_rel, rec = u(400), u(401), u(402)
+    with admin.begin() as c:
+        for n, hint in ((900, True), (901, True), (902, False)):
+            add_listen(c, n, rec=rec, rel=rel_only, album="Release only")
+            payload = {
+                "track_metadata": {
+                    "mbid_mapping": {"caa_release_mbid": caa_rel, "caa_id": 4242 + n}
+                    if hint
+                    else None
+                }
+            }
+            c.execute(
+                text(
+                    "INSERT INTO raw_listens(user_name,listened_at,recording_msid,payload,"
+                    "provenance) SELECT user_name,listened_at,recording_msid,"
+                    "CAST(:p AS jsonb),'{}' FROM listens WHERE listened_at = "
+                    "timestamptz '2026-03-01T10:00Z' + make_interval(mins=>:n)"
+                ),
+                {"p": json.dumps(payload), "n": n},
+            )
+    due = {(w.entity_type, w.mbid): w for w in SqlArtworkRepository(admin).due(NOW, 100)}
+    album = due[("album", rel_only)]  # keyed like the ranking: release MBID, no release group
+    assert album.album_kind == "release" and album.representative_release_mbid == rel_only
+    assert album.listens == 3 and album.caa_hint == (caa_rel, "5142")  # tie -> first sorted
+    assert due[("track", rec)].caa_hint == (caa_rel, "5142")
+    assert due[("album", RG)].album_kind == "release-group" and due[("album", RG)].caa_hint is None
+    with admin.begin() as c:  # tombstoned raw rows never feed hints
+        c.execute(text("UPDATE raw_listens SET tombstoned_at = now()"))
+    again = {(w.entity_type, w.mbid): w for w in SqlArtworkRepository(admin).due(NOW, 100)}
+    assert again[("track", rec)].caa_hint is None
 
 
 def test_save_semantics_ttl_transient_and_generation(env):

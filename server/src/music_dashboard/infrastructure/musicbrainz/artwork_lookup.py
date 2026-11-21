@@ -1,6 +1,7 @@
 """MusicBrainz lookups needed for artwork (separate from the genre client).
 
-Exact-MBID lookups only: release (barcode + url-rels), recording (isrcs), artist (url-rels).
+Exact-MBID lookups only: release (barcode, url-rels, release-group), recording (isrcs,
+releases), artist (url-rels).
 Shares the process-wide 1 req/s MusicBrainz limiter with the enrichment client and honors the
 same 429/503/Retry-After handling. Unauthenticated: no credentials of any kind.
 """
@@ -30,12 +31,20 @@ _DEEZER_ALBUM = re.compile(_DEEZER % "album")
 _DEEZER_ARTIST = re.compile(_DEEZER % "artist")
 _WIKIDATA = re.compile(r"^https?://(?:www\.)?wikidata\.org/(?:wiki|entity)/(Q[0-9]+)/?$")
 MAX_ISRCS = 3
+MAX_RELEASES = 5  # bounded CAA probes per recording
 
 
 @dataclass(frozen=True)
 class ReleaseInfo:
     barcode: str | None
     deezer_album_id: str | None
+    release_group_mbid: str | None = None  # explicit MB release -> release-group relation
+
+
+@dataclass(frozen=True)
+class RecordingInfo:
+    isrcs: list[str]
+    release_mbids: list[str]  # releases MB lists for this exact recording (bounded)
 
 
 @dataclass(frozen=True)
@@ -91,20 +100,30 @@ class MusicBrainzArtworkLookups:
         return data
 
     def release(self, mbid: str) -> ReleaseInfo | None:
-        data = self._lookup("release", "url-rels", mbid)
+        data = self._lookup("release", "url-rels+release-groups", mbid)
         if data is None:
             return None
         barcode = data.get("barcode")
+        group = data.get("release-group")
+        group_id = group.get("id") if isinstance(group, dict) else None
         return ReleaseInfo(
             barcode if isinstance(barcode, str) and BARCODE.match(barcode) else None,
             _first(_DEEZER_ALBUM, _urls(data)),
+            group_id.lower()
+            if isinstance(group_id, str) and MBID.match(group_id.lower())
+            else None,
         )
 
-    def recording_isrcs(self, mbid: str) -> list[str]:
-        data = self._lookup("recording", "isrcs", mbid)
-        raw = (data or {}).get("isrcs") or []
-        isrcs = [i for i in raw if isinstance(i, str) and ISRC.match(i)]
-        return isrcs[:MAX_ISRCS]
+    def recording(self, mbid: str) -> RecordingInfo:
+        data = self._lookup("recording", "isrcs+releases", mbid) or {}
+        isrcs = [i for i in data.get("isrcs") or [] if isinstance(i, str) and ISRC.match(i)]
+        releases: list[str] = []
+        for rel in data.get("releases") or []:
+            rid = rel.get("id") if isinstance(rel, dict) else None
+            rid = rid.lower() if isinstance(rid, str) else ""
+            if MBID.match(rid) and rid not in releases:
+                releases.append(rid)
+        return RecordingInfo(isrcs[:MAX_ISRCS], releases[:MAX_RELEASES])
 
     def artist_links(self, mbid: str) -> ArtistLinks:
         data = self._lookup("artist", "url-rels", mbid)

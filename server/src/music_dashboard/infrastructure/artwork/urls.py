@@ -16,6 +16,7 @@ _HOST = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9
 _MAX_URL = 2048
 
 MBID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+CAA_ID = re.compile(r"^[1-9][0-9]{0,15}$")
 QID = re.compile(r"^Q[1-9][0-9]{0,15}$")
 NUMERIC_ID = re.compile(r"^[1-9][0-9]{0,15}$")
 BARCODE = re.compile(r"^[0-9]{8,14}$")

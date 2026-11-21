@@ -249,9 +249,7 @@ class ListenBrainzClient:
         if owner.casefold() != user.casefold():
             raise ExportAccountMismatchError("token does not belong to the configured user")
 
-    def _open_zip(
-        self, blob: bytes, user: str
-    ) -> tuple[zipfile.ZipFile, list[zipfile.ZipInfo]]:
+    def _open_zip(self, blob: bytes, user: str) -> tuple[zipfile.ZipFile, list[zipfile.ZipInfo]]:
         try:
             zf = zipfile.ZipFile(io.BytesIO(blob))
         except (zipfile.BadZipFile, EOFError, zlib_error):
@@ -266,9 +264,7 @@ class ListenBrainzClient:
             if len(users) != 1:
                 raise ExportAccountMismatchError("export owner could not be verified")
             self._verify_archive_user(zf, users[0], user)
-            members = sorted(
-                (i for i in infos if _is_listens_member(i)), key=lambda i: i.filename
-            )
+            members = sorted((i for i in infos if _is_listens_member(i)), key=lambda i: i.filename)
             return zf, members
         except BaseException:
             zf.close()

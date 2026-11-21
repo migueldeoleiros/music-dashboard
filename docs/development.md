@@ -257,6 +257,9 @@ docker compose exec -T db psql -U music_writer -d music_dashboard -c \
   'SELECT entity_type, status, source, count(*) FROM artwork GROUP BY 1,2,3 ORDER BY 1,2,3'
 ```
 
+- **Coverage report** (read-only, safe on the live DB): `docker compose exec -T db psql -U
+  music_writer -d music_dashboard -X < server/scripts/artwork_coverage.sql` shows album/track key
+  kinds vs images, misses/transients, LB CAA hints and URL host shapes.
 - **Job**: `application/jobs/artwork.py` (`tick()` every 30 s, discovered automatically; inert in
   fixture mode). While the genre enrichment queue has due work it runs a reduced share (every 4th
   tick, 5 entities); when the queue is idle it runs up to 20 entities per tick

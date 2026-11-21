@@ -6,7 +6,7 @@ from music_dashboard.infrastructure.artwork.transport import (
     HttpTransport,
     unauthenticated_transport,
 )
-from music_dashboard.infrastructure.artwork.urls import MBID, validate_image_url
+from music_dashboard.infrastructure.artwork.urls import CAA_ID, MBID, validate_image_url
 from music_dashboard.infrastructure.musicbrainz.transport import RateLimiter
 
 KINDS = ("release-group", "release")
@@ -29,7 +29,15 @@ class CoverArtArchiveClient:
         """The coverartarchive.org front URL if an image exists, else None (404)."""
         if kind not in KINDS or not MBID.match(mbid):
             return None
-        url = f"{self._base}/{kind}/{mbid}/front"
+        return self._verified(f"{self._base}/{kind}/{mbid}/front")
+
+    def hint_url(self, release_mbid: str, caa_id: str) -> str | None:
+        """The exact image ListenBrainz reported (release + CAA image id, 500px) if it exists."""
+        if not MBID.match(release_mbid) or not CAA_ID.match(caa_id):
+            return None
+        return self._verified(f"{self._base}/release/{release_mbid}/{caa_id}-500.jpg")
+
+    def _verified(self, url: str) -> str | None:
         resp = fetch(self._transport, self._limiter, "HEAD", url, self._headers)
         if resp.status == 404:
             return None

@@ -26,6 +26,13 @@ REL = "22222222-2222-4222-8222-222222222222"
 class Rel:
     barcode: str | None = None
     deezer_album_id: str | None = None
+    release_group_mbid: str | None = None
+
+
+@dataclass
+class Rec:
+    isrcs: list
+    release_mbids: list
 
 
 @dataclass
@@ -35,8 +42,9 @@ class Links:
 
 
 class MB:
-    def __init__(self, release=None, isrcs=(), links=None, error=None):
+    def __init__(self, release=None, isrcs=(), links=None, error=None, releases=()):
         self._release, self._isrcs, self._links, self.error = release, list(isrcs), links, error
+        self._releases = list(releases)
         self.calls = []
 
     def release(self, mbid):
@@ -45,9 +53,9 @@ class MB:
             raise self.error
         return self._release
 
-    def recording_isrcs(self, mbid):
-        self.calls.append(("isrcs", mbid))
-        return self._isrcs
+    def recording(self, mbid):
+        self.calls.append(("recording", mbid))
+        return Rec(self._isrcs, self._releases)
 
     def artist_links(self, mbid):
         self.calls.append(("artist", mbid))
@@ -79,8 +87,16 @@ class Dz:
 
 
 class Caa:
-    def __init__(self, hits=()):
-        self.hits, self.calls = set(hits), []
+    def __init__(self, hits=(), hints=()):
+        self.hits, self.hints, self.calls = set(hits), set(hints), []
+
+    def hint_url(self, release_mbid, caa_id):
+        self.calls.append(("hint", release_mbid, caa_id))
+        return (
+            f"https://coverartarchive.org/release/{release_mbid}/{caa_id}-500.jpg"
+            if (release_mbid, caa_id) in self.hints
+            else None
+        )
 
     def front_url(self, kind, mbid):
         self.calls.append((kind, mbid))
@@ -175,6 +191,52 @@ def test_track_caa_own_release_first_then_isrc_then_miss():
     r, repo = resolver([TRACK], MB(isrcs=[]), Dz(), Caa())
     r.run()
     assert outcome(repo).status == "miss"
+
+
+HINT = ("33333333-3333-4333-8333-333333333333", "123456")
+HINT_URL = f"https://coverartarchive.org/release/{HINT[0]}/{HINT[1]}-500.jpg"
+
+
+def test_lb_caa_hint_wins_without_musicbrainz_or_deezer_calls():
+    for kind in ("album", "track"):
+        mb, dz = MB(Rel("0123456789012")), Dz(upc=COVER, isrc=COVER)
+        work = ArtworkWork(kind, MBID, REL, 5, caa_hint=HINT)  # type: ignore[arg-type]
+        r, repo = resolver([work], mb, dz, Caa(hints={HINT}))
+        r.run()
+        assert outcome(repo) == ArtworkOutcome("resolved", "caa", HINT_URL)
+        assert mb.calls == [] and dz.calls == []
+    # a stale hint (CAA 404) falls through to the normal chain
+    r, repo = resolver([ArtworkWork("album", MBID, REL, 5, caa_hint=HINT)], MB(Rel()), Dz(), Caa())
+    r.run()
+    assert outcome(repo).status == "miss"
+
+
+def test_release_keyed_album_uses_release_front_then_mb_release_group():
+    work = ArtworkWork("album", REL, REL, 3, album_kind="release")
+    caa = Caa({("release", REL)})
+    r, repo = resolver([work], MB(Rel()), Dz(), caa)
+    r.run()
+    assert outcome(repo).image_url == f"https://coverartarchive.org/release/{REL}/front"
+    assert ("release-group", REL) not in caa.calls  # never treats a release id as a group
+    rg = "44444444-4444-4444-8444-444444444444"
+    caa = Caa({("release-group", rg)})
+    r, repo = resolver([work], MB(Rel(release_group_mbid=rg)), Dz(), caa)
+    r.run()
+    assert outcome(repo).image_url == f"https://coverartarchive.org/release-group/{rg}/front"
+    assert caa.calls == [("release", REL), ("release-group", rg)]
+    r, repo = resolver([work], MB(None), Dz(), Caa())
+    r.run()
+    assert outcome(repo).status == "miss"
+
+
+def test_track_falls_back_to_recording_releases_bounded_and_skips_own():
+    other = "55555555-5555-4555-8555-555555555555"
+    caa = Caa({("release", other)})
+    mb = MB(isrcs=[], releases=[REL, other])
+    r, repo = resolver([TRACK], mb, Dz(), caa)
+    r.run()
+    assert outcome(repo).image_url == f"https://coverartarchive.org/release/{other}/front"
+    assert caa.calls == [("release", REL), ("release", other)]  # own release probed once
 
 
 def test_artist_url_rel_then_wikidata_then_miss():

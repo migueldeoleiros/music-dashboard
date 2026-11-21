@@ -90,6 +90,16 @@ reached through the MB `wikidata` URL relation (first entity, redirects followed
 `artist/{id}` `picture_xl`. Deezer error code 800 and an empty image hash (including
 `d41d8cd98f00b204e9800998ecf8427e`) are misses; code 4 is quota and backs off.
 
+Coverage addendum (2026-11-22c). The album ranking key is `coalesce(release_group, release,
+name)`, so albums with no release group are keyed by **release MBID**; they get `album` artwork
+rows under that MBID (kind `release`: CAA `release/{id}/front`, then the release's MB
+`release-group` relation). Exact CAA images already reported by ListenBrainz in the raw
+`mbid_mapping` (`caa_release_mbid` + numeric `caa_id`, most frequent per entity, active raw rows
+only) are tried first for albums and tracks as `release/{caa_release_mbid}/{caa_id}-500.jpg`
+(HEAD-verified, so a stale hint is a plain fall-through, never a stored URL). Tracks that still
+miss try CAA front of up to 5 releases MusicBrainz lists for that exact recording (same single MB
+recording call that already fetched ISRCs). Name-only listens (no MBID) stay image-less by design.
+
 - Table `artwork` (migration 0003) keyed `(entity_type album|track|artist, entity_mbid)` holds
   source, final https `image_url`, status (`resolved|miss|transient`), `fetched_at`,
   `next_retry_at`, `attempts`. URLs only: images are hotlinked by the browser, never downloaded

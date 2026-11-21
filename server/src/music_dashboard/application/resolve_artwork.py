@@ -1,8 +1,12 @@
 """Artwork resolution use case. Chains (exact keys only, never name search):
 
-album  : Deezer album/upc:{barcode of representative release} -> Deezer URL-rel on that release
-         -> Cover Art Archive release-group front -> miss
-track  : CAA front of the most-listened own release -> Deezer track/isrc:{isrc} album cover -> miss
+album  : CAA image ListenBrainz already reported (exact caa_release_mbid + caa_id)
+         -> Deezer album/upc:{barcode of representative release} -> Deezer URL-rel on that release
+         -> CAA front of the key (release-group, or the release for release-keyed albums)
+         -> CAA release-group front of the release's MB release-group relation -> miss
+track  : LB-reported CAA image -> CAA front of the most-listened own release
+         -> Deezer track/isrc:{isrc} album cover -> CAA front of releases MB lists for the
+         recording (max 5) -> miss
 artist : MB Deezer URL-rel -> Wikidata P2722 (via MB wikidata URL-rel) -> Deezer artist picture
 
 Transient failures never become misses. Deezer quota (code 4) stops the run without burning
@@ -39,6 +43,15 @@ class ReleaseLike(Protocol):
     def barcode(self) -> str | None: ...
     @property
     def deezer_album_id(self) -> str | None: ...
+    @property
+    def release_group_mbid(self) -> str | None: ...
+
+
+class RecordingLike(Protocol):
+    @property
+    def isrcs(self) -> list[str]: ...
+    @property
+    def release_mbids(self) -> list[str]: ...
 
 
 class ArtistLinksLike(Protocol):
@@ -50,7 +63,7 @@ class ArtistLinksLike(Protocol):
 
 class MusicBrainzLookupsPort(Protocol):
     def release(self, mbid: str) -> ReleaseLike | None: ...
-    def recording_isrcs(self, mbid: str) -> list[str]: ...
+    def recording(self, mbid: str) -> RecordingLike: ...
     def artist_links(self, mbid: str) -> ArtistLinksLike: ...
 
 
@@ -63,6 +76,7 @@ class DeezerPort(Protocol):
 
 class CoverArtPort(Protocol):
     def front_url(self, kind: str, mbid: str) -> str | None: ...
+    def hint_url(self, release_mbid: str, caa_id: str) -> str | None: ...
 
 
 class WikidataPort(Protocol):
@@ -116,6 +130,10 @@ class ResolveArtwork:
 
     # --- chains -------------------------------------------------------------------------
     def _album(self, work: ArtworkWork) -> tuple[str, str] | None:
+        if work.caa_hint:
+            hinted = self.caa.hint_url(*work.caa_hint)
+            if hinted:
+                return "caa", hinted
         release = work.representative_release_mbid
         info = self.mb.release(release) if release else None
         if info is not None:
@@ -124,18 +142,32 @@ class ResolveArtwork:
                 url = self.deezer.album(info.deezer_album_id)
             if url:
                 return "deezer", url
-        url = self.caa.front_url("release-group", work.mbid)
+        url = self.caa.front_url(work.album_kind, work.mbid)
+        if url is None and work.album_kind == "release" and info and info.release_group_mbid:
+            url = self.caa.front_url("release-group", info.release_group_mbid)
         return ("caa", url) if url else None
 
     def _track(self, work: ArtworkWork) -> tuple[str, str] | None:
-        if work.representative_release_mbid:
-            url = self.caa.front_url("release", work.representative_release_mbid)
+        if work.caa_hint:
+            hinted = self.caa.hint_url(*work.caa_hint)
+            if hinted:
+                return "caa", hinted
+        own = work.representative_release_mbid
+        if own:
+            url = self.caa.front_url("release", own)
             if url:
                 return "caa", url
-        for isrc in self.mb.recording_isrcs(work.mbid):
+        recording = self.mb.recording(work.mbid)
+        for isrc in recording.isrcs:
             url = self.deezer.track_album_cover(isrc)
             if url:
                 return "deezer", url
+        for other in recording.release_mbids:
+            if other == own:
+                continue
+            url = self.caa.front_url("release", other)
+            if url:
+                return "caa", url
         return None
 
     def _artist(self, work: ArtworkWork) -> tuple[str, str] | None:
