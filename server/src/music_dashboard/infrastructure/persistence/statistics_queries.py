@@ -211,6 +211,19 @@ WHERE w.code=:country GROUP BY w.mbid ORDER BY listens DESC, key LIMIT :limit
 # no artwork.
 ARTWORK_TYPES = {"artists": "artist", "albums": "album", "tracks": "track"}
 UUID_KEY = "'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'"
+# Pies and evolution show every entity with a STRICTLY greater than 2% share of the included
+# listens of the selected range (no Top-N truncation first); the rest is one combined Other.
+# listens/included > 1/50  <=>  listens*50 > included. Rounding to 9 decimals absorbs float noise
+# from fractional weights so an exact 2% never qualifies by accident (or fails to tie).
+SHARE_FAMILIES = ("pies/", "evolution/")
+SHARE_THRESHOLD = "round(listens::numeric, 9) * 50 > :included"
+PIE_SLICES = f"""
+ SELECT key, label, false AS is_other, listens FROM totals WHERE {SHARE_THRESHOLD}
+ UNION ALL
+ SELECT 'other', 'Other', true, sum(listens)::float8 FROM totals
+ WHERE NOT ({SHARE_THRESHOLD}) HAVING count(*)>0
+ ORDER BY is_other, listens DESC, key
+"""
 TABLES = {
     "artists": "artist_values",
     "albums": "album_values",
@@ -351,7 +364,7 @@ class SQLStatisticsQueries:
                 params["from_date"],
                 params["to_date"],
                 params["tz"],
-                filters.limit,
+                None if family.startswith(SHARE_FAMILIES) else filters.limit,
                 filters.country_code,
                 snapshot["generation"],
             )
@@ -426,7 +439,23 @@ class SQLStatisticsQueries:
                 result["dimension"] = dimension
                 included = result["coverage"][dimension]["included_listens"]
                 if kind == "evolution":
-                    result.update(self._evolution(c, dimension, params))
+                    result.update(self._evolution(c, dimension, {**params, "included": included}))
+                elif kind == "pies":
+                    result["slices"] = [
+                        {
+                            "key": r["key"],
+                            "label": r["label"],
+                            "is_other": r["is_other"],
+                            "listens": r["listens"],
+                            "share": self._share(r["listens"], included),
+                        }
+                        for r in c.execute(
+                            text(
+                                COMMON + ", totals AS (" + totals_sql(dimension) + ")" + PIE_SLICES
+                            ),
+                            {**params, "included": included},
+                        ).mappings()
+                    ]
                 else:
                     # LIMIT N+1 cannot give Other's exact sum, so SQL returns top N + sum(tail).
                     art_type = ARTWORK_TYPES.get(dimension)
@@ -563,18 +592,19 @@ class SQLStatisticsQueries:
         ]
         if len(buckets) > MAX_BUCKETS:
             raise InvalidStatisticsRequest("Range exceeds the supported bucket budget")
-        series_count = min(extent["categories"], params["limit"]) + int(
-            extent["categories"] > params["limit"]
-        )
+        # More than 49 entities cannot each exceed 2% of the total, so at most 49 + Other series.
+        series_count = min(extent["categories"], 49) + int(extent["categories"] > 49)
         if len(buckets) * series_count > MAX_EVOLUTION_VALUES:
-            raise InvalidStatisticsRequest("Range and limit exceed the evolution value budget")
+            raise InvalidStatisticsRequest("Range exceeds the evolution value budget")
         rows = c.execute(
             text(
                 COMMON
                 + ", totals AS ("
                 + totals_sql(dimension)
                 + """),
-          top AS (SELECT key FROM totals ORDER BY listens DESC,key LIMIT :limit),
+          top AS (SELECT key FROM totals WHERE """
+                + SHARE_THRESHOLD
+                + """),
           grouped AS (
             SELECT CASE WHEN t.key IS NULL THEN 'other' ELSE v.key END AS key,
               CASE WHEN t.key IS NULL THEN 'Other' ELSE min(v.label) END AS label,
@@ -605,7 +635,12 @@ class SQLStatisticsQueries:
             # First partial week/month starts at the requested date rather than before it.
             bucket = max(r["bucket"], params["from_date"])
             s["values"][bucket_index[bucket]] = r["listens"]
-        return {"bucket_unit": unit, "buckets": buckets, "series": list(series.values())}
+        # Stable order: largest whole-range total first, key as tie-break, Other always last.
+        ordered = sorted(
+            series.values(),
+            key=lambda x: (x["is_other"], -round(sum(x["values"]), 9), x["key"]),
+        )
+        return {"bucket_unit": unit, "buckets": buckets, "series": ordered}
 
     def health(self) -> dict[str, Any]:
         params = self._params(StatisticsFilter(date.min, date.max, "UTC", 10))

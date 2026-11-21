@@ -1,7 +1,7 @@
 from dataclasses import replace
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.responses import JSONResponse
 
 from music_dashboard.application.get_statistics import GetStatistics
@@ -44,10 +44,8 @@ def endpoint(family: str) -> Any:
     def get(
         filters: Annotated[StatisticsFilter, Depends(statistics_filter)],
         use_case: Annotated[GetStatistics, Depends(get_statistics)],
-        request: Request,
     ) -> Any:
-        if family.startswith("evolution/") and "limit" not in request.query_params:
-            filters = replace(filters, limit=8)
+        # `limit` only caps rankings; pies and evolution select series by share (> 2%) instead.
         return run(use_case, family, filters)
 
     return get

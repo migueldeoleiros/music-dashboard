@@ -129,7 +129,7 @@ def test_public_unavailability_never_leaks_driver_details():
         app.dependency_overrides.clear()
 
 
-def test_evolution_default_eight_without_contract_drift():
+def test_evolution_has_no_special_default_limit_without_contract_drift():
     class RecordingQueries:
         def query(self, family, filters):
             assert filters.limit == expected_limit[0]
@@ -137,11 +137,11 @@ def test_evolution_default_eight_without_contract_drift():
             # inventing a chart response or bypassing production validation.
             raise InvalidStatisticsRequest("captured")
 
-    expected_limit = [8]
+    expected_limit = [10]
     app.dependency_overrides[get_statistics] = lambda: GetStatistics(RecordingQueries())
     try:
         client = TestClient(app)
-        for expected, extra in ((8, {}), (10, {"limit": 10}), (2, {"limit": 2})):
+        for expected, extra in ((10, {}), (10, {"limit": 10}), (2, {"limit": 2})):
             expected_limit[0] = expected
             response = client.get(
                 "/api/evolution/artists",

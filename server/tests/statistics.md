@@ -43,8 +43,8 @@ No raw/sync/cache tables are read to manufacture health freshness.
   bounds 0001-01-01 / 9999-12-31 trim empty edges to actual history (all-time).
   Final bucket labels are clipped to the exclusive requested end, with a partial
   flag computed against the natural calendar boundary. Empty DB yields no buckets.
-- Defaults: pies top10; evolution top8 unless explicit limit (frozen query parameter
-  schema still defaults to10). All limits are 1..100. Other contains known tail only.
+- Pies and evolution ignore `limit`: >2% share of included listens (strict) or Other. Rankings
+  keep limit 1..100 (default 10). Other contains known tail only.
 - Evolution budget: <=120000 buckets and <=2000000 values (actual series × buckets),
   checked before allocating series arrays; each zero array is allocated once.
   Excess custom combinations yield typed400; all-time ordinary history is allowed.

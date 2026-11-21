@@ -44,8 +44,8 @@ GET endpoints (prefix `/api`):
 | `/heatmap` | local daily all-listen cells, Monday-first |
 | `/countries` | artist-associated ISO code, weighted listens/share |
 | `/countries/{code}/artists` | RankingResponse of artists credited to one country; `{code}` is uppercase ISO alpha-2 from `COUNTRY_CODES` (anything else, incl. XW/XE/ZZ, is 400) |
-| `/evolution/{artists,genres}` | local half-open buckets, whole-range top N series + Other |
-| `/pies/{artists,genres}` | weighted slices + Other |
+| `/evolution/{artists,genres}` | local half-open buckets, whole-range series with a >2% share of included listens + Other |
+| `/pies/{artists,genres}` | weighted slices with a >2% share + Other |
 | `/health` | mode/status, last_updated, sync_lag_seconds, generation, coverage |
 
 Braces above are documentation shorthand, except `/countries/{code}/artists`, the only real
@@ -56,8 +56,9 @@ country's item listens sum to its `/countries` listens, and `share` uses the sam
 (country-resolved included listens), so item shares sum to the country's share. The response
 cache key includes the code. Every chart request requires inclusive
 ISO local-date `from`, `to`, and supported case-sensitive IANA `tz`; optional `limit`
-is 1..100, default 10. Pies default top 10; evolution use-case default top 8 is a presentation
-choice passed explicitly as `limit=8`. No all-time duration cap. Invalid dates, reversed dates,
+is 1..100, default 10 and caps rankings only. Pies and evolution ignore it: they keep every
+entity whose share of the range's included listens is strictly above 2% (`listens*50 > included`,
+no Top-N truncation first) and fold the rest into one Other, so weighted totals are conserved. No all-time duration cap. Invalid dates, reversed dates,
 unknown timezone and invalid limits yield 400 `{code,message,details}`, never 422. Missing
 parameters also yield 400. Health requires no filters. No POST/PUT/DELETE/admin endpoints.
 Automatic documentation UIs are disabled; aggregate-only OpenAPI remains available.
@@ -262,8 +263,9 @@ Only unique unambiguous aliases may resolve fallback names; document that policy
 Albums prefer release-group, then release, then artist+album fallback identity.
 All listens count in heatmap. Omit unresolved genre only from genre views, unresolved country
 only from map. Genre/country weights sum to included count within tolerance. Other is known
-categories outside top N, never unknown metadata. Evolution picks top 8 across whole range,
-zero-fills daily/weekly/monthly buckets, noncumulative, marks partial final bucket. Pies top10.
+categories at or below the 2% share, never unknown metadata. Evolution uses the same whole-range
+membership as pies, ordered by total desc then key with Other last,
+zero-fills daily/weekly/monthly buckets, noncumulative, marks partial final bucket.
 
 Visitor timezone is always the browser Intl zone (never in the URL), with a visible UTC fallback
 when the API rejects it. The URL carries `from`/`to` only for custom ranges; presets are bare and

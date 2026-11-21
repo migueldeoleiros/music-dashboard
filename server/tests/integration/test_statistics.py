@@ -95,7 +95,8 @@ def test_missing_artist_never_other_and_empty_database(stats):
     assert pie["coverage"]["artists"]["included_listens"] == 2
     assert pie["coverage"]["artists"]["excluded_listens"] == 1
     assert sum(s["listens"] for s in pie["slices"]) == 2
-    assert next(s for s in pie["slices"] if s["is_other"])["listens"] == 1
+    # Both artists hold 50% (> 2%), so nothing is folded into Other; missing never is.
+    assert not any(s["is_other"] for s in pie["slices"])
     evolution = q.query("evolution/artists", filters(limit=1))
     assert sum(sum(s["values"]) for s in evolution["series"]) == 2
     with writer.begin() as c:
@@ -390,8 +391,9 @@ def test_evolution_zero_fill_other_and_partial(stats):
     assert len(daily["buckets"]) == 4
     assert sum(s["values"][1] for s in daily["series"]) == pytest.approx(4)
     assert all(s["values"][0] == s["values"][2] == s["values"][3] == 0 for s in daily["series"])
-    assert sum(s["is_other"] for s in daily["series"]) == 1
-    assert next(s for s in daily["series"] if not s["is_other"])["label"] == "Jazz"
+    # Genres Jazz 1.3, Rock 1, Folk .7, Pop .5, Electronic .5 of 4 are all above 2%: no Other.
+    assert [s["label"] for s in daily["series"]] == ["Jazz", "Rock", "Folk", "Electronic", "Pop"]
+    assert not any(s["is_other"] for s in daily["series"])
     weekly = q.query("evolution/artists", filters("2026-01-01", "2026-05-02", limit=1))
     assert weekly["bucket_unit"] == "week"
     assert weekly["buckets"][-1]["partial"] is True
@@ -400,6 +402,121 @@ def test_evolution_zero_fill_other_and_partial(stats):
     monthly = q.query("evolution/artists", filters("0001-01-01", "9999-12-31", limit=1))
     assert monthly["bucket_unit"] == "month"
     assert sum(sum(s["values"]) for s in monthly["series"]) == pytest.approx(30)
+
+
+def seed_shares(writer, counts: dict[str, int], days: int = 3):
+    """One named, unmapped artist per entry; its listens are spread over `days` local days."""
+    with writer.begin() as c:
+        c.execute(text("DELETE FROM listens"))
+        n = 0
+        for name, count in counts.items():
+            for _ in range(count):
+                c.execute(
+                    text("""
+                  INSERT INTO listens(user_name,listened_at,recording_msid,artist_name)
+                  VALUES ('share-test',timestamptz '2026-01-05T12:00Z' + make_interval(days => :d),
+                          CAST(:id AS uuid),:name)
+                """),
+                    {"d": n % days, "id": str(uuid.uuid4()), "name": name},
+                )
+                n += 1
+        c.execute(text("UPDATE data_generation SET ingestion_generation=ingestion_generation+1"))
+
+
+def share_view(q, start="2026-01-05", end="2026-01-07"):
+    pie = q.query("pies/artists", filters(start, end, limit=1))
+    evolution = q.query("evolution/artists", filters(start, end, limit=1))
+    return pie, evolution
+
+
+def test_more_than_ten_qualifying_artists_are_never_truncated(stats):
+    q, writer = stats
+    counts = {f"Major {i:02d}": 8 for i in range(12)}  # 12 x 8% = 96%
+    counts.update({f"Tail {i}": 1 for i in range(4)})  # 4 x 1%
+    seed_shares(writer, counts)
+    for limit in (1, 10, 100):  # limit no longer selects anything
+        pie = q.query("pies/artists", filters("2026-01-05", "2026-01-07", limit=limit))
+        evolution = q.query("evolution/artists", filters("2026-01-05", "2026-01-07", limit=limit))
+        PieResponse.model_validate(pie)
+        EvolutionResponse.model_validate(evolution)
+        real = [s for s in pie["slices"] if not s["is_other"]]
+        assert len(real) == 12
+        assert [s["label"] for s in real] == [f"Major {i:02d}" for i in range(12)]
+        assert pie["slices"][-1]["is_other"] and pie["slices"][-1]["listens"] == 4
+        assert len(evolution["series"]) == 13 and evolution["series"][-1]["is_other"]
+        assert [s["label"] for s in evolution["series"][:-1]] == [s["label"] for s in real]
+
+
+def test_two_percent_boundary_is_strictly_greater(stats):
+    q, writer = stats
+    counts = {f"Five {i:02d}": 5 for i in range(18)}  # 90
+    counts.update({"Four": 4, "Three": 3, "Exactly two": 2, "One": 1})  # total 100
+    seed_shares(writer, counts)
+    pie, evolution = share_view(q)
+    assert pie["coverage"]["artists"]["included_listens"] == 100
+    labels = {s["label"]: s for s in pie["slices"]}
+    assert "Three" in labels and "Four" in labels  # 3% and 4% qualify
+    assert "Exactly two" not in labels and "One" not in labels  # exactly 2% does not
+    assert labels["Other"]["listens"] == 3  # 2 + 1 combined
+    assert labels["Other"]["share"] == pytest.approx(0.03)
+    assert {s["label"] for s in evolution["series"]} == set(labels)
+    # Raising the 2-listen artist to 3 (3/101 > 2%) makes it qualify.
+    seed_shares(writer, {**counts, "Exactly two": 3})
+    pie, _ = share_view(q)
+    assert pie["coverage"]["artists"]["included_listens"] == 101
+    assert "Exactly two" in {s["label"] for s in pie["slices"]}
+    # Pure ratio boundary: 1 of 50 is exactly 2% (Other); 1 of 49 is 2.04% (qualifies).
+    seed_shares(writer, {"Solo": 1, **{f"Big {i}": 7 for i in range(7)}})  # 1/50 = exactly 2%
+    pie, _ = share_view(q)
+    assert pie["coverage"]["artists"]["included_listens"] == 50
+    assert next(s for s in pie["slices"] if s["is_other"])["listens"] == 1
+    seed_shares(writer, {"Solo": 1, **{f"Big {i}": 7 for i in range(6)}, "Mid": 6})  # 1/49
+    pie, _ = share_view(q)
+    assert "Solo" in {s["label"] for s in pie["slices"]}
+
+
+def test_share_grouping_conserves_totals_zero_fills_and_is_stable(stats):
+    q, writer = stats
+    counts = {
+        "Alpha": 30,
+        "Beta": 30,
+        "Gamma": 20,
+        "Delta": 10,
+        "Eps": 4,
+        "Zeta": 3,
+        "Eta": 2,
+        "Theta": 1,
+    }
+    seed_shares(writer, counts, days=2)
+    pie, evolution = share_view(q, "2026-01-04", "2026-01-08")
+    included = pie["coverage"]["artists"]["included_listens"]
+    assert included == 100
+    assert sum(s["listens"] for s in pie["slices"]) == pytest.approx(included)
+    assert sum(s["share"] for s in pie["slices"]) == pytest.approx(1)
+    assert sum(sum(s["values"]) for s in evolution["series"]) == pytest.approx(included)
+    for s in pie["slices"]:  # pie and evolution agree per entity over the whole range
+        series = next(x for x in evolution["series"] if x["key"] == s["key"])
+        assert sum(series["values"]) == pytest.approx(s["listens"])
+    # Zero fill: five daily buckets (4..8 Jan), listens only on the 5th and 6th.
+    assert len(evolution["buckets"]) == 5
+    assert all(len(s["values"]) == 5 for s in evolution["series"])
+    assert all(
+        s["values"][0] == 0 and s["values"][3] == s["values"][4] == 0 for s in evolution["series"]
+    )
+    # Stable order: listens desc, key tie-break (Alpha/Beta tie), Other last; repeat is identical.
+    assert [s["label"] for s in pie["slices"]] == [
+        "Alpha",
+        "Beta",
+        "Gamma",
+        "Delta",
+        "Eps",
+        "Zeta",
+        "Other",
+    ]
+    assert [s["label"] for s in evolution["series"]] == [s["label"] for s in pie["slices"]]
+    assert pie["slices"][-1]["listens"] == 3  # Eta 2% + Theta 1%
+    again, again_evolution = share_view(q, "2026-01-04", "2026-01-08")
+    assert again["slices"] == pie["slices"] and again_evolution["series"] == evolution["series"]
 
 
 def test_unicode_identity_and_missing_states(stats):
