@@ -383,3 +383,339 @@ def test_country_artists_join_matches_countries_totals(env):
     assert items(after)[ART]["image_url"] == DZ_ARTIST and items(after)[ART2]["image_url"] is None
     totals = {c["code"]: c["listens"] for c in q.query("countries", flt())["countries"]}
     assert sum(i["listens"] for i in after["items"]) == pytest.approx(totals["US"])
+
+
+# --- name-only artwork, provenance, grants -----------------------------------------------------
+def add_named(c, n, *, artist, track=None, album=None, credits=()):
+    """Listen with no MBIDs at all; `credits` become unmapped listen_artists rows."""
+    row = c.execute(
+        text(
+            "INSERT INTO listens(user_name,listened_at,recording_msid,track_name,artist_name,"
+            "release_name) VALUES ('art', "
+            "timestamptz '2026-04-01T10:00Z' + make_interval(mins=>:n), "
+            ":msid, :track, :artist, :album) RETURNING id"
+        ),
+        {"n": n, "msid": str(uuid.uuid4()), "track": track, "artist": artist, "album": album},
+    ).scalar_one()
+    for pos, name in enumerate(credits):
+        c.execute(
+            text(
+                "INSERT INTO listen_artists(listen_id,position,artist_name,artist_mbid) "
+                "VALUES (:i,:p,:n,NULL)"
+            ),
+            {"i": row, "p": pos, "n": name},
+        )
+
+
+def digest(eng):
+    with eng.connect() as c:
+        return c.execute(
+            text(
+                "SELECT (SELECT md5(string_agg(l::text, '|' ORDER BY l.id)) FROM listens l), "
+                "(SELECT md5(coalesce(string_agg(r::text, '|' ORDER BY r.id), '')) "
+                " FROM raw_listens r), (SELECT count(*) FROM listen_artists)"
+            )
+        ).one()
+
+
+@pytest.fixture
+def named(env):
+    admin, api = env
+    with admin.begin() as c:
+        # same album written differently: ranking folds case/NFKC/whitespace into ONE key
+        add_named(c, 1, artist="Bjork", track="Hyperballad", album="Post", credits=("Bjork",))
+        add_named(c, 2, artist="BJORK ", track="hyperballad", album=" post", credits=("Bjork",))
+        add_named(c, 3, artist="Ｂjork", track="Other", album="Post", credits=("Bjork",))
+        add_named(c, 4, artist="Solo", track="Blank album", album=None, credits=())
+        add_named(c, 5, artist=None, track="No artist", album="Orphan", credits=())
+    return admin, api
+
+
+def name_keys(admin_or_api, family):
+    q = SQLStatisticsQueries(admin_or_api)
+    return {
+        k: i
+        for k, i in items(q.query(f"rankings/{family}", flt())).items()
+        if "name:" in k and i["metadata_state"] != "missing"  # blank titles have nothing to find
+    }
+
+
+def test_name_only_discovery_uses_the_exact_ranking_keys(named):
+    admin, api = named
+    works = {
+        (w.entity_type, w.name_key): w
+        for w in SqlArtworkRepository(admin).due(NOW, 100)
+        if w.mbid is None
+    }
+    for family, kind in (("albums", "album"), ("tracks", "track"), ("artists", "artist")):
+        ranked = {k for k in name_keys(api, family)}
+        found = {k for (t, k) in works if t == kind}
+        # every unresolved ranking key is discoverable under the identical stable key
+        assert ranked <= found, (family, ranked - found)
+    album = works[("album", 'name:["bjork", "post"]')]
+    # representative raw spelling is deterministic (most frequent, then smallest)
+    assert album.listens == 3 and album.names.title == " post"
+    assert album.names.artists == ("BJORK ",)
+    track = works[("track", 'name:["bjork", "hyperballad"]')]
+    assert track.listens == 2 and track.names.release == " post"
+    artist = works[("artist", "name:bjork")]
+    assert (
+        artist.listens == 3 and artist.mbid is None and artist.representative_release_mbid is None
+    )
+    assert ("album", 'name:["solo", ""]') not in works  # blank album title: nothing to search
+    assert (
+        "track",
+        'name:["", "no artist"]',
+    ) in works  # artist-less track is a (never searched) key
+    assert ("album", 'name:["", "orphan"]') in works  # album title-only candidate
+
+
+def test_name_only_save_semantics_and_provenance(named):
+    admin, _ = named
+    repo = SqlArtworkRepository(admin)
+    work = next(w for w in repo.due(NOW, 100) if w.name_key == "name:bjork")
+    retry = NOW + timedelta(days=30)
+    hit = ArtworkOutcome("resolved", "deezer", DZ_ARTIST, None, "artist_name", "123")
+    assert repo.save(work, hit, NOW, retry) is True
+    assert repo.save(work, hit, NOW, retry) is False  # unchanged image: no generation bump
+    row = (
+        admin.connect()
+        .execute(
+            text(
+                "SELECT source,image_url,status,match_kind,provider_ref,attempts FROM artwork_name"
+            )
+        )
+        .one()
+    )
+    assert tuple(row) == ("deezer", DZ_ARTIST, "resolved", "artist_name", "123", 0)
+    assert work.name_key not in {w.name_key for w in repo.due(NOW, 100)}  # not due until TTL
+    assert work.name_key in {w.name_key for w in repo.due(retry + timedelta(seconds=1), 100)}
+    # transient refresh failure keeps the image and counts attempts
+    assert repo.save(work, ArtworkOutcome("transient"), NOW, NOW + timedelta(minutes=1)) is False
+    assert repo.attempts(work) == 1
+    assert scalar(admin, "SELECT image_url FROM artwork_name") == DZ_ARTIST
+    # a later miss removes it (visible change) and records no provenance
+    assert repo.save(work, ArtworkOutcome("miss"), NOW, NOW) is True
+    row = (
+        admin.connect()
+        .execute(text("SELECT source,image_url,match_kind,provider_ref FROM artwork_name"))
+        .one()
+    )
+    assert tuple(row) == ("none", None, "none", None)
+    # nothing was ever written to the artwork (MBID) table by name-only work
+    assert scalar(admin, "SELECT count(*) FROM artwork") == 0
+
+
+def test_mbid_entity_name_match_records_provenance_and_exact_stays_id(env):
+    admin, _ = env
+    repo = SqlArtworkRepository(admin)
+    work = next(w for w in repo.due(NOW, 100) if w.entity_type == "album" and w.mbid == RG)
+    assert work.names.title == "Album" and work.names.artists == ("Artist",)
+    artist = next(w for w in repo.due(NOW, 100) if w.entity_type == "artist" and w.mbid == ART)
+    assert artist.names.title == "Artist"
+    track = next(w for w in repo.due(NOW, 100) if w.entity_type == "track" and w.mbid == REC)
+    assert track.names.title == "Song" and track.names.release is None
+    repo.save(work, ArtworkOutcome("resolved", "deezer", DZ, None, "album_title", "55"), NOW, NOW)
+    repo.save(artist, ArtworkOutcome("resolved", "caa", DZ_ARTIST), NOW, NOW)
+    rows = {
+        r[0]: tuple(r[1:])
+        for r in admin.connect().execute(
+            text("SELECT entity_type, match_kind, provider_ref FROM artwork ORDER BY 1")
+        )
+    }
+    assert rows == {"album": ("album_title", "55"), "artist": ("id", None)}
+
+
+def test_name_only_listens_are_never_modified_by_image_matches(named):
+    admin, _ = named
+    before = digest(admin)
+    repo = SqlArtworkRepository(admin)
+    for work in repo.due(NOW, 100):
+        repo.save(work, ArtworkOutcome("resolved", "deezer", DZ, None, _kind(work), "9"), NOW, NOW)
+    repo.bump_generation()
+    assert digest(admin) == before  # raw + normalised listens and credits untouched
+    assert scalar(admin, "SELECT count(*) FROM artwork_name") > 0
+
+
+def _kind(work):
+    return {"album": "album_title", "track": "track_title_artist", "artist": "artist_name"}[
+        work.entity_type
+    ]
+
+
+def test_name_only_ranking_artwork_lookup_without_changing_identity(named):
+    admin, api = named
+    q = SQLStatisticsQueries(api)
+    families = ("albums", "tracks", "artists")
+    baseline = {f: q.query(f"rankings/{f}", flt()) for f in families}
+    keys = {
+        ("album", 'name:["bjork", "post"]'): DZ,
+        ("track", 'name:["bjork", "hyperballad"]'): DZ,
+        ("artist", "name:bjork"): DZ_ARTIST,
+    }
+    with admin.begin() as c:
+        for (kind, key), url in keys.items():
+            c.execute(
+                text(
+                    "INSERT INTO artwork_name(entity_type,name_key,source,image_url,status,"
+                    "match_kind,provider_ref) VALUES (:t,:k,'deezer',:u,'resolved',:m,'1')"
+                ),
+                {"t": kind, "k": key, "u": url, "m": _kind_of(kind)},
+            )
+        # a miss, and a same-key row of ANOTHER entity type, must never leak
+        c.execute(
+            text(
+                "INSERT INTO artwork_name(entity_type,name_key,source,status) "
+                "VALUES ('album','name:[\"solo\", \"\"]','none','miss')"
+            )
+        )
+        c.execute(
+            text("UPDATE data_generation SET enrichment_generation = enrichment_generation + 1")
+        )
+    after = {f: q.query(f"rankings/{f}", flt()) for f in families}
+    for family in families:
+        assert [
+            (i["key"], i["label"], i["listens"], i["share"]) for i in after[family]["items"]
+        ] == [
+            (i["key"], i["label"], i["listens"], i["share"]) for i in baseline[family]["items"]
+        ]  # keys, labels, totals, ordering are independent of artwork
+        assert after[family]["coverage"] == baseline[family]["coverage"]
+    assert items(after["albums"])['name:["bjork", "post"]']["image_url"] == DZ
+    assert items(after["tracks"])['name:["bjork", "hyperballad"]']["image_url"] == DZ
+    assert items(after["artists"])["name:bjork"]["image_url"] == DZ_ARTIST
+    # type-scoped: the artist image is not shown for an album with an equal key and vice versa
+    assert items(after["albums"])['name:["", "orphan"]']["image_url"] is None
+    assert items(after["tracks"])['name:["", "no artist"]']["image_url"] is None
+    # MBID-keyed items are untouched by the new join
+    assert all(
+        i["image_url"] is None
+        for f in families
+        for k, i in items(after[f]).items()
+        if "name:" not in k
+    )
+
+
+def _kind_of(entity_type):
+    return {"album": "album_title", "track": "track_title_artist", "artist": "artist_name"}[
+        entity_type
+    ]
+
+
+def test_unsafe_or_unresolved_name_artwork_is_never_returned(named):
+    admin, api = named
+    q = SQLStatisticsQueries(api)
+    with admin.begin() as c:  # https but non-allowlisted: DB accepts, the response must not
+        c.execute(
+            text(
+                "INSERT INTO artwork_name(entity_type,name_key,source,image_url,status,"
+                "match_kind,provider_ref) VALUES ('artist','name:bjork','deezer',"
+                "'https://evil-archive.org/x.jpg','resolved','artist_name','1')"
+            )
+        )
+        c.execute(
+            text(
+                "INSERT INTO artwork_name(entity_type,name_key,source,status) "
+                "VALUES ('artist','name:solo','none','transient')"
+            )
+        )
+    artists = items(q.query("rankings/artists", flt()))
+    assert artists["name:bjork"]["image_url"] is None
+    assert artists["name:solo"]["image_url"] is None
+
+
+def test_artwork_name_constraints_and_grants(env):
+    admin, api = env
+    good = (
+        "INSERT INTO artwork_name(entity_type,name_key,source,image_url,status,match_kind,"
+        "provider_ref) VALUES ('artist','name:x','deezer','{u}','resolved','{k}',{r})"
+    )
+    bad = [
+        good.format(u=DZ, k="id", r="'1'"),  # exact-id provenance on a name-only row
+        good.format(u=DZ, k="artist_name", r="NULL"),  # name match without provider id
+        good.format(u=DZ, k="artist_name", r="'../x'"),  # provider ref must be numeric
+        good.format(u="http://insecure.example/x", k="artist_name", r="'1'"),
+        good.replace("'name:x'", "'x'").format(u=DZ, k="artist_name", r="'1'"),  # not a name key
+        good.replace("'deezer'", "'caa'").format(u=DZ, k="artist_name", r="'1'"),
+        good.replace("'artist'", "'genre'").format(u=DZ, k="artist_name", r="'1'"),
+        "INSERT INTO artwork_name(entity_type,name_key,source,status,match_kind,provider_ref) "
+        "VALUES ('artist','name:x','none','miss','artist_name','1')",  # miss claiming a match
+    ]
+    for sql in bad:
+        with pytest.raises(DBAPIError, match="violates check constraint"):
+            with admin.begin() as c:
+                c.execute(text(sql))
+    # MBID table: name-kind provenance needs a resolved deezer row with a provider id
+    for sql in (
+        "INSERT INTO artwork(entity_type,entity_mbid,source,image_url,status,match_kind,"
+        f"provider_ref) VALUES ('album','{RG}','caa','https://archive.org/x','resolved',"
+        "'album_title','1')",
+        f"INSERT INTO artwork(entity_type,entity_mbid,source,status,match_kind) "
+        f"VALUES ('album','{RG}','none','miss','album_title')",
+        "INSERT INTO artwork(entity_type,entity_mbid,source,image_url,status,match_kind) "
+        f"VALUES ('album','{RG}','deezer','{DZ}','resolved','guess')",
+    ):
+        with pytest.raises(DBAPIError, match="violates check constraint"):
+            with admin.begin() as c:
+                c.execute(text(sql))
+    with admin.begin() as c:
+        c.execute(text(good.format(u=DZ_ARTIST, k="artist_name", r="'7'")))
+    assert scalar(admin, "SELECT has_table_privilege('music_api','artwork_name','SELECT')") is False
+    for col in ("entity_type", "name_key", "image_url", "status"):
+        assert scalar(
+            admin, f"SELECT has_column_privilege('music_api','artwork_name','{col}','SELECT')"
+        )
+    for col in ("source", "match_kind", "provider_ref", "fetched_at", "next_retry_at", "attempts"):
+        assert not scalar(
+            admin, f"SELECT has_column_privilege('music_api','artwork_name','{col}','SELECT')"
+        )
+    for col in ("match_kind", "provider_ref"):  # new provenance on artwork stays writer-only
+        assert not scalar(
+            admin, f"SELECT has_column_privilege('music_api','artwork','{col}','SELECT')"
+        )
+    for priv in ("INSERT", "UPDATE", "DELETE", "SELECT"):
+        assert scalar(admin, f"SELECT has_table_privilege('music_writer','artwork_name','{priv}')")
+    assert scalar(api, "SELECT image_url FROM artwork_name") == DZ_ARTIST
+    for sql in ("SELECT * FROM artwork_name", "SELECT match_kind FROM artwork_name",
+                "SELECT provider_ref FROM artwork"):  # fmt: skip
+        with pytest.raises(DBAPIError, match="permission denied"):
+            scalar(api, sql)
+    writable = create_engine(
+        api.url, connect_args={"options": "-c default_transaction_read_only=off"}
+    )
+    try:
+        for stmt in (
+            "INSERT INTO artwork_name(entity_type,name_key,source,status) "
+            "VALUES ('artist','name:y','none','miss')",
+            "UPDATE artwork_name SET image_url = 'https://archive.org/x'",
+            "DELETE FROM artwork_name",
+        ):
+            with pytest.raises(DBAPIError, match="permission denied"):
+                with writable.begin() as c:
+                    c.execute(text(stmt))
+    finally:
+        writable.dispose()
+
+
+def test_reset_retries_covers_name_only_rows(named):
+    admin, _ = named
+    repo = SqlArtworkRepository(admin)
+    future = NOW + timedelta(days=7)
+    work = next(w for w in repo.due(NOW, 100) if w.name_key == "name:bjork")
+    repo.save(work, ArtworkOutcome("miss"), NOW, future)
+    assert work.name_key not in {w.name_key for w in repo.due(NOW, 100)}
+    assert repo.reset_retries() >= 1
+    assert work.name_key in {w.name_key for w in repo.due(datetime.now(UTC), 100)}
+
+
+def test_downgrade_drops_name_artwork_and_provenance(fresh_db, admin_url):
+    cfg = alembic_cfg(admin_url)
+    command.upgrade(cfg, "head")
+    command.downgrade(cfg, "0003")
+    assert scalar(fresh_db, "SELECT to_regclass('public.artwork_name') IS NULL") is True
+    assert not scalar(
+        fresh_db,
+        "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
+        "WHERE table_name='artwork' AND column_name='match_kind')",
+    )
+    command.upgrade(cfg, "head")
+    assert scalar(fresh_db, "SELECT to_regclass('public.artwork_name') IS NOT NULL") is True
