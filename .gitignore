@@ -13,5 +13,6 @@ build/
 *.tsbuildinfo
 coverage/
 .coverage
+backups/
 *.egg-info/
 .workmux/
