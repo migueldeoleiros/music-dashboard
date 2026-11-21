@@ -2,7 +2,20 @@
   font-family: 'Inter Variable'; font-style: normal; font-display: swap; font-weight: 100 900;
   src: url('../assets/fonts/inter-latin-wght-normal.woff2') format('woff2-variations');
 }
-:root { color-scheme: dark; --bg: #0e1013; --surface: #15181d; --border: #2b3038; --text: #e9edf2; --muted: #a2aab6; --accent: #8ee5bd; font-family: 'Inter Variable', system-ui, sans-serif; line-height: 1.5; color: var(--text); background: var(--bg); font-synthesis: none; }
+/* Token names are a contract: see docs/ui-tokens.md. Lanes may change values, never names. */
+:root {
+  color-scheme: dark;
+  --bg: #0e1013; --surface: #15181d; --surface-2: #1b2027; --border: #2b3038;
+  --text: #e9edf2; --text-muted: #a2aab6; --muted: var(--text-muted);
+  --accent: #8ee5bd; --accent-soft: rgb(142 229 189 / 14%);
+  --radius-sm: 5px; --radius-md: 8px; --radius-lg: 30px;
+  --font: 'Inter Variable', system-ui, sans-serif;
+  --series-1: hsl(155 60% 68%); --series-2: hsl(200 62% 68%); --series-3: hsl(260 60% 72%);
+  --series-4: hsl(320 58% 70%); --series-5: hsl(10 62% 68%); --series-6: hsl(40 66% 68%);
+  --series-7: hsl(75 58% 66%); --series-8: hsl(180 56% 66%); --series-9: hsl(230 60% 72%); --series-10: hsl(350 60% 70%);
+  --series-other: #8a8f98;
+  font-family: var(--font); line-height: 1.5; color: var(--text); background: var(--bg); font-synthesis: none;
+}
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; scroll-padding-top: 1rem; }
 body { margin: 0; min-width: 0; }
