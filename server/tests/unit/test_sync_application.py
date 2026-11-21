@@ -67,6 +67,14 @@ class MemoryRepository:
         self.activation_calls += 1
         return {"changed": self.ingest(user, list(rows), "export", snapshot_at)}
 
+    def rate_limit_until(self, user):
+        deadlines = [
+            datetime.fromisoformat(run["stats"]["rate_limit_until"])
+            for run in self.runs
+            if "rate_limit_until" in run["stats"]
+        ]
+        return max(deadlines, default=None)
+
     def next_retry(self, user, kind=None):
         return self.retry.get(kind) if isinstance(self.retry, dict) else self.retry
 
@@ -265,6 +273,22 @@ def test_resume_original_floor_survives_first_scan_outage():
         sync_listens(first, repo, "u", now=started)
     sync_listens(Pages(rows), repo, "u", now=started + timedelta(days=7))
     assert ("u", bottom, str(UUID(int=1))) in repo.data
+
+
+def test_long_retry_after_is_durable_and_measured_from_failure_not_start():
+    from music_dashboard.infrastructure.listenbrainz.transport import RateLimitedError
+
+    class Limited(Pages):
+        def page(self, *args, **kwargs):
+            raise RateLimitedError(3600)
+
+    repo = MemoryRepository()
+    before = datetime.now(UTC)
+    with pytest.raises(RateLimitedError):
+        sync_listens(Limited([]), repo, "u", now=before - timedelta(days=1))
+    stats = repo.runs[-1]["stats"]
+    assert datetime.fromisoformat(stats["next_retry_at"]) >= before + timedelta(hours=1)
+    assert datetime.fromisoformat(stats["rate_limit_until"]) >= before + timedelta(hours=1)
 
 
 def test_invalid_snapshot_cannot_clear_reconcile_checkpoint():

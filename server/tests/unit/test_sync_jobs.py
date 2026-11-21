@@ -106,6 +106,28 @@ def test_worker_schedule_checks_are_lock_guarded(runtime):
     engine.dispose.assert_called_once()
 
 
+@pytest.mark.parametrize("failed_kind", ["incremental", "reconcile"])
+def test_long_upstream_rate_limit_survives_restart_and_blocks_both_jobs(runtime, failed_kind):
+    repo, engine, incremental, reconcile = runtime
+    repo.state["last_export_at"] -= timedelta(days=8)
+    repo.state["last_incremental_at"] -= timedelta(minutes=20)
+    repo.runs.append(
+        {
+            "kind": failed_kind,
+            "status": "failed",
+            "stats": {
+                "rate_limit_until": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+            },
+        }
+    )
+    assert job.run_sync("incremental", scheduled=True) == {"status": "backoff"}
+    assert job.run_sync("reconcile", scheduled=True) == {"status": "backoff"}
+    with pytest.raises(SyncBusy):
+        job.run_sync("reconcile", scheduled=False)
+    incremental.assert_not_called()
+    reconcile.assert_not_called()
+
+
 def test_configurable_schedule_and_overlap(runtime, monkeypatch):
     repo, engine, incremental, reconcile = runtime
     monkeypatch.setenv("MUSIC_SYNC_INTERVAL_SECONDS", "1")

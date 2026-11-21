@@ -85,6 +85,11 @@ def run_sync(
         with repository.locked(config.user) as acquired:
             if not acquired:
                 raise SyncBusy("Another sync owns the user lock; retry later")
+            rate_deadline = repository.rate_limit_until(config.user)
+            if rate_deadline is not None and rate_deadline > now:
+                if scheduled:
+                    return {"status": "backoff"}
+                raise SyncBusy("Upstream rate limit is still active; retry after its deadline")
             if scheduled:
                 state = repository.load_checkpoint(config.user)
                 last_export = state.get("last_export_at")

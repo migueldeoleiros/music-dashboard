@@ -183,6 +183,17 @@ def test_runs_and_next_retry(repo):
         repo.finish_run(rid, "running")
 
 
+def test_upstream_rate_deadline_persists_across_repository_instances_and_job_kinds(repo):
+    retry = NOW + timedelta(hours=1)
+    run = repo.begin_run(USER, "incremental")
+    repo.finish_run(run, "failed", {"rate_limit_until": retry.isoformat()})
+    # A newer ordinary job record must not discard an upstream-wide deadline.
+    repo.finish_run(repo.begin_run(USER, "reconcile"), "succeeded", {})
+    restarted = SyncRepository(repo._engine)
+    assert restarted.rate_limit_until(USER) == retry
+    assert restarted.rate_limit_until("another-user") is None
+
+
 def test_lock_exclusive_and_released(repo):
     with repo.locked(USER) as a:
         assert a is True

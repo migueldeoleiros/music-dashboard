@@ -37,9 +37,20 @@ def _timestamps(page: list[dict[str, Any]]) -> list[int]:
     return result
 
 
-def failure_stats() -> dict[str, Any]:
-    # Deadline is based on failure time, never the potentially much earlier start.
-    return {"next_retry_at": (datetime.now(UTC) + timedelta(minutes=15)).isoformat()}
+def failure_stats(error: Exception | None = None) -> dict[str, Any]:
+    # Honor transport retry hints across process restarts too. No outward adapter
+    # dependency: a source error may expose a numeric retry_after in seconds.
+    delay = getattr(error, "retry_after", None)
+    seconds = max(900.0, delay) if isinstance(delay, (int, float)) and delay >= 0 else 900.0
+    try:
+        retry = datetime.now(UTC) + timedelta(seconds=seconds)
+    except (OverflowError, ValueError):
+        retry = datetime.max.replace(tzinfo=UTC)
+    stats = {"next_retry_at": retry.isoformat()}
+    if isinstance(delay, (int, float)) and delay >= 0:
+        # The hint is upstream-wide, unlike an ordinary job-kind retry.
+        stats["rate_limit_until"] = retry.isoformat()
+    return stats
 
 
 def sync_listens(
@@ -144,6 +155,6 @@ def sync_listens(
             # credentials, URLs or private payloads.
             status = "ambiguous" if isinstance(exc, BoundaryAmbiguity) else "failed"
             repository.finish_run(
-                run, status, {**failure_stats(), "scan": scan}, type(exc).__name__
+                run, status, {**failure_stats(exc), "scan": scan}, type(exc).__name__
             )
             raise

@@ -411,6 +411,24 @@ class SyncRepository:
         except ValueError:
             return None
 
+    def rate_limit_until(self, user: str) -> datetime | None:
+        """Longest outstanding upstream deadline across both sync job kinds."""
+        with self._engine.connect() as c:
+            deadlines = c.execute(
+                text(
+                    "SELECT stats ->> 'rate_limit_until' FROM sync_runs "
+                    "WHERE user_name = :u AND stats ? 'rate_limit_until'"
+                ),
+                {"u": user},
+            ).scalars()
+            parsed = []
+            for value in deadlines:
+                try:
+                    parsed.append(_aware(datetime.fromisoformat(value)))
+                except (TypeError, ValueError):
+                    continue
+        return max(parsed, default=None)
+
     # -- ingest ----------------------------------------------------------------------------
     def ingest(
         self, user: str, payloads: list[dict[str, Any]], source: str, received_at: datetime

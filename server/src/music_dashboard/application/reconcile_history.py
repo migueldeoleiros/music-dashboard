@@ -83,5 +83,5 @@ def reconcile_history(
             repository.finish_run(run, "succeeded", stats)
             return stats
         except Exception as exc:
-            repository.finish_run(run, "failed", failure_stats(), type(exc).__name__)
+            repository.finish_run(run, "failed", failure_stats(exc), type(exc).__name__)
             raise
