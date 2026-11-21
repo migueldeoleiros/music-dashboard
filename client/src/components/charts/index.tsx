@@ -13,6 +13,7 @@ import {
   markers,
   nf,
   pct,
+  pieNarrowHeight,
   polygonCodes,
 } from './builders'
 import { echarts } from './echarts'
@@ -66,13 +67,11 @@ function Frame(props: {
         {props.overlay}
       </div>
       {props.legend}
-      {props.note ? <p className="chart-note">{props.note}</p> : null}
-      <figcaption>
+      {/* Accessible alternative only: summary, notes and the data table are visually hidden, never removed. */}
+      <figcaption className="sr-only">
         <p className="chart-summary">{props.summary}</p>
-        <details className="chart-table">
-          <summary>Show data table</summary>
-          <div style={{ overflowX: 'auto', maxHeight: 320 }}>{props.table}</div>
-        </details>
+        {props.note ? <p className="chart-note">{props.note}</p> : null}
+        {props.table}
       </figcaption>
     </figure>
   )
@@ -138,7 +137,7 @@ export function PieChart({ data }: { data: PieResponse }) {
       label={`Share of ${dimension}`}
       summary={`${slices.length} slices${slices[0] ? `; largest: ${slices[0].label} (${pct(slices[0].share)})` : ''}.`}
       height={340}
-      narrowHeight={300}
+      narrowHeight={pieNarrowHeight(slices.length)}
       build={build}
       table={
         <table>

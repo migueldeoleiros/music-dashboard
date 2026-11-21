@@ -188,12 +188,37 @@ describe('PieChart', () => {
     const s = o.series[0]
     expect(s.itemStyle.borderRadius).toBeGreaterThan(0)
     expect(s.padAngle).toBeGreaterThan(0)
-    expect(s.label.show).toBe(false)
+    expect(s.label.position).toBe('outside')
+    expect(s.labelLine.show).toBe(true)
+    expect(s.label.formatter({ data: { share: 0.75 } })).toBe('75%')
+    expect(s.labelLayout.hideOverlap).toBe(true)
+    expect(o.legend.orient).toBe('vertical')
     expect(s.emphasis.scale).toBe(true)
     expect(s.emphasis.focus).toBe('self')
     expect(s.data[0].itemStyle.color).toBe(readTheme().series[0])
     expect(s.data[1].itemStyle.color).toBe(readTheme().other)
     expect(screen.getByText('Rock')).toBeTruthy()
+  })
+  it('keeps Other with its exact count, hatched, and explains it in the tooltip', () => {
+    render(<PieChart data={data as never} />)
+    const o = lastOption()
+    const [rock, other] = o.series[0].data
+    expect(other.value).toBe(1)
+    expect(other.share).toBe(0.25)
+    expect(other.itemStyle.decal).toBeTruthy()
+    expect(rock.itemStyle.decal).toBeUndefined()
+    const tip = (d: AnyOpt) => o.tooltip.formatter({ name: d.name, value: d.value, data: d })
+    expect(tip(other)).toContain('All remaining entries combined')
+    expect(tip(other)).toContain('25%')
+    expect(tip(rock)).not.toContain('remaining')
+  })
+  it('keeps the chart alternative in the DOM but visually hidden (no visible table or details)', () => {
+    const { container } = render(<PieChart data={data as never} />)
+    expect(container.querySelector('details')).toBeNull()
+    const alt = container.querySelector('figcaption')!
+    expect(alt.classList.contains('sr-only')).toBe(true)
+    expect(alt.querySelector('table')).toBeTruthy()
+    expect(screen.getByRole('img').getAttribute('aria-label')).toContain('Share of genres')
   })
   it('theme is read from CSS tokens at runtime', () => {
     document.documentElement.style.setProperty('--series-1', '#123456')

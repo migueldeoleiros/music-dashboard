@@ -108,9 +108,25 @@ export function buildEvolutionOption(data: EvolutionResponse, t: ChartTheme): Op
 }
 
 // ---------- Pie / donut ----------
+/** Canvas height at the mobile breakpoint: the vertical legend sits under the pie, one row per slice. */
+export const pieNarrowHeight = (slices: number) => 232 + Math.max(1, slices) * 24
+
+/** Hatch for the synthetic "Other": reads as "combined remainder", never as one more real entity. */
+const otherDecal = (t: ChartTheme) => ({
+  symbol: 'rect',
+  rotation: Math.PI / 4,
+  dashArrayX: [1, 0],
+  dashArrayY: [3, 4],
+  symbolSize: 1,
+  color: mixColors(t.other, t.surface, 0.55),
+})
+
 export function buildPieOption(data: PieResponse, t: ChartTheme): Opt {
   const { slices } = data
   const labelOf = new Map(slices.map((s) => [seriesId(s), s.label]))
+  const isOther = new Map(slices.map((s) => [seriesId(s), s.is_other]))
+  const narrow = t.narrow
+  const fontSize = narrow ? 12 : 11
   return {
     animation: !t.reducedMotion,
     animationDuration: 500,
@@ -123,33 +139,57 @@ export function buildPieOption(data: PieResponse, t: ChartTheme): Opt {
       trigger: 'item',
       formatter: (p: unknown) => {
         const x = p as { name: string; value: number; color?: unknown; data: { share: number } }
-        return tipRow(t, {
+        const row = tipRow(t, {
           color: typeof x.color === 'string' ? x.color : undefined,
           label: labelOf.get(x.name) ?? x.name,
           value: nf.format(x.value),
           sub: pct(x.data.share),
         })
+        return isOther.get(x.name) ? row + `<div style="color:${esc(t.textMuted)};margin-top:4px">All remaining entries combined</div>` : row
       },
     },
-    legend: { ...legendStyle(t), formatter: (n: string) => labelOf.get(n) ?? n },
+    // Names live in the legend (vertical, one per row); the outer labels carry only the share.
+    legend: {
+      ...legendStyle(t),
+      orient: 'vertical',
+      ...(narrow ? { left: 'center', bottom: 4 } : { right: 8, top: 'middle' }),
+      itemGap: narrow ? 8 : 7,
+      textStyle: {
+        color: t.textMuted,
+        fontFamily: t.font,
+        fontSize,
+        width: narrow ? 240 : 150,
+        overflow: 'truncate',
+      },
+      tooltip: { show: false },
+      formatter: (n: string) => labelOf.get(n) ?? n,
+    },
     series: [
       {
         type: 'pie',
-        radius: t.narrow ? ['42%', '66%'] : ['46%', '70%'],
-        center: ['50%', t.narrow ? '42%' : '45%'],
+        radius: narrow ? [38, 70] : ['40%', '62%'],
+        center: narrow ? ['50%', 112] : ['36%', '50%'],
         minAngle: 3,
         padAngle: 2,
         avoidLabelOverlap: true,
-        label: { show: false },
-        labelLine: { show: false },
+        label: {
+          show: true,
+          position: 'outside',
+          color: t.textMuted,
+          fontFamily: t.font,
+          fontSize,
+          formatter: (p: unknown) => pct((p as { data: { share: number } }).data.share),
+        },
+        labelLine: { show: true, length: narrow ? 8 : 12, length2: narrow ? 6 : 10, smooth: 0.2, lineStyle: { color: t.textMuted, opacity: 0.6, width: 1 } },
+        labelLayout: { hideOverlap: true, moveOverlap: 'shiftY' },
         itemStyle: { borderRadius: 6, borderWidth: 0 },
-        emphasis: { focus: 'self', scale: true, scaleSize: 8, itemStyle: { shadowBlur: 12, shadowColor: t.shadow } },
+        emphasis: { focus: 'self', scale: true, scaleSize: 6, itemStyle: { shadowBlur: 12, shadowColor: t.shadow } },
         blur: { itemStyle: { opacity: 0.4 } },
         data: slices.map((s, i) => ({
           name: seriesId(s),
           value: s.listens,
           share: s.share,
-          itemStyle: { color: seriesColor(t, i, s.is_other) },
+          itemStyle: { color: seriesColor(t, i, s.is_other), ...(s.is_other ? { decal: otherDecal(t), opacity: 0.85 } : {}) },
         })),
       },
     ],

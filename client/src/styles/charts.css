@@ -20,7 +20,8 @@
 .map-legend { display: flex; align-items: center; justify-content: center; gap: .4rem; margin-top: .25rem; font-size: .65rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .map-legend i { width: 72px; max-width: 30%; height: 4px; border-radius: 2px; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 40%, var(--surface-2)), var(--accent)); }
 
-/* Keyboard alternative to clicking a country: compact, scrollable toggle chips. */
+/* Keyboard alternative to clicking a country: visually hidden until a chip is focused, then compact toggle chips. */
+.map-picker:not(:focus-within) { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .map-picker { display: flex; flex-wrap: wrap; gap: .3rem; max-height: 5.5rem; overflow-y: auto; margin-top: .6rem; }
 .map-picker button { min-height: 28px; padding: .15rem .6rem; font-size: .72rem; flex: none; border-radius: var(--radius-lg); background: var(--surface-2); color: var(--text-muted); }
 .map-picker button[aria-pressed='true'] { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }

@@ -38,10 +38,6 @@ input, select { padding: .45rem .6rem; width: 100%; min-width: 0; }
 .chart p, .chart label, .chart summary { font-size: .7rem; color: var(--muted); }
 .chart label { display: inline-flex; align-items: center; gap: .7rem; }
 .chart select { width: auto; }
-.chart-note { color: var(--warning) !important; }
-.chart-summary { margin: .8rem 0 .4rem; overflow-wrap: anywhere; }
-.chart-table summary { cursor: pointer; }
-.chart-table > div { max-width: 100%; }
 table { border-collapse: collapse; width: 100%; font-size: .7rem; margin-top: .75rem; }
 th, td { text-align: left; padding: .45rem; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 th { font-weight: 500; }
@@ -51,7 +47,6 @@ th { font-weight: 500; }
   button, input, select, summary { min-height: var(--tap-size); }
   input, select { font-size: 16px; }
   button { font-size: .85rem; }
-  .chart-table summary { padding-block: .9rem; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }

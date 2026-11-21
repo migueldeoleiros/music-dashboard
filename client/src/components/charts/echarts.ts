@@ -8,10 +8,12 @@ import {
   MarkLineComponent,
   TooltipComponent,
 } from 'echarts/components'
+import { LabelLayout } from 'echarts/features'
 import * as echarts from 'echarts/core'
 
 echarts.use([
   CanvasRenderer,
+  LabelLayout,
   LineChart,
   PieChart,
   HeatmapChart,
