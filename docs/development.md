@@ -242,8 +242,9 @@ trusted manifest exists; this is a documented limitation, not a bug. Operator no
 ## Artwork
 
 Resolves `image_url` for albums (release group MBID), tracks (recording MBID) and artists (artist
-MBID) from exact identifiers only; see "Artwork resolution and Deezer terms" in architecture.md for
-the chains. Needs migration 0003 (`alembic upgrade head`) and `MUSIC_WORKER_FIXTURE_MODE=false`
+MBID) from exact identifiers first, then (migration 0004) a Deezer name-search fallback, also for
+name-only `name:` ranking entities; see "Artwork resolution and Deezer terms" and "Artwork name
+fallback" in architecture.md. Needs migration 0004 (`alembic upgrade head`) and `MUSIC_WORKER_FIXTURE_MODE=false`
 with a descriptive `MUSIC_METADATA_USER_AGENT`. Tests mock all HTTP; fixture mode makes none.
 
 ```sh
@@ -277,6 +278,17 @@ docker compose exec -T db psql -U music_writer -d music_dashboard -c \
   re-resolve of everything: `UPDATE artwork SET next_retry_at = now()` (images stay visible until
   replaced). Deleting rows also works. New images appear after the generation bump (the job bumps
   `enrichment_generation` when a visible image changes) and the API cache TTL.
+- **Name fallback backfill** (after deploying 0004; no deploy done by this branch): 1) migrate;
+  2) name-only entities have no row, so they are due immediately, most-listened first;
+  3) existing MBID `miss`/`transient` rows must be re-tried once to get the fallback: run
+  `resolve-artwork --allow-network --reset-misses --limit 100` (now also resets `artwork_name`),
+  then repeat WITHOUT `--reset-misses` until counts stop growing (resolved rows keep their TTL;
+  exact-chain images are never replaced by name matches). Check provenance as writer:
+  `SELECT entity_type, match_kind, status, count(*) FROM artwork_name GROUP BY 1,2,3` and
+  `SELECT match_kind, count(*) FROM artwork GROUP BY 1`. To discard all name matches (e.g. after
+  spotting bad ones): `DELETE FROM artwork_name;` and
+  `DELETE FROM artwork WHERE match_kind <> 'id';` (rows return as misses/new on the next run;
+  bump `data_generation.enrichment_generation` or wait for the API cache TTL).
 - **Backfill order**: 1) migrate, 2) sync/import listens, 3) enrichment can run in parallel (it keeps
   priority on the shared 1 req/s MusicBrainz limiter), 4) run `resolve-artwork --allow-network
   --limit 100` repeatedly (stop on quota/transient output) until the `artwork` counts stop
@@ -373,7 +385,7 @@ username/token errors belong to the explicit real-data actions, not fixture star
 
 Migrations are **never run at API startup**. Use `alembic upgrade head` as music_writer.
 For controlled upgrades: stop worker, back up, apply explicit migration, restart services.
-`0001` creates schema/timezone metadata; `0002` grants the approved API tables; `0003` adds `artwork` with column-level API SELECT (`entity_type, entity_mbid, image_url, status`). Role creation
+`0001` creates schema/timezone metadata; `0002` grants the approved API tables; `0003` adds `artwork` with column-level API SELECT (`entity_type, entity_mbid, image_url, status`); `0004` adds writer-only provenance columns and `artwork_name` (API column SELECT `entity_type, name_key, image_url, status`). Role creation
 and role settings are bootstrap administration, not application migrations. New tables do
 not automatically gain public/API grants. Baseline migrations and their timezone snapshot
 must remain immutable; a timezone metadata update needs a versioned snapshot and migration,

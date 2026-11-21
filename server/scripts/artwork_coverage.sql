@@ -6,6 +6,10 @@ BEGIN READ ONLY;
 \echo '== artwork rows by type/status/source'
 SELECT entity_type, status, source, count(*), sum(attempts) AS attempts
 FROM artwork GROUP BY 1,2,3 ORDER BY 1,2,3;
+\echo '== name-only artwork (artwork_name) by type/status/provenance'
+SELECT entity_type, status, match_kind, count(*) FROM artwork_name GROUP BY 1,2,3 ORDER BY 1,2,3;
+\echo '== MBID artwork resolved by name match'
+SELECT entity_type, match_kind, count(*) FROM artwork WHERE match_kind <> 'id' GROUP BY 1,2 ORDER BY 1,2;
 \echo '== album keys: kind, listens, with image'
 WITH k AS (
   SELECT coalesce(release_group_mbid::text, release_mbid::text,

@@ -67,8 +67,9 @@ artwork enrichment (lane L-ART) fills it; clients render a placeholder tile for 
 
 ### Artwork key rule
 
-Images come only from exact identifier keys, never from name search. Unmapped `name:` keys and
-genres have `image_url = null`.
+Images come from exact identifier keys first. Only when every exact step misses (or the entity
+has no MBID at all) the name fallback below runs; see "Artwork name fallback". Genres have
+`image_url = null`.
 
 - **Album**: the ranking key is the release-group MBID. Its representative release is the
   most-listened `release_mbid` within that release group in `listens` (ties broken by smallest
@@ -82,8 +83,8 @@ genres have `image_url = null`.
 
 ### Artwork resolution and Deezer terms (lane L-ART)
 
-Final chains (addendum 2026-11-22b) refine the rule above; exact keys only, never name or fuzzy
-search. Album: Deezer `album/upc:{barcode}` or the Deezer URL relation on the representative
+Final chains (addendum 2026-11-22b) refine the rule above; exact keys only, no name or fuzzy
+search in THIS chain (names are a separate, later fallback, below). Album: Deezer `album/upc:{barcode}` or the Deezer URL relation on the representative
 release, then CAA `release-group/{rg}/front`. Track: CAA front of the most-listened own release,
 then Deezer `track/isrc:` album cover. Artist: MB Deezer URL relation, else Wikidata P2722
 reached through the MB `wikidata` URL relation (first entity, redirects followed), then Deezer
@@ -98,7 +99,8 @@ rows under that MBID (kind `release`: CAA `release/{id}/front`, then the release
 only) are tried first for albums and tracks as `release/{caa_release_mbid}/{caa_id}-500.jpg`
 (HEAD-verified, so a stale hint is a plain fall-through, never a stored URL). Tracks that still
 miss try CAA front of up to 5 releases MusicBrainz lists for that exact recording (same single MB
-recording call that already fetched ISRCs). Name-only listens (no MBID) stay image-less by design.
+recording call that already fetched ISRCs). Name-only listens (no MBID) had no image before the
+name fallback below (2026-11-22d).
 
 - Table `artwork` (migration 0003) keyed `(entity_type album|track|artist, entity_mbid)` holds
   source, final https `image_url`, status (`resolved|miss|transient`), `fetched_at`,
@@ -122,6 +124,70 @@ recording call that already fetched ISRCs). Name-only listens (no MBID) stay ima
   `font-src`/`worker-src`/`blob:` extension is needed. nginx drops server-level `add_header` in a
   location that sets its own, so `nosniff` and `Referrer-Policy` are repeated in `/` and
   `/assets/`.
+
+### Artwork name fallback (Koito-style, addendum 2026-11-22d)
+
+User-approved. Exact-ID chains above ALWAYS run first and win; the fallback only runs after they
+miss, or for ranking entities with no MBID. It is Deezer **search** only (provider rate limit,
+allowlist, unauthenticated transport and URL-only storage unchanged), at most 3 requests per
+entity, and only ever yields an image URL for an existing ranking key.
+
+| Entity | Order |
+|---|---|
+| Artist | exact normalized name -> MusicBrainz name and trusted aliases (MBID artists; `Artist name`/untyped aliases, never `Legal name`/`Search hint`) |
+| Album | title + each known artist (<= 2) -> title alone (last resort) |
+| Track | track title + known artist -> that track's album cover (listened album title narrows candidates) -> album title + artist |
+
+Rules (`domain/artwork/matching.py`, pure and unit-tested):
+
+- Names match **exactly after normalization** (NFKC, casefold, whitespace collapse); Deezer's
+  fuzzy ranking is never trusted. Substring/"feat." heuristics are not used.
+- **Ambiguity rejects.** All title/artist-equal candidates must resolve to one and the same
+  image; two distinct images, or a placeholder next to a real image, reject the lookup (a miss).
+  An exact name that is present but ambiguous is never rescued by an alias.
+- **Credit conflicts reject.** With known artists (listened credits, individual credits first),
+  a candidate whose artist is none of them is dropped. Title-only therefore only ever accepts a
+  single candidate when no artist is known (or one that still matches a known artist).
+- **Tracks never use title-only** and never use the track title as an album title: the album
+  fallback queries the listened *release name*. A track titled like an album does not take that
+  album's cover.
+- Placeholder images (empty hash, bad host) are not images.
+- Name-only ranking entities (no recording/release/release-group/artist MBID) are discovered
+  from `listens`/`listen_artists` using the same SQL normalization as the statistics queries, so
+  the artwork key equals the ranking key (`name:...`) byte for byte (test-enforced).
+
+Storage and provenance (migration 0004; URL-only):
+
+- `artwork` gains writer-only `match_kind` (`id` = exact chain, else `artist_name`,
+  `artist_alias`, `album_title_artist`, `album_title`, `track_title_artist`) and `provider_ref`
+  (the Deezer id of the matched entity). Check constraints: a name kind requires a resolved
+  `deezer` row with a numeric ref.
+- New `artwork_name` `(entity_type, name_key)` stores the same fields for name-only entities.
+  `name_key` must start with `name:`; `source` is `deezer` or `none`; resolved rows must carry
+  name provenance. The API role gets column-level SELECT on `entity_type, name_key, image_url,
+  status` only (like `artwork`); provenance, source and retry columns are writer-only; API
+  writes remain denied.
+- Rankings left-join `artwork_name` on the ranking key (`name:` keys only) next to the MBID join;
+  a key is either a UUID or `name:`, so they cannot both match, and the join reads `image_url`
+  only: keys, labels, totals and ordering never depend on artwork.
+- **No identity effects.** A match never creates, merges or renames an entity, and never writes
+  to `listens`, `listen_artists` or `raw_listens` (test: table digests unchanged). A name-only
+  key whose listens are later mapped, or merged into a canonical album by the album-identity
+  rule (ranking `canonical_albums`), simply stops being displayed; its `artwork_name` row stays
+  as unused data. Canonical-key albums use the MBID `artwork` row, which beats any name row.
+- Query URLs are the only place a name reaches a request: control characters/quotes removed,
+  200 chars max, percent-encoded into the `q` parameter of `https://api.deezer.com/search/...`
+  with `limit=25`. No credentials, same token bucket (~5 req/s).
+
+Risks: (1) two different artists/albums sharing the exact normalized name and the same cover
+cannot be told apart, and a homonym with a single Deezer entry can still be wrong when no artist
+is known (title-only album); a reissue with different artwork is rejected as ambiguous, which
+costs coverage, not accuracy; (2) Deezer search ranking can hide true matches (25 results read);
+(3) name-only discovery scans listens names in the due query (about 1.2 s per tick at 100k
+all-unmapped listens, bounded by the 30 s tick); (4) the fallback re-runs on every 7-day miss TTL;
+(5) the Deezer terms risk below applies equally and search raises request volume (<= 3 per
+entity); (6) name-only albums merged into canonical albums by the album-identity rule are still
+looked up once (harmless, unused).
 
 **Deezer terms risk (accepted by the user, 2026-11-22).** Deezer's terms of use
 (developers.deezer.com/termsofuse, reviewed 2026-10-27) restrict making local copies (III.4) and
