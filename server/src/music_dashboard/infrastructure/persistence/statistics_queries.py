@@ -39,6 +39,9 @@ from music_dashboard.domain.statistics.policies import (
     validate_filters,
 )
 from music_dashboard.infrastructure.artwork.urls import validate_image_url
+from music_dashboard.infrastructure.persistence.artist_cover_fallback import (
+    artist_cover_fallbacks,
+)
 from music_dashboard.infrastructure.persistence.timezones import load_timezones
 
 # Preserve full Unicode casefold (ß, sigma, ligatures, etc.), not locale lower().
@@ -415,6 +418,7 @@ class SQLStatisticsQueries:
                     }
                     for r in c.execute(text(COMMON + COUNTRY_ARTISTS), params).mappings()
                 ]
+                self._apply_artist_fallback(c, result["items"], params)
             elif family == "countries":
                 included = result["coverage"]["countries"]["included_listens"]
                 result["countries"] = [
@@ -518,6 +522,8 @@ class SQLStatisticsQueries:
                             for r in rows
                             if not r["is_other"]
                         ]
+                        if dimension == "artists":
+                            self._apply_artist_fallback(c, result["items"], params)
                     else:
                         result["slices"] = [
                             {
@@ -531,6 +537,21 @@ class SQLStatisticsQueries:
                         ]
             self.cache.put(key, result)
             return result
+
+    @staticmethod
+    def _apply_artist_fallback(
+        c: Connection, items: list[dict[str, Any]], params: dict[str, Any]
+    ) -> None:
+        """Photo first (already in `image_url`); else an existing album cover of the artist.
+
+        Display-only: keys, labels, totals and order are untouched, nothing is stored."""
+        missing = [i["key"] for i in items if i["image_url"] is None]
+        if not missing:
+            return
+        covers = artist_cover_fallbacks(c, missing, params)
+        for item in items:
+            if item["image_url"] is None:
+                item["image_url"] = covers.get(item["key"])
 
     @staticmethod
     def _share(value: float, included: int) -> float:
