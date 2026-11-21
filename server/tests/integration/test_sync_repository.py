@@ -244,6 +244,61 @@ def test_upstream_rate_deadline_persists_across_repository_instances_and_job_kin
     assert restarted.rate_limit_until("another-user") is None
 
 
+def _finish_with_deadlines(repo, deadline_iso, finished_ago, kind="incremental"):
+    rid = repo.begin_run(USER, kind)
+    repo.finish_run(
+        rid, "failed", {"rate_limit_until": deadline_iso, "next_retry_at": deadline_iso}
+    )
+    with repo._engine.begin() as c:
+        c.execute(
+            text(
+                "UPDATE sync_runs SET finished_at = now() - make_interval(secs => :s) WHERE id=:i"
+            ),
+            {"s": finished_ago.total_seconds(), "i": rid},
+        )
+    return rid
+
+
+def test_legacy_datetime_max_deadline_is_bounded_by_run_time_not_now(repo):
+    legacy = datetime.max.replace(tzinfo=UTC).isoformat()
+    # Written just now: clamped to ~24h from the run, still in the future (normal backoff).
+    _finish_with_deadlines(repo, legacy, timedelta(0))
+    now = datetime.now(UTC)
+    until = repo.rate_limit_until(USER)
+    assert now + timedelta(hours=23, minutes=59) < until <= now + timedelta(hours=24)
+    retry = repo.next_retry(USER)
+    assert now + timedelta(hours=23, minutes=59) < retry <= now + timedelta(hours=24)
+
+
+def test_legacy_outlier_expires_after_24h_from_its_run(repo):
+    legacy = datetime.max.replace(tzinfo=UTC).isoformat()
+    _finish_with_deadlines(repo, legacy, timedelta(hours=24, minutes=1))
+    # Not a permanent lock: row is outside the window and its clamped deadline is in the past.
+    assert repo.rate_limit_until(USER) is None
+    retry = repo.next_retry(USER)
+    assert retry is not None and retry < datetime.now(UTC)
+    # Boundary just inside the window is still honoured (clamped).
+    _finish_with_deadlines(repo, legacy, timedelta(hours=23, minutes=59))
+    assert repo.rate_limit_until(USER) > datetime.now(UTC)
+
+
+def test_normal_deadline_unchanged_and_garbage_ignored(repo):
+    soon = datetime.now(UTC) + timedelta(hours=2)
+    _finish_with_deadlines(repo, soon.isoformat(), timedelta(minutes=1))
+    _finish_with_deadlines(repo, "not-a-date", timedelta(minutes=1), kind="reconcile")
+    assert repo.rate_limit_until(USER) == soon
+
+
+def test_rate_limit_scan_row_count_is_capped(repo):
+    far = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+    for _ in range(3):
+        _finish_with_deadlines(repo, far, timedelta(minutes=1))
+    from music_dashboard.infrastructure.persistence.repositories import listening_sync as ls
+
+    assert ls._DEADLINE_ROW_LIMIT >= 100
+    assert repo.rate_limit_until(USER) == datetime.fromisoformat(far)
+
+
 def test_lock_exclusive_and_released(repo):
     with repo.locked(USER) as a:
         assert a is True

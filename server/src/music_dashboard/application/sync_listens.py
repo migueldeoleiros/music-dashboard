@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol, cast
 
@@ -37,17 +38,34 @@ def _timestamps(page: list[dict[str, Any]]) -> list[int]:
     return result
 
 
-def failure_stats(error: Exception | None = None) -> dict[str, Any]:
+DEFAULT_RETRY_SECONDS = 900.0
+MAX_RETRY_SECONDS = 86_400.0  # persisted deadlines never exceed 24 h past the failure
+
+
+def failure_stats(error: Exception | None = None, *, now: datetime | None = None) -> dict[str, Any]:
     # Honor transport retry hints across process restarts too. No outward adapter
     # dependency: a source error may expose a numeric retry_after in seconds.
+    # Non-finite, negative, boolean or non-numeric hints are ignored; finite ones are
+    # clamped to 24 h so a persisted deadline can never lock sync for long.
     delay = getattr(error, "retry_after", None)
-    seconds = max(900.0, delay) if isinstance(delay, (int, float)) and delay >= 0 else 900.0
-    try:
-        retry = datetime.now(UTC) + timedelta(seconds=seconds)
-    except (OverflowError, ValueError):
-        retry = datetime.max.replace(tzinfo=UTC)
+    hint = (
+        float(delay)
+        if isinstance(delay, (int, float))
+        and not isinstance(delay, bool)
+        and math.isfinite(delay)
+        and delay >= 0
+        else None
+    )
+    floor = getattr(error, "min_retry_seconds", None)  # job-level only, e.g. oversized export
+    job_floor = (
+        float(floor)
+        if isinstance(floor, (int, float)) and not isinstance(floor, bool) and math.isfinite(floor)
+        else 0.0
+    )
+    seconds = min(max(DEFAULT_RETRY_SECONDS, hint or 0.0, job_floor), MAX_RETRY_SECONDS)
+    retry = (now or datetime.now(UTC)) + timedelta(seconds=seconds)
     stats = {"next_retry_at": retry.isoformat()}
-    if isinstance(delay, (int, float)) and delay >= 0:
+    if hint is not None:
         # The hint is upstream-wide, unlike an ordinary job-kind retry.
         stats["rate_limit_until"] = retry.isoformat()
     return stats

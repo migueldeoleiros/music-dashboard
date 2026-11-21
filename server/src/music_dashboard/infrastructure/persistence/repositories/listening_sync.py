@@ -15,7 +15,7 @@ import uuid
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import Connection, Engine, text
@@ -36,6 +36,22 @@ RUN_STATUSES = ("running", "succeeded", "failed", "ambiguous", "aborted")
 MAX_DELETE_FRACTION_PERCENT = 10
 _CHUNK = 1000
 _MAX_ERROR_CHARS = 1000
+# Stored deadlines are untrusted history (older builds could persist datetime.max). A run's
+# deadline is bounded relative to that run's own finished_at, never to "now", so an outlier
+# expires 24 h after the run that wrote it instead of locking sync forever.
+MAX_DEADLINE = timedelta(hours=24)
+_DEADLINE_ROW_LIMIT = 500
+
+
+def _bounded_deadline(raw: Any, finished_at: datetime | None) -> datetime | None:
+    if not isinstance(raw, str) or finished_at is None:
+        return None
+    try:
+        value = _aware(datetime.fromisoformat(raw))
+        return min(value, _aware(finished_at) + MAX_DEADLINE)
+    except (ValueError, OverflowError):
+        return None
+
 
 _SNAPSHOT_DDL = (
     """CREATE TEMP TABLE snapshot_rows (
@@ -398,36 +414,34 @@ class SyncRepository:
     def next_retry(self, user: str, kind: str | None = None) -> datetime | None:
         """`stats.next_retry_at` (ISO string) of the user's latest finished run, else None."""
         sql = (
-            "SELECT stats ->> 'next_retry_at' FROM sync_runs "
+            "SELECT stats ->> 'next_retry_at', finished_at FROM sync_runs "
             "WHERE user_name = :u AND finished_at IS NOT NULL"
             + (" AND kind = :k" if kind else "")
             + " ORDER BY id DESC LIMIT 1"
         )
         with self._engine.connect() as c:
-            raw = c.execute(text(sql), {"u": user, "k": kind}).scalar()
-        if not raw:
-            return None
-        try:
-            return _aware(datetime.fromisoformat(raw))
-        except ValueError:
-            return None
+            row = c.execute(text(sql), {"u": user, "k": kind}).first()
+        return _bounded_deadline(row[0], row[1]) if row else None
 
     def rate_limit_until(self, user: str) -> datetime | None:
-        """Longest outstanding upstream deadline across both sync job kinds."""
+        """Longest outstanding upstream deadline across both sync job kinds.
+
+        Each stored deadline is clamped to its run's finished_at + 24 h. Only runs finished
+        within that window can still matter, so the scan is range-limited and row-capped
+        instead of transferring every matching row ever written (sync_runs is small and
+        user-scoped; no index is warranted).
+        """
         with self._engine.connect() as c:
-            deadlines = c.execute(
+            rows = c.execute(
                 text(
-                    "SELECT stats ->> 'rate_limit_until' FROM sync_runs "
-                    "WHERE user_name = :u AND stats ? 'rate_limit_until'"
+                    "SELECT stats ->> 'rate_limit_until', finished_at FROM sync_runs "
+                    "WHERE user_name = :u AND finished_at IS NOT NULL "
+                    "AND finished_at > now() - make_interval(secs => :win) "
+                    "AND stats ? 'rate_limit_until' ORDER BY id DESC LIMIT :lim"
                 ),
-                {"u": user},
-            ).scalars()
-            parsed = []
-            for value in deadlines:
-                try:
-                    parsed.append(_aware(datetime.fromisoformat(value)))
-                except (TypeError, ValueError):
-                    continue
+                {"u": user, "win": MAX_DEADLINE.total_seconds(), "lim": _DEADLINE_ROW_LIMIT},
+            ).all()
+        parsed = [d for raw, fin in rows if (d := _bounded_deadline(raw, fin)) is not None]
         return max(parsed, default=None)
 
     # -- ingest ----------------------------------------------------------------------------
