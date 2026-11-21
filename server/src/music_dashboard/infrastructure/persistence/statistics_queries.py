@@ -47,6 +47,9 @@ CASEFOLD = json.dumps(
     ensure_ascii=True,
 )
 
+# Shared with the artwork repository so name-only artwork keys match ranking keys exactly.
+WHITESPACE = "".join(chr(i) for i in range(0x3100) if chr(i).isspace())
+
 COMMON = """
 WITH bounds AS (
  -- Indexed prefilter only: ambiguous midnight can map to its SECOND
@@ -201,8 +204,11 @@ LEFT JOIN artwork art ON art.entity_type='artist' AND art.status='resolved'
  AND art.entity_mbid=CAST(w.mbid AS uuid)  -- PK (entity_type, entity_mbid): at most one row
 WHERE w.code=:country GROUP BY w.mbid ORDER BY listens DESC, key LIMIT :limit
 """
-# Artwork is keyed by exact MBID: albums by release group, tracks by recording, artists by MBID.
-# Genres and unmapped `name:` keys never match, so their image_url stays NULL.
+# Artwork is keyed by exact MBID (albums by release group, tracks by recording, artists by MBID)
+# in `artwork`, or by the stable `name:` ranking key in `artwork_name` for entities without an
+# MBID. A key is either a UUID or `name:...`, so the two joins can never both match. The join
+# only reads image_url: keys, labels, totals and ordering never depend on artwork. Genres have
+# no artwork.
 ARTWORK_TYPES = {"artists": "artist", "albums": "album", "tracks": "track"}
 UUID_KEY = "'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'"
 TABLES = {
@@ -313,7 +319,7 @@ class SQLStatisticsQueries:
             "tz": zones[filters.timezone],
             "limit": filters.limit,
             "casefold": CASEFOLD,
-            "whitespace": "".join(chr(i) for i in range(0x3100) if chr(i).isspace()),
+            "whitespace": WHITESPACE,
             "country_codes": COUNTRY_CODES,
             "country": filters.country_code,
         }
@@ -429,6 +435,10 @@ class SQLStatisticsQueries:
                         " LEFT JOIN artwork art ON art.entity_type=:art_type AND "
                         "art.status='resolved' AND art.entity_mbid="
                         f"(CASE WHEN r.key ~ {UUID_KEY} THEN CAST(r.key AS uuid) END)"
+                        # Name-only keys: the stable `name:` ranking key itself (PK again).
+                        " LEFT JOIN artwork_name aname ON aname.entity_type=:art_type AND "
+                        "aname.status='resolved' AND aname.name_key="
+                        "(CASE WHEN left(r.key,5)='name:' THEN r.key END)"
                         if art_type
                         else ""
                     )
@@ -443,7 +453,11 @@ class SQLStatisticsQueries:
                                  FROM totals)
                       SELECT r.key,r.label,r.mbid,r.state,r.listens,false AS is_other,
                              """
-                                + ("art.image_url" if art_type else "NULL::text")
+                                + (
+                                    "coalesce(art.image_url, aname.image_url)"
+                                    if art_type
+                                    else "NULL::text"
+                                )
                                 + """ AS image_url
                       FROM ranked r"""
                                 + art_join
