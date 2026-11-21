@@ -239,6 +239,46 @@ trusted manifest exists; this is a documented limitation, not a bug. Operator no
 - `--allow-large-delete` bypasses only the percentage guard, **never** completeness validation.
   Do not manufacture `listen_count`, edit checkpoints or disable deletion protections.
 
+## Artwork
+
+Resolves `image_url` for albums (release group MBID), tracks (recording MBID) and artists (artist
+MBID) from exact identifiers only; see "Artwork resolution and Deezer terms" in architecture.md for
+the chains. Needs migration 0003 (`alembic upgrade head`) and `MUSIC_WORKER_FIXTURE_MODE=false`
+with a descriptive `MUSIC_METADATA_USER_AGENT`. Tests mock all HTTP; fixture mode makes none.
+
+```sh
+# Manual bounded batch (limit 1..1000, default 20). --allow-network is required.
+docker compose run --rm worker \
+  music-dashboard resolve-artwork --allow-network --limit 100
+# Retry every miss/transient row now (resolved rows keep their 30-day TTL), then resolve:
+docker compose run --rm worker \
+  music-dashboard resolve-artwork --allow-network --reset-misses --limit 100
+docker compose exec -T db psql -U music_writer -d music_dashboard -c \
+  'SELECT entity_type, status, source, count(*) FROM artwork GROUP BY 1,2,3 ORDER BY 1,2,3'
+```
+
+- **Job**: `application/jobs/artwork.py` (`tick()` every 30 s, discovered automatically; inert in
+  fixture mode). While the genre enrichment queue has due work it runs a reduced share (every 4th
+  tick, 5 entities); when the queue is idle it runs up to 20 entities per tick
+  (`MUSIC_ARTWORK_BATCH_SIZE`, `MUSIC_ARTWORK_BUSY_BATCH_SIZE`, `MUSIC_ARTWORK_BUSY_EVERY`).
+  Entities are taken by listen frequency, so the most-listened items get images first.
+- **TTLs** (all +/-20% jitter except transient): resolved 30 days
+  (`MUSIC_ARTWORK_POSITIVE_TTL_DAYS`), miss 7 days (`MUSIC_ARTWORK_MISS_TTL_DAYS`), transient
+  exponential from 60 s capped at 24 h (`MUSIC_ARTWORK_RETRY_BASE_SECONDS`,
+  `MUSIC_ARTWORK_RETRY_MAX_SECONDS`), at least any `Retry-After`. A failed refresh never discards a
+  resolved image. Deezer quota (code 4) pauses artwork in that process (10 s doubling to 15 min).
+- **Representative release**: albums use the most-listened `release_mbid` in the release group,
+  tracks the most-listened release of that recording; ties go to the smallest MBID.
+- **Reset misses**: `--reset-misses` as above, or as writer
+  `UPDATE artwork SET next_retry_at = now() WHERE status IN ('miss','transient')`. To force a full
+  re-resolve of everything: `UPDATE artwork SET next_retry_at = now()` (images stay visible until
+  replaced). Deleting rows also works. New images appear after the generation bump (the job bumps
+  `enrichment_generation` when a visible image changes) and the API cache TTL.
+- **Backfill order**: 1) migrate, 2) sync/import listens, 3) enrichment can run in parallel (it keeps
+  priority on the shared 1 req/s MusicBrainz limiter), 4) run `resolve-artwork --allow-network
+  --limit 100` repeatedly (stop on quota/transient output) until the `artwork` counts stop
+  growing; artists and albums are the fewest, tracks the most. Do not loop it aggressively.
+
 ## Offline rebuild (not upstream reconcile)
 
 Back up first and stop the worker **and every other writer**. Rebuild is a maintenance action,
@@ -330,7 +370,7 @@ username/token errors belong to the explicit real-data actions, not fixture star
 
 Migrations are **never run at API startup**. Use `alembic upgrade head` as music_writer.
 For controlled upgrades: stop worker, back up, apply explicit migration, restart services.
-`0001` creates schema/timezone metadata; `0002` grants the approved API tables. Role creation
+`0001` creates schema/timezone metadata; `0002` grants the approved API tables; `0003` adds `artwork` with column-level API SELECT (`entity_type, entity_mbid, image_url, status`). Role creation
 and role settings are bootstrap administration, not application migrations. New tables do
 not automatically gain public/API grants. Baseline migrations and their timezone snapshot
 must remain immutable; a timezone metadata update needs a versioned snapshot and migration,

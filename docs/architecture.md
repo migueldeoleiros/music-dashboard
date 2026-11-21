@@ -80,6 +80,48 @@ genres have `image_url = null`.
   Deezer artist id, P2722, reached through that relation) -> `artist/{id}`. Never "primary artist
   of an ISRC hit" (that is name matching). Otherwise placeholder.
 
+### Artwork resolution and Deezer terms (lane L-ART)
+
+Final chains (addendum 2026-11-22b) refine the rule above; exact keys only, never name or fuzzy
+search. Album: Deezer `album/upc:{barcode}` or the Deezer URL relation on the representative
+release, then CAA `release-group/{rg}/front`. Track: CAA front of the most-listened own release,
+then Deezer `track/isrc:` album cover. Artist: MB Deezer URL relation, else Wikidata P2722
+reached through the MB `wikidata` URL relation (first entity, redirects followed), then Deezer
+`artist/{id}` `picture_xl`. Deezer error code 800 and an empty image hash (including
+`d41d8cd98f00b204e9800998ecf8427e`) are misses; code 4 is quota and backs off.
+
+- Table `artwork` (migration 0003) keyed `(entity_type album|track|artist, entity_mbid)` holds
+  source, final https `image_url`, status (`resolved|miss|transient`), `fetched_at`,
+  `next_retry_at`, `attempts`. URLs only: images are hotlinked by the browser, never downloaded
+  or proxied. The CAA row stores the original `coverartarchive.org` URL, not the redirected
+  storage host. The API role gets column-level SELECT on `entity_type, entity_mbid, image_url,
+  status` only; the writer has full rights.
+- The API returns an `image_url` only when status is `resolved` and the URL passes the validator
+  (https, no userinfo/port, host exactly `cdn-images.dzcdn.net`, `e-cdns-images.dzcdn.net`,
+  `coverartarchive.org`, `archive.org` or a true `*.archive.org` subdomain; lookalikes such as
+  `evil-archive.org` or `archive.org.evil.com` are rejected).
+- Artwork HTTP uses its own unauthenticated transport (no `Authorization`/cookie headers,
+  descriptive `MUSIC_METADATA_USER_AGENT`, https and an allowlist of hosts and redirect targets).
+  The ListenBrainz token never reaches MusicBrainz, Deezer, CAA or Wikidata.
+- MusicBrainz artwork lookups share the enrichment process's single 1 request/second limiter and
+  its 429/503/Retry-After handling. Deezer has its own token bucket (~5 req/s, burst 5; limit is
+  50 per 5 s). Wikidata and CAA have separate small limiters.
+- CSP: `deploy/proxy.conf` sets `Content-Security-Policy` on the HTML (`/`) location with
+  `img-src` limited to `'self' data:` plus the five artwork hosts, `connect-src 'self'`,
+  `script-src 'self'`, `frame-ancestors 'none'`. Fonts, charts and the map are bundled, so no
+  `font-src`/`worker-src`/`blob:` extension is needed. nginx drops server-level `add_header` in a
+  location that sets its own, so `nosniff` and `Referrer-Policy` are repeated in `/` and
+  `/assets/`.
+
+**Deezer terms risk (accepted by the user, 2026-11-22).** Deezer's terms of use
+(developers.deezer.com/termsofuse, reviewed 2026-10-27) restrict making local copies (III.4) and
+combining content with visuals (III.2), and contain an approved-developer clause. This personal
+project accepts that risk to maximise cover coverage (spike: Deezer UPC 36% of albums, ISRC 86%
+of tracks, artist URL relation 90%). Mitigations: store URLs only, hotlink in the browser, no
+download/proxy/caching of image bytes, low request rate. If Deezer objects or blocks, fall back
+to CAA-only by deleting `source='deezer'` rows and removing the Deezer steps; nothing else
+depends on it.
+
 All responses have coverage keyed by dimension: `artists, albums, tracks, genres, countries,
 listens`, each `{total_listens,included_listens,excluded_listens}`; included + excluded = total.
 Each chart's relevant dimension is authoritative; future adapters must fill every dimension
