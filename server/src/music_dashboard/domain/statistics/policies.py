@@ -24,6 +24,7 @@ CACHE_MAX_ENTRIES = 128
 CACHE_MAX_BYTES = 16 * 1024 * 1024
 # Month is the coarsest contract bucket. Even the entire supported calendar fits.
 MAX_BUCKETS = 120_000
+MAX_EVOLUTION_VALUES = 2_000_000
 # ISO 3166-1 alpha-2, including territories. Never pseudo-countries XW/XE/ZZ.
 COUNTRY_CODES = """
 AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO

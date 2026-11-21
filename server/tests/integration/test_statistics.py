@@ -29,6 +29,23 @@ from music_dashboard.presentation.api.schemas.statistics import (
 pytestmark = pytest.mark.integration
 
 
+def test_wide_custom_evolution_range_limit_100_is_bounded(stats):
+    q, writer = stats
+    with writer.begin() as c:
+        c.execute(
+            text("""
+          INSERT INTO listens(user_name,listened_at,recording_msid,artist_name)
+          SELECT 'statistics-wide',timestamptz '2026-01-05T00:00Z',
+                 md5('wide-'||g)::uuid,'Wide artist '||g
+          FROM generate_series(1,100) g
+        """)
+        )
+    from music_dashboard.domain.statistics.policies import InvalidStatisticsRequest
+
+    with pytest.raises(InvalidStatisticsRequest, match="evolution value budget"):
+        q.query("evolution/artists", filters("0002-01-01", "9998-12-31", limit=100))
+
+
 def test_repeated_midnight_fixed_utc_regression(stats):
     q, writer = stats
     with writer.begin() as c:
@@ -347,13 +364,13 @@ def test_zero_and_full_enrichment_and_rebuild_determinism(stats):
     # except the explicitly mutable freshness timestamp.
     before = {f: q.query(f, filters()) for f in FAMILIES}
     with writer.begin() as c:
-        fixed_raw = c.execute(text('SELECT count(*) FROM raw_listens')).scalar_one()
-        fixed_cache = c.execute(text('SELECT count(*) FROM metadata_cache')).scalar_one()
-        c.execute(text('DELETE FROM listens'))
+        fixed_raw = c.execute(text("SELECT count(*) FROM raw_listens")).scalar_one()
+        fixed_cache = c.execute(text("SELECT count(*) FROM metadata_cache")).scalar_one()
+        c.execute(text("DELETE FROM listens"))
     seed_fixtures(writer)
     with writer.connect() as c:
-        assert c.execute(text('SELECT count(*) FROM raw_listens')).scalar_one() == fixed_raw
-        assert c.execute(text('SELECT count(*) FROM metadata_cache')).scalar_one() == fixed_cache
+        assert c.execute(text("SELECT count(*) FROM raw_listens")).scalar_one() == fixed_raw
+        assert c.execute(text("SELECT count(*) FROM metadata_cache")).scalar_one() == fixed_cache
     rebuilt = SQLStatisticsQueries(q.engine)
     after = {f: rebuilt.query(f, filters()) for f in FAMILIES}
     for f in FAMILIES:

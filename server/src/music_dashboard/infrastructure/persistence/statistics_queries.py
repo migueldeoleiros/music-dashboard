@@ -31,6 +31,7 @@ from music_dashboard.domain.statistics.policies import (
     DIMENSIONS,
     FAMILIES,
     MAX_BUCKETS,
+    MAX_EVOLUTION_VALUES,
     InvalidStatisticsRequest,
     StatisticsUnavailable,
     validate_filters,
@@ -420,7 +421,11 @@ class SQLStatisticsQueries:
             FROM listens
           )
           SELECT lo, hi, CASE WHEN hi-lo<90 THEN 'day'
-                 WHEN hi-lo<730 THEN 'week' ELSE 'month' END AS unit FROM extent
+                 WHEN hi-lo<730 THEN 'week' ELSE 'month' END AS unit,
+                 (SELECT count(DISTINCT key) FROM """
+                    + TABLES[dimension]
+                    + """
+                 ) AS categories FROM extent
         """
                 ),
                 params,
@@ -451,6 +456,11 @@ class SQLStatisticsQueries:
         ]
         if len(buckets) > MAX_BUCKETS:
             raise InvalidStatisticsRequest("Range exceeds the supported bucket budget")
+        series_count = min(extent["categories"], params["limit"]) + int(
+            extent["categories"] > params["limit"]
+        )
+        if len(buckets) * series_count > MAX_EVOLUTION_VALUES:
+            raise InvalidStatisticsRequest("Range and limit exceed the evolution value budget")
         rows = c.execute(
             text(
                 COMMON
@@ -477,15 +487,14 @@ class SQLStatisticsQueries:
         bucket_index = {r["start"]: i for i, r in enumerate(buckets)}
         series: dict[str, dict[str, Any]] = {}
         for r in rows:
-            s = series.setdefault(
-                r["key"],
-                {
+            if r["key"] not in series:
+                series[r["key"]] = {
                     "key": r["key"],
                     "label": r["label"],
                     "is_other": r["is_other"],
                     "values": [0.0] * len(buckets),
-                },
-            )
+                }
+            s = series[r["key"]]
             # First partial week/month starts at the requested date rather than before it.
             bucket = max(r["bucket"], params["from_date"])
             s["values"][bucket_index[bucket]] = r["listens"]
