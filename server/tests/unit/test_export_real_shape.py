@@ -357,3 +357,44 @@ def test_trusted_manifest_remains_the_only_deletion_authority() -> None:
     stats = reconcile_history(client(Manifest(three_months(rows), 3)), repo, USER, now=NOW)  # type: ignore[arg-type]
     assert repo.activations[0]["snapshot_complete"] is True
     assert stats["deletion_safe"] == 1
+
+
+# ------------------------------------------------- incremental API (public docs shape)
+
+
+def test_incremental_page_accepts_documented_payload_shape_untouched() -> None:
+    items = [
+        {
+            "inserted_at": BASE_TS + n,
+            "listened_at": BASE_TS + n,  # int on this endpoint (floats only in exports)
+            "recording_msid": msid(n),
+            "user_name": USER,
+            "track_metadata": real_listen(n)["track_metadata"],
+        }
+        for n in (3, 2, 1)
+    ]
+    body = {
+        "payload": {
+            "count": 3,
+            "latest_listen_ts": BASE_TS + 3,
+            "oldest_listen_ts": BASE_TS + 1,
+            "user_id": USER,
+            "listens": items,
+        }
+    }
+
+    class Pages:
+        requests: list[HttpRequest] = []
+
+        def send(self, request: HttpRequest) -> HttpResponse:
+            self.requests.append(request)
+            return HttpResponse(200, {}, json.dumps(body).encode())
+
+    http = Pages()
+    got = ListenBrainzClient(ListenBrainzTransport(http, token=None)).page(  # type: ignore[arg-type]
+        USER, max_ts=BASE_TS + 4
+    )
+    assert got == items
+    url = http.requests[0].url
+    assert f"/1/user/{USER}/listens?" in url and "count=1000" in url and "max_ts=" in url
+    assert "min_ts" not in url and "Authorization" not in http.requests[0].headers
