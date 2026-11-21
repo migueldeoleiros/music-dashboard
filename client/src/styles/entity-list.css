@@ -21,8 +21,13 @@
 .entity-secondary { color: var(--text-muted); font-size: .65rem; }
 .entity-value { flex: none; margin-left: auto; text-align: right; font-size: .8rem; font-variant-numeric: tabular-nums; }
 
-.entity-hero { position: relative; display: flex; align-items: center; gap: 1.25rem; padding: 1.4rem 1.25rem 1.3rem; margin-bottom: .9rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); min-width: 0; }
-.entity-ribbon { position: absolute; top: .5rem; right: .6rem; padding: .1rem .5rem; border-radius: var(--radius-lg); background: var(--accent-soft); color: var(--accent); font-size: .65rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.entity-hero { position: relative; display: flex; align-items: stretch; min-height: 7.5rem; margin-bottom: .9rem; overflow: hidden; background: linear-gradient(90deg, var(--surface-2), var(--surface) 70%); border: 1px solid var(--border); border-radius: var(--radius-md); min-width: 0; }
+/* Artwork: flush left, full card height, cover-cropped, faded into the neutral gradient on its right edge. */
+.entity-hero .entity-image { position: relative; width: clamp(6.5rem, 30%, 11rem); aspect-ratio: auto; border-radius: 0; border: 0; background: transparent; -webkit-mask-image: linear-gradient(90deg, #000 55%, transparent); mask-image: linear-gradient(90deg, #000 55%, transparent); }
+.entity-hero .entity-image img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.entity-hero .entity-image--placeholder { display: flex; font-size: 2rem; background: var(--surface-2); color: var(--text-muted); }
+.entity-hero .entity-text { justify-content: center; padding: 1rem 1.25rem 1rem .5rem; }
+.entity-hero > .entity-text:first-child { padding-left: 1.25rem; }
 .entity-hero-name { font-size: 1.5rem; font-weight: 700; line-height: 1.15; letter-spacing: -.01em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
 .entity-hero-count { margin-top: .2rem; font-size: 1.15rem; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
 .entity-hero-count small { color: var(--text-muted); font-size: .65rem; }
@@ -38,8 +43,8 @@
 .country-panel .entity-empty button { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .25rem .6rem; cursor: pointer; font: inherit; min-width: 36px; }
 /* Quiet close icon: muted and borderless, but the hit target stays 36px (44px on touch). */
 .country-panel-close { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px; padding: 0; margin: -.35rem -.35rem 0 0; background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--text-muted); cursor: pointer; opacity: .75; }
-.country-panel-close:hover { opacity: 1; color: var(--text); background: var(--accent-soft); }
-@media (hover: hover) { .country-panel .entity-empty button:hover { border-color: var(--accent); } }
+.country-panel-close:hover { opacity: 1; color: var(--text); background: var(--surface-2); }
+@media (hover: hover) { .country-panel .entity-empty button:hover { border-color: var(--text-muted); } }
 .country-panel-close:focus-visible, .country-panel .entity-empty button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Mobile (720px, docs/ui-tokens.md): hero/rows tighten; country panel becomes a modal bottom sheet. */
@@ -49,10 +54,10 @@
   .country-ranking { position: static; max-height: none; }
   /* The list's inline max-height:none (desktop fills the slot) must yield to a bounded scroll area here. */
   .country-ranking .entity-scroll { max-height: 22rem !important; }
-  .entity-hero { gap: .85rem; padding: 1.1rem .85rem .95rem; }
+  .entity-hero { min-height: 6.5rem; }
+  .entity-hero .entity-text { padding: .8rem .85rem .8rem .35rem; }
+  .entity-hero > .entity-text:first-child { padding-left: .85rem; }
   .entity-hero-name { font-size: 1.25rem; }
-  .entity-ribbon { top: .4rem; right: .5rem; }
-  .entity-hero .entity-text { padding-right: 2.2rem; }
   .entity-secondary, .entity-rank { font-size: .72rem; }
   .entity-label { font-size: .85rem; }
   .country-panel-close, .country-panel .entity-empty button { min-width: var(--tap-size); min-height: var(--tap-size); }

@@ -5,18 +5,18 @@
 /* Token names are a contract: see docs/ui-tokens.md. Lanes may change values, never names. */
 :root {
   color-scheme: dark;
-  --bg: #0a0f17; --surface: #121a26; --surface-2: #1b2635; --border: #2f3e54;
-  --text: #f3f7fc; --text-muted: #aebbcc; --muted: var(--text-muted);
+  --bg: #000000; --surface: #0a0a0a; --surface-2: #171717; --border: #2a2a2a;
+  --text: #fafafa; --text-muted: #a8a8a8; --muted: var(--text-muted);
   --accent: #2ca7d3; --accent-soft: rgb(44 167 211 / 18%);
   --radius-sm: 5px; --radius-md: 8px; --radius-lg: 30px;
   --font: 'Inter Variable', system-ui, sans-serif;
   --series-1: hsl(197 72% 58%); --series-2: hsl(12 80% 64%); --series-3: hsl(145 58% 52%); --series-4: hsl(262 72% 70%);
   --series-5: hsl(40 88% 56%); --series-6: hsl(330 72% 66%); --series-7: hsl(172 62% 48%); --series-8: hsl(85 56% 52%);
   --series-9: hsl(225 78% 68%); --series-10: hsl(295 60% 66%);
-  --series-other: #7d8696;
+  --series-other: #808080;
   --on-accent: #04141c; --warning: hsl(40 88% 68%);
-  --danger: hsl(350 100% 91%); --danger-bg: hsl(350 40% 14%); --danger-border: hsl(350 40% 38%);
-  --scrim: rgb(4 8 14 / 70%); --tap-size: 44px;
+  --danger: hsl(350 100% 91%); --danger-bg: hsl(350 30% 9%); --danger-border: hsl(350 30% 32%);
+  --scrim: rgb(0 0 0 / 75%); --tap-size: 44px;
   font-family: var(--font); line-height: 1.5; color: var(--text); background: var(--bg); font-synthesis: none;
 }
 * { box-sizing: border-box; }

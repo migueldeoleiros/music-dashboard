@@ -1,4 +1,4 @@
-export const OTHER_COLOR = '#8a8f98'
+export const OTHER_COLOR = '#808080'
 
 function hash(s: string): number {
   let h = 2166136261

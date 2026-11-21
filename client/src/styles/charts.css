@@ -24,7 +24,7 @@
 .map-picker:not(:focus-within) { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .map-picker { display: flex; flex-wrap: wrap; gap: .3rem; max-height: 5.5rem; overflow-y: auto; margin-top: .6rem; }
 .map-picker button { min-height: 28px; padding: .15rem .6rem; font-size: .72rem; flex: none; border-radius: var(--radius-lg); background: var(--surface-2); color: var(--text-muted); }
-.map-picker button[aria-pressed='true'] { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+.map-picker button[aria-pressed='true'] { color: var(--text); background: var(--accent-soft); }
 
 @media (max-width: 720px), (pointer: coarse) {
   .map-zoom button { width: var(--tap-size); min-height: var(--tap-size); }

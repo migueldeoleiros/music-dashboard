@@ -7,12 +7,12 @@ runtime for canvas charts) and never hard-code the values below.
 
 | Token | Role | Initial value |
 | --- | --- | --- |
-| `--bg` | Page background | `#0a0f17` |
-| `--surface` | Cards, panels | `#121a26` |
-| `--surface-2` | Raised/inset surfaces: inputs, buttons, image placeholders | `#1b2635` |
-| `--border` | Hairlines and outlines | `#2f3e54` |
-| `--text` | Primary text | `#f3f7fc` |
-| `--text-muted` | Secondary text, captions | `#aebbcc` |
+| `--bg` | Page background | `#000000` |
+| `--surface` | Cards, panels | `#0a0a0a` |
+| `--surface-2` | Raised/inset surfaces: inputs, buttons, image placeholders | `#171717` |
+| `--border` | Hairlines and outlines | `#2a2a2a` |
+| `--text` | Primary text | `#fafafa` |
+| `--text-muted` | Secondary text, captions | `#a8a8a8` |
 | `--accent` | Primary accent: active state, focus ring, key marks | `#2ca7d3` |
 | `--accent-soft` | Translucent accent for fills, hover and selected backgrounds | `rgb(44 167 211 / 18%)` |
 | `--radius-sm` | Inputs, buttons, small tiles | `5px` |
@@ -23,9 +23,9 @@ runtime for canvas charts) and never hard-code the values below.
 | `--on-accent` | Text on solid accent fills (active chips, primary buttons) | `#04141c` |
 | `--warning` | Cautionary notes (partial bucket) | `hsl(40 88% 68%)` |
 | `--danger`, `--danger-bg`, `--danger-border` | Error notices: text, fill, outline | `hsl(350 …)` (see `global.css`) |
-| `--scrim` | Backdrop/shadow veil behind sheets and popovers | `rgb(4 8 14 / 70%)` |
+| `--scrim` | Backdrop/shadow veil behind sheets and popovers | `rgb(0 0 0 / 75%)` |
 | `--tap-size` | Minimum touch target height | `44px` |
-| `--series-other` | The "Other" aggregate series and no-data marks | `#7d8696` |
+| `--series-other` | The "Other" aggregate series and no-data marks | `#808080` |
 
 `--muted` is a deprecated alias of `--text-muted`, kept so existing rules keep working. New code
 uses `--text-muted`.
