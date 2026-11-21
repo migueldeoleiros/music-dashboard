@@ -4,7 +4,7 @@ import { addDays, clampToToday, detectPeriod, presetRange, readFilters, readPeri
 const now = new Date('2026-03-09T00:30:00Z')
 describe('absolute local-date shared filters', () => {
   it('uses browser timezone by default and computes dates in that timezone', () => {
-    expect(readFilters('', 'America/New_York', now)).toEqual({ from: '2026-02-07', to: '2026-03-08', tz: 'America/New_York' })
+    expect(readFilters('', 'America/New_York', now)).toEqual({ from: '2026-03-02', to: '2026-03-08', tz: 'America/New_York' })
     expect(todayInZone('Asia/Kathmandu', now)).toBe('2026-03-09')
   })
   it('preserves one-day ranges and ignores a legacy tz param in favour of the browser timezone', () => {
@@ -88,15 +88,15 @@ describe('preset URL state', () => {
   const tz = 'UTC'
   const today = new Date('2026-11-21T12:00:00Z') // Saturday
   it('defaults a bare URL to last 30 days', () => {
-    expect(detectPeriod(readFilters('', tz, today), today)).toBe('30d')
-    expect(readPeriod('', readFilters('', tz, today), today)).toBe('30d')
+    expect(detectPeriod(readFilters('', tz, today), today)).toBe('7d')
+    expect(readPeriod('', readFilters('', tz, today), today)).toBe('7d')
   })
   it('serializes presets without range, preset name or timezone; custom ranges only as from/to', () => {
     for (const preset of ['today', 'week', '7d', 'month', '30d', 'year', 'all'] as const) {
       const search = writeFilters(presetRange(preset, tz, today), '', preset)
       expect(search).not.toMatch(/[?&](from|to|tz|preset)=/)
       const back = readFilters(search, 'Asia/Tokyo', today)
-      expect(readPeriod(search, back, today)).toBe('30d') // a bare link always reloads as the default
+      expect(readPeriod(search, back, today)).toBe('7d') // a bare link always reloads as the default
     }
     const custom = writeFilters({ from: '2026-11-15', to: '2026-11-21', tz }, '', 'custom')
     expect([...new URLSearchParams(custom).keys()].sort()).toEqual(['from', 'to'])
@@ -118,7 +118,7 @@ describe('preset URL state', () => {
     expect(open('?preset=30d&from=2026-10-01&to=2026-10-30&tz=UTC')).toMatchObject({ period: 'custom', f: { from: '2026-10-01', to: '2026-10-30' } })
     expect(open('?preset=custom&from=2026-11-15&to=2026-11-21&tz=America/New_York', 'Asia/Tokyo')).toMatchObject({ period: 'custom', f: { tz: 'Asia/Tokyo' } })
     expect(open('?preset=week&tz=UTC')).toMatchObject({ period: 'week', f: { from: '2026-11-16', to: '2026-11-21' } })
-    expect(open('?preset=bogus').period).toBe('30d')
-    expect(open('?preset=custom').period).toBe('30d')
+    expect(open('?preset=bogus').period).toBe('7d')
+    expect(open('?preset=custom').period).toBe('7d')
   })
 })

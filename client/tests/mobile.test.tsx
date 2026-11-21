@@ -156,7 +156,7 @@ it('App wiring: map selection opens the panel beside the map and survives a peri
   expect(await screen.findByRole('complementary', { name: 'Artists from United States' })).toBeTruthy()
   expect(screen.queryByRole('region', { name: 'Countries ranked by listens' })).toBeNull() // selection swaps ranking for artists
   expect(document.querySelector('.origins-layout')!.classList.contains('has-panel')).toBe(true)
-  fireEvent.click(screen.getByRole('button', { name: 'Last 7 days' }))
+  fireEvent.click(screen.getByRole('button', { name: '30 days' }))
   await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/api/countries/US/artists') && String(url).includes('to='))).toBe(true))
   expect(screen.getByRole('complementary')).toBeTruthy()
   const countryCalls = vi.mocked(fetch).mock.calls.map(([url]) => String(url)).filter(url => url.includes('/countries/US/artists'))

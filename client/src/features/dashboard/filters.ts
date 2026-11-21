@@ -2,7 +2,8 @@ export type Filters = { from: string; to: string; tz: string }
 export type Preset = 'today' | 'week' | '7d' | 'month' | '30d' | 'year' | 'all'
 export type Period = Preset | 'custom'
 // Detection order matters when ranges coincide (e.g. Monday: today == week).
-export const PRESETS: readonly Preset[] = ['today', 'week', '7d', 'month', '30d', 'year', 'all']
+export const PRESETS: readonly Preset[] = ['today', '7d', '30d', 'week', 'month', 'year', 'all']
+const DEFAULT_PRESET: Preset = '7d'
 // Lower bound the API accepts for "all time". Never displayed.
 export const ALL_TIME_FROM = '0001-01-01'
 export const isPreset = (value: string | null): value is Preset => !!value && (PRESETS as readonly string[]).includes(value)
@@ -80,7 +81,7 @@ export function utcFallback(filters: Filters, now = new Date()): Filters {
 }
 
 // URL contract: the timezone is never in the URL (always the browser's) and presets are not either
-// (a bare page is "Last 30 days"). Only a custom range carries `from`/`to`. Legacy links still open:
+// (a bare page is "7 days"). Only a custom range carries `from`/`to`. Legacy links still open:
 // `tz` is ignored, a `preset` param applies while its range still matches (or when it has no dates),
 // and explicit dates otherwise become a custom range.
 export function readFilters(search: string, browserTz = browserTimezone(), now = new Date()): Filters {
@@ -89,7 +90,7 @@ export function readFilters(search: string, browserTz = browserTimezone(), now =
   const presetParam = params.get('preset')
   const from = params.get('from')
   const to = params.get('to')
-  const defaults = presetRange(from === null && to === null && isPreset(presetParam) ? presetParam : '30d', tz, now)
+  const defaults = presetRange(from === null && to === null && isPreset(presetParam) ? presetParam : DEFAULT_PRESET, tz, now)
   return clampToToday({ from: from ?? defaults.from, to: to ?? defaults.to, tz }, now)
 }
 
@@ -97,7 +98,7 @@ export function readFilters(search: string, browserTz = browserTimezone(), now =
 export function readPeriod(search: string, filters: Filters, now = new Date()): Period {
   const params = new URLSearchParams(search)
   const preset = params.get('preset')
-  if (!params.has('from') && !params.has('to')) return isPreset(preset) ? preset : '30d'
+  if (!params.has('from') && !params.has('to')) return isPreset(preset) ? preset : DEFAULT_PRESET
   if (isPreset(preset)) {
     const range = presetRange(preset, filters.tz, now)
     if (range.from === filters.from && range.to === filters.to) return preset

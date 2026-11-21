@@ -2,8 +2,8 @@ import { useState, type ReactNode } from 'react'
 import { ALL_TIME_FROM, clampToToday, presetRange, todayInZone, validateFilters, type Filters, type Period, type Preset } from './filters'
 
 const presets: { key: Preset; label: string }[] = [
-  { key: 'today', label: 'Today' }, { key: 'week', label: 'This week' }, { key: '7d', label: 'Last 7 days' }, { key: 'month', label: 'This month' },
-  { key: '30d', label: 'Last 30 days' }, { key: 'year', label: 'This year' }, { key: 'all', label: 'All time' },
+  { key: 'today', label: 'Today' }, { key: '7d', label: '7 days' }, { key: '30d', label: '30 days' },
+  { key: 'week', label: 'This week' }, { key: 'month', label: 'This month' }, { key: 'year', label: 'This year' }, { key: 'all', label: 'All time' },
 ]
 
 type Props = { filters: Filters; period: Period; onChange: (filters: Filters, period: Period) => void; children?: ReactNode }
@@ -21,7 +21,7 @@ export function Controls({ filters, period, onChange, children }: Props) {
       <div className="preset-row" role="group" aria-label="Period presets">
         {presets.map(preset => <button type="button" className="pill" key={preset.key} aria-pressed={selected === preset.key}
           onClick={() => { setCustomOpen(false); setError(null); onChange(presetRange(preset.key, filters.tz), preset.key) }}>{preset.label}</button>)}
-        <button type="button" className="pill" aria-pressed={selected === 'custom'} aria-expanded={customOpen} onClick={() => setCustomOpen(true)}>Custom range</button>
+        <button type="button" className="pill" aria-pressed={selected === 'custom'} aria-expanded={customOpen} onClick={() => setCustomOpen(true)}>Custom</button>
       </div>
       <div className="controls-meta">{children}</div>
     </div>

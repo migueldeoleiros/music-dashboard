@@ -36,7 +36,7 @@ For production/API integration, use `npm run dev` (Vite proxies `/api` to port
 ## Shared controls and chart semantics
 
 - `from` and `to` in the URL (custom ranges only) are authoritative inclusive local-date filters.
-  Presets and the timezone are never serialized: a bare page is Last 30 days and the request
+  Presets and the timezone are never serialized: a bare page defaults to 7 days and the request
   timezone is the browser's. Legacy `tz`/`preset` params are stripped; unrelated params survive.
 - Dates use calendar arithmetic only in the UI. The API/PostgreSQL owns timezone
   boundaries and statistical buckets. `to` is clamped to today in the chosen tz.
