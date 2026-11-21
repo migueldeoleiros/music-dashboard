@@ -1,0 +1,32 @@
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('../assets/fonts/inter-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+:root {
+  color-scheme: dark;
+  --color-bg: #0e0f11;
+  --color-surface: #16181b;
+  --color-border: #2a2d32;
+  --color-text: #e8e9eb;
+  --color-text-muted: #9a9ea6;
+  --color-accent: #1db954;
+  --font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+}
+
+.app { max-width: 1100px; margin: 0 auto; padding: 1rem; }
+.app h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 1rem; }
+.card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 1rem; }
