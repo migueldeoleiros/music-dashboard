@@ -158,7 +158,7 @@ export function buildPieOption(data: PieResponse, t: ChartTheme): Opt {
         color: t.textMuted,
         fontFamily: t.font,
         fontSize,
-        width: narrow ? 240 : 150,
+        width: narrow ? 240 : 130,
         overflow: 'truncate',
       },
       tooltip: { show: false },
@@ -167,8 +167,8 @@ export function buildPieOption(data: PieResponse, t: ChartTheme): Opt {
     series: [
       {
         type: 'pie',
-        radius: narrow ? [38, 70] : ['40%', '62%'],
-        center: narrow ? ['50%', 112] : ['36%', '50%'],
+        radius: narrow ? [38, 70] : ['38%', '58%'],
+        center: narrow ? ['50%', 112] : ['32%', '50%'],
         minAngle: 3,
         padAngle: 2,
         avoidLabelOverlap: true,
