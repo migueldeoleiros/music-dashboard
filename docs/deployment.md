@@ -29,6 +29,23 @@ First-run commands and
 the export-completeness policy (import-complete vs deletion-safe) are in [development](development.md#real-data-first-run).
 The API container never receives the token or User-Agent.
 
+Sync reliability notes:
+
+- Upstream `Retry-After` / `X-RateLimit-Reset-In` values must be finite plain decimals (or an
+  HTTP date); NaN/inf/negative/exponent forms are ignored. Delays are clamped to 24 h both when
+  honoured and when persisted (`sync_runs.stats`). Stored deadlines from older builds (e.g. a
+  far-future `next_retry_at`) are bounded on read to 24 h after the run that wrote them, so
+  they expire on their own; do not edit rows by hand.
+- `MUSIC_EXPORT_MAX_BYTES` (default 67108864 = 64 MiB, allowed 1 MiB..512 MiB) caps the export
+  download. The archive is held in memory, so size the worker container's memory limit for
+  roughly this value plus parsing overhead before raising it. An oversized export fails
+  distinctly (`ExportTooLargeError`), is never retried within the run, and backs the reconcile
+  job off for 24 h; it does not block incremental sync.
+- The worker is a single serial loop (30 s tick, jobs run one after another, no threads). A long
+  export or a rate-limit wait delays every other job, including enrichment and incremental
+  sync, until it finishes; there is no per-job timeout beyond HTTP timeouts. Run exactly one
+  worker replica (the per-user advisory lock rejects overlap, it does not queue it).
+
 ## Eventual reverse proxy (music.miguel.md)
 
 Not deployed or tested here. The `web` container already serves the static client and proxies

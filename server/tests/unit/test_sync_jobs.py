@@ -27,7 +27,7 @@ def runtime(monkeypatch):
     engine = Mock()
     monkeypatch.setattr(database, "create_db_engine", lambda: engine)
     monkeypatch.setattr(listening_sync, "SyncRepository", lambda engine: repo)
-    monkeypatch.setattr(listens, "ListenBrainzClient", lambda transport: Mock())
+    monkeypatch.setattr(listens, "ListenBrainzClient", lambda transport, **kw: Mock())
     monkeypatch.setattr(transport, "UrllibHttpTransport", Mock())
     incremental, reconcile = (
         Mock(return_value={"mode": "incremental"}),

@@ -2,7 +2,9 @@
 
 Worker-only environment: LISTENBRAINZ_USERNAME/TOKEN, MUSIC_SYNC_OVERLAP_HOURS
 (default 72), MUSIC_SYNC_INTERVAL_SECONDS (900), MUSIC_RECONCILE_INTERVAL_SECONDS
-(604800). Configuration is deliberately not added to API Settings.
+(604800), MUSIC_EXPORT_MAX_BYTES (export download cap, default 64 MiB, allowed 1 MiB..512 MiB;
+the archive is held in memory, so peak usage is roughly this value plus parsing overhead).
+Configuration is deliberately not added to API Settings.
 """
 
 from __future__ import annotations
@@ -14,6 +16,10 @@ from typing import Any
 
 from music_dashboard.application.reconcile_history import reconcile_history
 from music_dashboard.application.sync_listens import SyncBusy, sync_listens
+
+DEFAULT_EXPORT_MAX_BYTES = 64 << 20
+MIN_EXPORT_MAX_BYTES = 1 << 20
+MAX_EXPORT_MAX_BYTES = 512 << 20
 
 
 class SyncConfigurationError(ValueError):
@@ -28,6 +34,7 @@ class WorkerSyncSettings:
     overlap_hours: float = 72
     interval_seconds: int = 900
     reconcile_seconds: int = 604800
+    export_max_bytes: int = DEFAULT_EXPORT_MAX_BYTES
 
     @classmethod
     def from_env(cls) -> WorkerSyncSettings:
@@ -43,11 +50,16 @@ class WorkerSyncSettings:
             overlap = float(os.environ.get("MUSIC_SYNC_OVERLAP_HOURS", "72"))
             interval = int(os.environ.get("MUSIC_SYNC_INTERVAL_SECONDS", "900"))
             reconcile = int(os.environ.get("MUSIC_RECONCILE_INTERVAL_SECONDS", "604800"))
+            export_cap = int(
+                os.environ.get("MUSIC_EXPORT_MAX_BYTES", str(DEFAULT_EXPORT_MAX_BYTES))
+            )
         except ValueError:
             raise SyncConfigurationError("Sync overlap and schedule must be numeric") from None
         if not 0 < overlap < float("inf") or interval <= 0 or reconcile <= 0:
             raise SyncConfigurationError("Sync overlap and schedule intervals must be positive")
-        return cls(fixture, user or "fixture-user", token, overlap, interval, reconcile)
+        if not MIN_EXPORT_MAX_BYTES <= export_cap <= MAX_EXPORT_MAX_BYTES:
+            raise SyncConfigurationError("MUSIC_EXPORT_MAX_BYTES is outside the allowed range")
+        return cls(fixture, user or "fixture-user", token, overlap, interval, reconcile, export_cap)
 
 
 def run_sync(
@@ -74,7 +86,10 @@ def run_sync(
         )
 
         client = ListenBrainzClient(
-            ListenBrainzTransport(UrllibHttpTransport(), token=config.token)
+            ListenBrainzTransport(
+                UrllibHttpTransport(max_body_bytes=config.export_max_bytes), token=config.token
+            ),
+            max_zip_bytes=config.export_max_bytes,
         )
     engine = create_db_engine()
     try:

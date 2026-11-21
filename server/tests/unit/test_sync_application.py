@@ -8,7 +8,12 @@ import pytest
 
 from music_dashboard.application.jobs.sync import SyncConfigurationError, WorkerSyncSettings
 from music_dashboard.application.reconcile_history import reconcile_history
-from music_dashboard.application.sync_listens import BoundaryAmbiguity, SyncBusy, sync_listens
+from music_dashboard.application.sync_listens import (
+    BoundaryAmbiguity,
+    SyncBusy,
+    failure_stats,
+    sync_listens,
+)
 from music_dashboard.domain.listening.entities import ExportSnapshot
 
 NOW = datetime(2026, 1, 10, tzinfo=UTC)
@@ -289,6 +294,60 @@ def test_long_retry_after_is_durable_and_measured_from_failure_not_start():
     stats = repo.runs[-1]["stats"]
     assert datetime.fromisoformat(stats["next_retry_at"]) >= before + timedelta(hours=1)
     assert datetime.fromisoformat(stats["rate_limit_until"]) >= before + timedelta(hours=1)
+
+
+class _Hint(Exception):
+    def __init__(self, retry_after):
+        self.retry_after = retry_after
+
+
+@pytest.mark.parametrize("hint", [float("inf"), float("-inf"), float("nan"), -1, True, "9", None])
+def test_failure_stats_ignores_invalid_hints(hint):
+    stats = failure_stats(_Hint(hint), now=NOW)
+    assert datetime.fromisoformat(stats["next_retry_at"]) == NOW + timedelta(seconds=900)
+    assert "rate_limit_until" not in stats
+
+
+@pytest.mark.parametrize(
+    ("hint", "seconds"),
+    [
+        (0, 900),
+        (899, 900),
+        (1800, 1800),
+        (86399, 86399),
+        (86400, 86400),
+        (86401, 86400),
+        (1e300, 86400),
+        (10**30, 86400),
+    ],
+)
+def test_failure_stats_clamps_to_24h_boundaries(hint, seconds):
+    stats = failure_stats(_Hint(hint), now=NOW)
+    expected = (NOW + timedelta(seconds=seconds)).isoformat()
+    assert stats == {"next_retry_at": expected, "rate_limit_until": expected}
+    assert datetime.fromisoformat(stats["next_retry_at"]) < datetime.max.replace(tzinfo=UTC)
+
+
+def test_failure_stats_without_hint_and_job_level_floor():
+    assert failure_stats(now=NOW) == {"next_retry_at": (NOW + timedelta(seconds=900)).isoformat()}
+
+    class Oversized(Exception):
+        min_retry_seconds = 86_400.0
+
+    stats = failure_stats(Oversized(), now=NOW)
+    assert datetime.fromisoformat(stats["next_retry_at"]) == NOW + timedelta(hours=24)
+    assert "rate_limit_until" not in stats  # does not block unrelated incremental sync
+
+
+def test_export_cap_config_bounds(monkeypatch):
+    monkeypatch.setenv("MUSIC_FIXTURE_MODE", "true")
+    assert WorkerSyncSettings.from_env().export_max_bytes == 64 << 20
+    monkeypatch.setenv("MUSIC_EXPORT_MAX_BYTES", str(128 << 20))
+    assert WorkerSyncSettings.from_env().export_max_bytes == 128 << 20
+    for bad in ("0", str((1 << 20) - 1), str((512 << 20) + 1), "big"):
+        monkeypatch.setenv("MUSIC_EXPORT_MAX_BYTES", bad)
+        with pytest.raises(SyncConfigurationError):
+            WorkerSyncSettings.from_env()
 
 
 def test_invalid_snapshot_cannot_clear_reconcile_checkpoint():
