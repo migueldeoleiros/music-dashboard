@@ -3,7 +3,8 @@
 .app > * { min-width: 0; }
 
 /* Period bar */
-.controls { display: flex; flex-direction: column; gap: .85rem; }
+.controls { display: flex; flex-direction: column; gap: .85rem; min-width: 0; }
+.controls-bar > *, .controls > * { min-width: 0; }
 .controls-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem 1.25rem; }
 .preset-row { display: flex; flex-wrap: wrap; gap: .4rem; }
 .pill { min-height: 36px; padding: .35rem .95rem; border-radius: var(--radius-lg); background: var(--surface); font-size: .8rem; }
@@ -46,23 +47,27 @@
 .origins-layout.has-panel { grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem); }
 #origins:focus { outline: none; }
 
+/* Touch (narrow or coarse pointer): 44px targets, 16px inputs. */
+@media (max-width: 720px), (pointer: coarse) {
+  .pill { min-height: var(--tap-size); padding-inline: 1.1rem; }
+  .custom-range label input { font-size: 16px; }
+  .coverage-badge { min-height: var(--tap-size); min-width: var(--tap-size); }
+}
 /* Breakpoints: 1100px tablet, 720px mobile (docs/ui-tokens.md). */
 @media (max-width: 1100px) { .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 720px) {
   .app { gap: 1rem; }
   .grid-2, .grid-4 { grid-template-columns: minmax(0, 1fr); }
   .origins-layout.has-panel { grid-template-columns: minmax(0, 1fr); }
-  .controls-bar { flex-direction: column; align-items: stretch; gap: .5rem; }
+  .controls-bar { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: .5rem; }
   /* Presets: one swipeable row of chips that bleeds to the screen edges. */
   .preset-row { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; margin-inline: calc(-1 * clamp(.75rem, 3vw, 2.5rem)); padding-inline: clamp(.75rem, 3vw, 2.5rem); padding-block: 2px; scroll-padding-inline: clamp(.75rem, 3vw, 2.5rem); }
   .preset-row::-webkit-scrollbar { display: none; }
-  .pill { min-height: var(--tap-size); padding-inline: 1.1rem; }
   .controls-meta { justify-content: space-between; }
   .custom-range { grid-template-columns: minmax(0, 1fr); gap: .6rem; }
   .custom-range label { font-size: .8rem; }
-  .custom-range label input { width: 100%; font-size: 16px; }
+  .custom-range label input { width: 100%; }
   .custom-range button { width: 100%; }
-  .coverage-badge { min-height: var(--tap-size); min-width: var(--tap-size); }
   .coverage-pop { right: auto; left: 0; }
   .card { padding: .75rem; }
 }

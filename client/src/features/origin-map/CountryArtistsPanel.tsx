@@ -16,6 +16,9 @@ export type CountryArtistsPanelProps = {
 /** Mobile breakpoint: keep in sync with `@media (max-width: 720px)` in entity-list.css (docs/ui-tokens.md). */
 export const SHEET_QUERY = '(max-width: 720px)'
 const SWIPE_CLOSE_PX = 64
+// A tap on the map opens the sheet on touchend; the browser's compatibility click for that same tap then lands on the
+// freshly mounted backdrop. Backdrop clicks inside this window are that ghost click, not a tap outside.
+const GHOST_CLICK_MS = 500
 
 const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 })
 
@@ -37,6 +40,8 @@ function Panel({ code, filters, onClose, restoreFocusRef }: { code: string; filt
   const onCloseRef = useRef(onClose)
   useEffect(() => { onCloseRef.current = onClose })
   const sheet = useMediaQuery(SHEET_QUERY)
+  const openedAt = useRef(0)
+  useEffect(() => { openedAt.current = performance.now() }, [])
   const query = useCountryArtists(code, filters)
 
   useEffect(() => {
@@ -112,5 +117,5 @@ function Panel({ code, filters, onClose, restoreFocusRef }: { code: string; filt
       {items.map((item, index) => <EntityRow key={item.key} rank={index + 1} label={item.label || 'Missing metadata'} src={item.image_url} value={number.format(item.listens)} />)}
     </EntityList>}
   </aside>
-  return sheet ? <><div className="sheet-backdrop" aria-hidden="true" onClick={onClose} />{panel}</> : panel
+  return sheet ? <><div className="sheet-backdrop" aria-hidden="true" onClick={() => { if (performance.now() - openedAt.current > GHOST_CLICK_MS) onClose() }} />{panel}</> : panel
 }
