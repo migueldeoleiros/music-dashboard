@@ -1,11 +1,16 @@
+from dataclasses import replace
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from music_dashboard.application.get_statistics import GetStatistics
-from music_dashboard.bootstrap import get_statistics
 from music_dashboard.domain.statistics.models import StatisticsFilter
-from music_dashboard.presentation.api.dependencies import statistics_filter
+from music_dashboard.domain.statistics.policies import (
+    InvalidStatisticsRequest,
+    StatisticsUnavailable,
+)
+from music_dashboard.presentation.api.dependencies import get_statistics, statistics_filter
 from music_dashboard.presentation.api.schemas.statistics import (
     CountryResponse,
     ErrorResponse,
@@ -22,8 +27,23 @@ def endpoint(family: str) -> Any:
     def get(
         filters: Annotated[StatisticsFilter, Depends(statistics_filter)],
         use_case: Annotated[GetStatistics, Depends(get_statistics)],
-    ) -> dict[str, Any]:
-        return use_case.execute(family, filters)
+        request: Request,
+    ) -> Any:
+        if family.startswith("evolution/") and "limit" not in request.query_params:
+            filters = replace(filters, limit=8)
+        try:
+            return use_case.execute(family, filters)
+        except InvalidStatisticsRequest as exc:
+            raise HTTPException(400, str(exc)) from None
+        except StatisticsUnavailable:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "code": "unavailable",
+                    "message": "Statistics temporarily unavailable",
+                    "details": [],
+                },
+            )
 
     return get
 

@@ -1,12 +1,30 @@
 import re
 from datetime import date
+from functools import lru_cache
 from typing import Annotated
 
 from fastapi import HTTPException, Query
 from pydantic import BeforeValidator, Field
 
+from music_dashboard.application.get_statistics import GetStatistics
+from music_dashboard.application.ports import StatisticsQueryPort
+from music_dashboard.config import settings
 from music_dashboard.domain.statistics.models import StatisticsFilter
+from music_dashboard.infrastructure.fixture_statistics import FixtureStatisticsQueries
+from music_dashboard.infrastructure.persistence.database import create_db_engine
+from music_dashboard.infrastructure.persistence.statistics_queries import SQLStatisticsQueries
 from music_dashboard.infrastructure.persistence.timezones import load_timezones
+
+
+@lru_cache(maxsize=1)
+def statistics_queries() -> StatisticsQueryPort:
+    if settings.fixture_mode:
+        return FixtureStatisticsQueries()
+    return SQLStatisticsQueries(create_db_engine(settings.database_url))
+
+
+def get_statistics() -> GetStatistics:
+    return GetStatistics(statistics_queries())
 
 
 def exact_local_date(value: object) -> object:
