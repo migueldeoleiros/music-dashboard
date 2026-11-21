@@ -26,7 +26,7 @@ User-Agent, required for metadata calls), optional `MUSIC_SYNC_INTERVAL_SECONDS`
 `MUSIC_METADATA_{EMPTY,POSITIVE}_TTL_DAYS` (7/30), `MUSIC_METADATA_RETRY_{BASE,MAX}_SECONDS`
 (30/86400), `MUSIC_ENRICHMENT_BATCH_SIZE` (100); Compose forwards these to the worker.
 First-run commands and
-the unverified export-completeness caveat are in [development](development.md#real-data-first-run).
+the export-completeness policy (import-complete vs deletion-safe) are in [development](development.md#real-data-first-run).
 The API container never receives the token or User-Agent.
 
 ## Eventual reverse proxy (music.miguel.md)
@@ -94,8 +94,8 @@ not rerun on existing volumes; rotate passwords/settings with a private admin se
 
 ## Remaining operational gates
 
-Not proven by this documentation: authenticated real export smoke and the assumed
-`listen_count` completeness manifest (unverified against the deployed LB), upstream version
+Not proven by this documentation: upstream deletion propagation (the real export status has
+no snapshot manifest, so reconcile never tombstones), upstream version
 behavior, real SQL budgets/cache under real history, worker restart under real load, enrichment
 limiter against live MusicBrainz and real-user coverage. Synthetic browser/security receipts
 are recorded separately in `docs/integration.md`; they are not a real-data signoff. Initial

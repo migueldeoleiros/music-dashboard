@@ -81,11 +81,15 @@ complete checkpoint. Incremental default: every 15 minutes, 72-hour overlap (con
 Weekly full export reconcile repairs arbitrary old imports, edits, deletions and remaps.
 Use advisory locking, durable checkpoints, bounded retries/backoff.
 
-Stage exports and atomically activate only complete successfully parsed snapshots. Protect
-against incomplete scopes and >10% deletion without explicit CLI override; count alone is
-not proof of completeness. Preserve post-snapshot arrivals; reconcile only snapshot scope
-under lock. Local rebuild and upstream refresh are distinct operations. Authenticated real
-export smoke remains a later integration gate, not fulfilled by synthetic fixtures.
+Stage exports and atomically activate only successfully parsed snapshots. Two notions:
+import-complete (verified account via `user.json`, zero parse errors, rows >= the pre-export
+`listen-count` lower bound) permits upsert and checkpoint advance but never tombstones;
+deletion-safe requires a trusted snapshot manifest, which the real export status does not
+carry, so real runs report `deletions_blocked`. Protect against incomplete scopes and >10%
+deletion without explicit CLI override; the global count alone is never deletion proof.
+Preserve post-snapshot arrivals; reconcile only snapshot scope under lock. Local rebuild and
+upstream refresh are distinct operations. Verified real export shapes are in
+`docs/development.md` ("Export completeness").
 
 ## Metadata and weighted semantics (T-004 constraints)
 

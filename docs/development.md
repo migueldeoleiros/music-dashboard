@@ -139,7 +139,9 @@ The server image tag is project-scoped (`${COMPOSE_PROJECT_NAME:-music-dashboard
 docker compose build
 docker compose up -d db --wait
 docker compose run --rm worker alembic upgrade head
-# 1. Authenticated full export (creates an LB export, polls, downloads ZIP). May take minutes.
+# 1. Authenticated full export (creates an LB export, polls for status "completed", downloads
+#    the ZIP from /1/export/{id}/download). May take minutes. Succeeds on import-complete
+#    evidence: imports and checkpoints, but never deletes (see "Export completeness").
 docker compose run --rm worker music-dashboard bootstrap-import
 # 2. Recent incremental sync (page API, 72h overlap) - also run by the worker every 15 min.
 docker compose run --rm worker music-dashboard sync
@@ -157,8 +159,9 @@ Initial enrichment can take hours or days; charts show partial coverage meanwhil
 unresolved genres/countries are excluded from those views only (coverage notes show
 total/included/excluded). Do not run commands in a loop to hurry enrichment or probe LB.
 
-Other commands: `music-dashboard reconcile` (re-run complete export, repairs old edits,
-deletions, remaps; required after an `ambiguous` boundary: >1000 listens in one second),
+Other commands: `music-dashboard reconcile` (re-run the export; imports old edits and remaps,
+and deletes only with a trusted snapshot manifest, which the real service does not provide;
+required after an `ambiguous` boundary: >1000 listens in one second),
 `reconcile --allow-large-delete` / `bootstrap-import --allow-large-delete` (explicit override
 of the >10% deletion guard; use only after verifying the drop is real). Exact reconcile:
 
@@ -184,30 +187,57 @@ docker compose exec -T db psql -U music_writer -d music_dashboard -c \
 Dashboard coverage notes report total/included/excluded; health reports ingestion freshness,
 not enrichment completion. Worker failures deliberately omit unsafe exception details.
 
-### Export completeness: assumption and operator handling
+### Export completeness: verified shapes and the two-notion policy
 
-The adapter marks an export snapshot **complete** only if the validated ready status carries a
-`listen_count` manifest field and the downloaded row count matches it. That field name is an
-**assumption that has not been verified against the real ListenBrainz service** (no real
-smoke yet; deployed export shape may differ). Consequences:
+Verified against the real service (first real run; no token or payload values recorded):
 
-- If the field is absent, the snapshot is not trusted: rows are still imported/upserted,
-  but **deletions and successful reconcile completion/checkpoint are blocked**. The CLI exits
-  with a safe failure; `sync_runs` records failure and the checkpoint is not advanced. Rows may
-  have been upserted atomically before that failure, so failure does not imply zero imported rows.
-  A prior ambiguous-boundary reconcile requirement remains unresolved.
-- The global `listen-count` is only a lower bound: fewer exported rows than it fails the run.
-- An export that is empty, corrupt, mismatched, from a different account or fails the
-  size limits is rejected before any data is activated; existing history is untouched.
-- Operator: after the first real `bootstrap-import`, inspect the latest run's stats (latest
-  `sync_runs` row via the writer role; the table is not API-readable). If deletions are
-  blocked, treat export-based deletion/reconcile as unverified and report the real status
-  payload shape (without token) so the adapter can be fixed. Do not edit rows by hand.
-- `--allow-large-delete` bypasses only the percentage guard, **never completeness validation**.
-  Do not manufacture `listen_count`, edit checkpoints, or disable deletion protections to force
-  success. Preserve the DB/backup; continue only non-destructive operations whose state permits
-  them, then have the adapter validated against the real snapshot manifest before retrying.
-- Authenticated-export behaviour on the deployed LB version remains an open validation item.
+- `POST /1/export/` creates an export (`export_id`); `GET /1/export/{id}` returns
+  `available_until, created, end_time, export_id, filename, progress, start_time, status, type`.
+  The ready value is `"status": "completed"`. There is **no** `listen_count` and **no**
+  `download_url`.
+- Download: `GET /1/export/{id}/download` (authenticated, `application/zip`). The adapter
+  never follows a status-supplied URL.
+- ZIP layout: `user.json` (`user_id` int, `username` str), `listens/YYYY/MM.jsonl`, and
+  `feedback.jsonl` (ignored, like every unknown member). Only `user.json` and
+  `listens/**/*.jsonl` are read.
+- Rows: `listened_at` is a **float** (`1790856000.0`), `recording_msid` present, `mbid_mapping`
+  may be null. Identity stays `(user, listened_at, recording_msid)`, keyed on the exact integer
+  epoch second.
+- `GET /1/user/{user}/listen-count` -> `{"payload": {"count": N}}`; it matched the export row
+  count exactly for the probed account.
+
+Timestamps: ints and finite, integral, in-range floats map to the exact stored int epoch.
+NaN/inf, negative, non-integral, out-of-range values and decimals that would round as floats
+(e.g. `...000.0000000001`) never become an identity: the row is kept in raw quarantine and
+blocks deletions; nothing is invented or rounded. The incremental page API returns int
+`listened_at`; ints only are accepted there.
+
+Two distinct notions of completeness:
+
+1. **Import-complete** (what real exports can prove): `user.json` `username` equals the
+   configured user (case-insensitive), the archive parsed with zero fatal errors (CRC, JSON,
+   duplicate identity, size/member limits), and exported rows >= the `listen-count` fetched
+   immediately before the export was created (rows may exceed it: listens can arrive meanwhile).
+   Import-complete lets the run upsert rows, update remaps, advance the checkpoint (clearing
+   an ambiguous-boundary flag, since the import covers those rows) and succeed. It **never
+   tombstones** and never marks deletion-safe. Fewer rows than the lower bound fails the run
+   before anything is activated.
+2. **Deletion-safe** (unchanged strict rule): only a trusted snapshot manifest (status
+   `listen_count`, never observed on the real service) together with a full row-count match,
+   zero invalid identities and the >10% guard can tombstone. The global `listen-count` alone is
+   never deletion proof.
+
+Consequence with real statuses: `bootstrap-import`/`reconcile` import and succeed, report
+`deletions_blocked: 1`, `tombstoned: 0`, `import_complete: 1`, `deletion_safe: 0` in the run
+stats, and delete nothing. Upstream deletions are therefore **not** reflected locally until a
+trusted manifest exists; this is a documented limitation, not a bug. Operator notes:
+
+- Inspect the latest `sync_runs` stats (counts only) to see these flags. Do not edit rows by hand.
+- A corrupt, empty, mismatched, wrong-account or oversized export is rejected before any data is
+  activated; existing history is untouched. Rows from an attempt that fails after activation
+  cannot exist: activation is atomic.
+- `--allow-large-delete` bypasses only the percentage guard, **never** completeness validation.
+  Do not manufacture `listen_count`, edit checkpoints or disable deletion protections.
 
 ## Offline rebuild (not upstream reconcile)
 
