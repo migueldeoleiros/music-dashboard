@@ -16,7 +16,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-11-21T12:00:00Z'))
   // The request timezone is always the browser's; pin it (individual tests override).
   vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockReturnValue({ timeZone: 'UTC' } as Intl.ResolvedDateTimeFormatOptions)
-  window.history.replaceState(null, '', '?from=2026-01-05&to=2026-01-05')
+  window.history.replaceState(null, '', '?from=2026-01-05&to=2026-01-06')
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     const parsed = new URL(url, 'http://localhost')
     const filters = { from: parsed.searchParams.get('from') ?? '', to: parsed.searchParams.get('to') ?? '', tz: parsed.searchParams.get('tz') ?? '' }
@@ -37,9 +37,10 @@ it('opens straight into content: heatmap first, concise card titles only, no her
   expect(screen.getByText('Missing album')).toBeTruthy()
   expect(screen.getByText('Missing title')).toBeTruthy()
   // Titles sit right above (outside) their cards and name them; nothing else is a heading.
-  const titles = screen.getAllByRole('heading').map(heading => heading.textContent)
+  const titles = screen.getAllByRole('heading', { level: 2 }).map(heading => heading.textContent)
   expect(titles).toEqual(['Daily listening', 'Top artists', 'Top albums', 'Top tracks', 'Top genres', 'Artist origins', 'Artist evolution', 'Genre evolution', 'Artist shares', 'Genre shares'])
-  for (const heading of screen.getAllByRole('heading')) {
+  expect(screen.getAllByRole('heading').map(heading => heading.textContent)).toContain('Top countries')
+  for (const heading of screen.getAllByRole('heading', { level: 2 })) {
     const card = heading.nextElementSibling
     expect(card?.tagName).toBe('SECTION')
     expect(card?.getAttribute('aria-labelledby')).toBe(heading.id)
@@ -80,7 +81,7 @@ it('keeps the heatmap on its own rolling-365-day window and query, independent o
   fireEvent.click(screen.getByRole('button', { name: 'All time' }))
   await waitFor(() => expect(calls().length).toBe(total + 9))
   fireEvent.click(screen.getByRole('button', { name: 'Today' }))
-  await waitFor(() => expect(calls().length).toBe(total + 18))
+  await waitFor(() => expect(calls().length).toBe(total + 9 + 7)) // a single day hides (and does not fetch) both evolution charts
   expect(heatmapCalls()).toHaveLength(1)
   expect(calls().slice(total).every(url => url.pathname !== '/api/heatmap')).toBe(true)
 })
@@ -99,7 +100,29 @@ it('selects presets, keeps every shared query consistent, and keeps range, prese
   expect(calls().some(url => url.searchParams.get('from') === '2026-11-16' && url.searchParams.get('to') === '2026-11-21' && url.searchParams.get('tz') === 'UTC')).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: 'Today' }))
   expect(window.location.search).toBe('')
-  await waitFor(() => expect(screen.getAllByText(/No listening data available/)).toHaveLength(9))
+  await waitFor(() => expect(screen.getAllByText(/No listening data available/)).toHaveLength(7))
+})
+
+it('hides both evolution charts for a single calendar day (Today or a one-day custom range) and shows them for multiple days', async () => {
+  showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(10))
+  await waitFor(() => expect(screen.getAllByText('Evolution chart')).toHaveLength(2))
+  expect(screen.getByRole('heading', { name: 'Artist evolution' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Today' }))
+  expect(screen.queryByRole('heading', { name: /evolution/i })).toBeNull()
+  expect(screen.queryByRole('region', { name: 'Evolution' })).toBeNull()
+  expect(screen.queryByText('Evolution chart')).toBeNull()
+  await waitFor(() => expect(calls().filter(url => url.pathname.startsWith('/api/evolution/') && url.searchParams.get('from') === '2026-11-21')).toHaveLength(0))
+  fireEvent.click(screen.getByRole('button', { name: 'Last 7 days' }))
+  expect(screen.getByRole('heading', { name: 'Genre evolution' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Custom range' }))
+  fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-01-05' } })
+  fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-01-05' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+  expect(window.location.search).toBe('?from=2026-01-05&to=2026-01-05')
+  expect(screen.queryByRole('heading', { name: /evolution/i })).toBeNull()
+  fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-01-06' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+  await waitFor(() => expect(screen.getAllByText('Evolution chart')).toHaveLength(2))
 })
 
 it('reveals from/to only for Custom range, hides 0001 from All time, and applies a custom range', async () => {
@@ -215,6 +238,6 @@ it('shows typed non-timezone validation details and offers per-view retry', asyn
 it('shows loading and network errors per view', async () => {
   vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('Network is offline'))))
   showApp()
-  expect(screen.getAllByRole('status')).toHaveLength(10)
+  expect(screen.getAllByRole('status')).toHaveLength(11) // nine views, the country ranking beside the map, and the period/sync line
   await waitFor(() => expect(screen.getAllByText('Network is offline')).toHaveLength(10))
 })

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useRef, useState } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { mockChart, mockCountryArtists } from '../src/api/mock'
@@ -139,11 +139,22 @@ it('focus falls back to the provided element when the opener was not focusable (
 
 it('App wiring: map selection opens the panel beside the map and survives a period change', async () => {
   stubMedia([])
-  window.history.replaceState(null, '', '?preset=all&tz=UTC')
+  window.history.replaceState(null, '', '?from=2026-01-05&to=2026-01-05')
   render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>)
+  // No country selected: the panel beside the map ranks countries by listens (no images), nothing is an artists panel.
+  const ranking = await screen.findByRole('region', { name: 'Countries ranked by listens' })
+  expect(document.querySelector('.origins-layout')!.classList.contains('has-panel')).toBe(true)
+  await waitFor(() => expect(within(ranking).getAllByRole('listitem').length).toBeGreaterThan(0))
+  const rows = within(ranking).getAllByRole('listitem').map(li => li.textContent ?? '')
+  expect(rows[0]).toMatch(/^01.+/)
+  expect(ranking.querySelector('.entity-image, img')).toBeNull()
+  const values = rows.map(text => Number(text.replace(/\D+$/, '').match(/(\d[\d,.]*)$/)?.[1].replace(/,/g, '')))
+  expect([...values].sort((a, b) => b - a)).toEqual(values) // ranked by listens, descending
+  expect(screen.queryByRole('complementary')).toBeNull()
   const pick = await screen.findByRole('button', { name: /pick US/ })
   fireEvent.click(pick)
   expect(await screen.findByRole('complementary', { name: 'Artists from United States' })).toBeTruthy()
+  expect(screen.queryByRole('region', { name: 'Countries ranked by listens' })).toBeNull() // selection swaps ranking for artists
   expect(document.querySelector('.origins-layout')!.classList.contains('has-panel')).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: 'Last 7 days' }))
   await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/api/countries/US/artists') && String(url).includes('to='))).toBe(true))
@@ -154,6 +165,7 @@ it('App wiring: map selection opens the panel beside the map and survives a peri
   expect(await screen.findByText(/No artists for this country/)).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: /Close United States/ }))
   expect(screen.queryByRole('complementary')).toBeNull()
+  expect(await screen.findByRole('region', { name: 'Countries ranked by listens' })).toBeTruthy() // close restores the ranking
 })
 
 it('charts: coarse pointers open tooltips on tap and get bigger marks; mouse keeps hover; reduced motion disables animation', () => {

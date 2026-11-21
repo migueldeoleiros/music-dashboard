@@ -29,8 +29,9 @@
 
 .country-panel-slot { position: relative; min-width: 0; min-height: 0; grid-column: 2; grid-row: 2; }
 /* Desktop: the panel fills the slot, which is exactly as tall as the map card; the list scrolls inside it. */
-.country-panel { position: absolute; inset: 0; overflow: hidden; display: flex; flex-direction: column; gap: .6rem; width: 100%; max-width: 100%; box-sizing: border-box; padding: .9rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); }
-.country-panel .entity-scroll { flex: 1 1 auto; min-height: 0; }
+.country-panel, .country-ranking { position: absolute; inset: 0; overflow: hidden; display: flex; flex-direction: column; gap: .6rem; width: 100%; max-width: 100%; box-sizing: border-box; padding: .9rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.country-panel .entity-scroll, .country-ranking .entity-scroll { flex: 1 1 auto; min-height: 0; }
+.country-panel-header .panel-title { text-transform: uppercase; letter-spacing: .08em; font-size: .75rem; font-weight: 600; color: var(--text-muted); }
 .country-panel-header { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; }
 .country-panel-header h3 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
 .country-panel-header p { margin: .15rem 0 0; }
@@ -43,6 +44,11 @@
 
 /* Mobile (720px, docs/ui-tokens.md): hero/rows tighten; country panel becomes a modal bottom sheet. */
 @media (max-width: 720px) {
+  /* Ranking beside the map becomes a normal card under it; only the artists panel is a bottom sheet. */
+  .country-panel-slot { grid-column: auto; grid-row: auto; }
+  .country-ranking { position: static; max-height: none; }
+  /* The list's inline max-height:none (desktop fills the slot) must yield to a bounded scroll area here. */
+  .country-ranking .entity-scroll { max-height: 22rem !important; }
   .entity-hero { gap: .85rem; padding: 1.1rem .85rem .95rem; }
   .entity-hero-name { font-size: 1.25rem; }
   .entity-ribbon { top: .4rem; right: .5rem; }

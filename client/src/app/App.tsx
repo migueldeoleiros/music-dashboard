@@ -4,6 +4,7 @@ import { useChartQuery } from '../features/dashboard/ChartSection'
 import { Controls } from '../features/dashboard/Controls'
 import { browserTimezone, clampToToday, presetRange, readFilters, readPeriod, rollingYearRange, utcFallback, validateFilters, writeFilters, type Filters, type Period } from '../features/dashboard/filters'
 import { CountryArtistsPanel } from '../features/origin-map/CountryArtistsPanel'
+import { CountryRankingPanel } from '../features/origin-map/CountryRankingPanel'
 import { CoverageNote } from '../components/ui/CoverageNote'
 import { SyncStatus } from '../components/ui/SyncStatus'
 
@@ -68,12 +69,13 @@ export function App() {
     {error ? <p className="error" role="alert">{error} Adjust the period above.</p> : <>
       <section id="rankings" className="dash-section" aria-label="Rankings"><div className="grid-4">{(['artists', 'albums', 'tracks', 'genres'] as const).map(dimension => <ChartPanel key={dimension} path={`/api/rankings/${dimension}`} label={`Top ${dimension}`} {...shared} />)}</div></section>
       <section id="origins" ref={originsRef} tabIndex={-1} className="dash-section" aria-label="Artist origins">
-        <div className={`origins-layout${selectedCountry ? ' has-panel' : ''}`}>
+        <div className="origins-layout has-panel">
           <ChartPanel path="/api/countries" label="Artist origins" selectedCountry={selectedCountry} onCountrySelect={setSelectedCountry} {...shared} />
-          <CountryArtistsPanel code={selectedCountry} filters={filters} onClose={closeCountry} restoreFocusRef={originsRef} />
+          {selectedCountry ? <CountryArtistsPanel code={selectedCountry} filters={filters} onClose={closeCountry} restoreFocusRef={originsRef} /> : <CountryRankingPanel filters={filters} />}
         </div>
       </section>
-      <section id="evolution" className="dash-section" aria-label="Evolution"><div className="grid-2">{(['artists', 'genres'] as const).map(dimension => <ChartPanel key={dimension} path={`/api/evolution/${dimension}`} label={`${dimension === 'artists' ? 'Artist' : 'Genre'} evolution`} {...shared} />)}</div></section>
+      {/* A single calendar day has no evolution to show: both charts are hidden (and not fetched). */}
+      {filters.from !== filters.to && <section id="evolution" className="dash-section" aria-label="Evolution"><div className="grid-2">{(['artists', 'genres'] as const).map(dimension => <ChartPanel key={dimension} path={`/api/evolution/${dimension}`} label={`${dimension === 'artists' ? 'Artist' : 'Genre'} evolution`} {...shared} />)}</div></section>}
       <section id="shares" className="dash-section" aria-label="Shares"><div className="grid-2">{(['artists', 'genres'] as const).map(dimension => <ChartPanel key={dimension} path={`/api/pies/${dimension}`} label={`${dimension === 'artists' ? 'Artist' : 'Genre'} shares`} {...shared} />)}</div></section>
     </>}
   </main>
