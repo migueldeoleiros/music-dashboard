@@ -36,7 +36,7 @@ vi.mock('../src/components/charts/echarts', () => ({
   },
 }))
 
-import { buildRollingGrid, labelledPieIndexes, pieNarrowHeight, seriesAtValue, worldWidth } from '../src/components/charts/builders'
+import { buildRollingGrid, labelledPieIndexes, pieGeometry, pieNarrowHeight, seriesAtValue, worldWidth } from '../src/components/charts/builders'
 import { CountryChart, EvolutionChart, HeatmapChart, PieChart, stableColor } from '../src/components/charts'
 import { esc, mixColors, parseColor, readTheme, seriesColor } from '../src/components/charts/theme'
 
@@ -302,6 +302,19 @@ describe('PieChart', () => {
     const six = Array.from({ length: 6 }, (_, i) => ({ key: `k${5 - i}`, label: 'x', listens: 1, share: 0.01, is_other: false }))
     // equal listens: lowest keys win (k0..k4 = indexes 5..1)
     expect([...labelledPieIndexes(six as never)].sort()).toEqual([1, 2, 3, 4, 5])
+  })
+  it('pie fills the plot area while keeping leader-label clearance (wide and narrow)', () => {
+    const wide = { narrow: false } as never
+    const w = pieGeometry(wide, 20, { width: 900, height: 340 })
+    expect(w.radius[1]).toBeGreaterThan(68) // larger than the old 40% of half-height
+    expect(w.center[0] as number - (w.radius[1] as number)).toBeGreaterThanOrEqual(130) // room for labels on the left
+    expect((w.center[0] as number) + (w.radius[1] as number) + 130).toBeLessThanOrEqual(900 - 150 - 24 + 1)
+    expect((w.radius[1] as number) + 22).toBeLessThanOrEqual(170)
+    const n = pieGeometry({ narrow: true } as never, 20, { width: 360, height: pieNarrowHeight(20) })
+    expect(n.radius[1]).toBeGreaterThan(52)
+    expect((n.center[0] as number) - (n.radius[1] as number)).toBeGreaterThanOrEqual(92)
+    expect((n.center[1] as number) + (n.radius[1] as number)).toBeLessThanOrEqual(232)
+    expect(pieGeometry(wide, 3).radius).toEqual(['24%', '40%']) // unmeasured fallback
   })
   it('long titles are clipped in the label (share stays whole) and every slice stays in the legend', () => {
     const slices = [{ key: 'k', label: 'An extremely long artist name indeed', listens: 1, share: 1, is_other: false }]

@@ -143,7 +143,7 @@ export function EvolutionChart({ data }: { data: EvolutionResponse }) {
 // ---------- Pie ----------
 export function PieChart({ data }: { data: PieResponse }) {
   const { slices, dimension } = data
-  const build = useMemo(() => (t: ChartTheme) => buildPieOption(data, t), [data])
+  const build = useMemo(() => (t: ChartTheme, size?: { width: number; height: number }) => buildPieOption(data, t, size), [data])
   return (
     <Frame
       label={`Share of ${dimension}`}

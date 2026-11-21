@@ -200,7 +200,24 @@ export function labelledPieIndexes(slices: PieResponse['slices']): Set<number> {
   )
 }
 
-export function buildPieOption(data: PieResponse, t: ChartTheme): Opt {
+/**
+ * Pie geometry in pixels: the largest outer radius that still leaves room for leader-line labels
+ * (line + clipped text) beside the pie and a margin above/below it. Falls back to the old fixed size without a measured canvas.
+ */
+export function pieGeometry(t: ChartTheme, slices: number, size?: { width: number; height: number }) {
+  const narrow = t.narrow
+  const labelRoom = narrow ? 92 : 130 // leader line (6/10 x2) + up to 12/16 clipped chars + share
+  const vMargin = 22
+  if (!size || size.width <= 0 || size.height <= 0) {
+    return { radius: narrow ? [28, 52] : ['24%', '40%'], center: narrow ? ['50%', 112] : ['32%', '50%'] }
+  }
+  const plotW = narrow ? size.width : size.width - LEGEND_WIDTH - 24
+  const plotH = narrow ? size.height - verticalLegendHeight(slices, NARROW_LEGEND_ROWS) - 12 : size.height
+  const outer = Math.round(Math.max(narrow ? 40 : 60, Math.min(plotH / 2 - vMargin, plotW / 2 - labelRoom)))
+  return { radius: [Math.round(outer * 0.55), outer], center: [Math.round(plotW / 2), Math.round(plotH / 2)] }
+}
+
+export function buildPieOption(data: PieResponse, t: ChartTheme, size?: { width: number; height: number }): Opt {
   const { slices } = data
   const labelOf = new Map(slices.map((s) => [seriesId(s), s.label]))
   const isOther = new Map(slices.map((s) => [seriesId(s), s.is_other]))
@@ -233,8 +250,7 @@ export function buildPieOption(data: PieResponse, t: ChartTheme): Opt {
     series: [
       {
         type: 'pie',
-        radius: narrow ? [28, 52] : ['24%', '40%'],
-        center: narrow ? ['50%', 112] : ['32%', '50%'],
+        ...pieGeometry(t, slices.length, size),
         minAngle: 3,
         padAngle: 2,
         avoidLabelOverlap: true,
