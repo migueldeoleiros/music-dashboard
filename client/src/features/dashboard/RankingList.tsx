@@ -1,15 +1,31 @@
 import type { components } from '../../api/schema'
-import { stableColor } from '../../components/charts'
+import { EntityImage } from '../../components/ui/EntityImage'
+import { EntityList } from '../../components/ui/EntityList'
+import { EntityRow } from '../../components/ui/EntityRow'
 import { EmptyState } from './ChartSection'
 
 const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 })
 
-// Extension point (C3): ranked rows for artists/albums/tracks/genres. Items carry image_url (null today).
+type Item = components['schemas']['RankedEntity']
+
+// On Repeat. Listens only (no percentages). #1 is a hero card, 2..N are compact EntityRows.
+// Genres have no artwork: text-only everywhere (no placeholder tiles), hero keeps the accent ring.
 export function RankingList({ data }: { data: components['schemas']['RankingResponse'] }) {
   if (!data.items.length) return <EmptyState />
-  return <ol className="rankings">{data.items.map((item, index) => <li key={item.key}>
-    <span className="rank-number">{String(index + 1).padStart(2, '0')}</span>
-    <div className="rank-name"><span>{item.label || `Missing ${data.dimension === 'tracks' ? 'title' : 'metadata'}`}</span>{item.metadata_state === 'missing' && <small>Missing metadata</small>}<div className="rank-bar" style={{ width: `${Math.min(100, Math.max(0, item.share * 100))}%`, background: stableColor(item.key) }} /></div>
-    <span className="rank-value">{number.format(item.listens)}<small>{number.format(item.share * 100)}%</small></span>
-  </li>)}</ol>
+  const showImage = data.dimension !== 'genres'
+  const name = (item: Item) => item.label || `Missing ${data.dimension === 'tracks' ? 'title' : 'metadata'}`
+  const note = (item: Item) => item.metadata_state === 'missing' ? 'Missing metadata' : undefined
+  const [first, ...rest] = data.items
+  return <EntityList label={`Top ${data.dimension}`} className="ranking-entities">
+    <li className={`entity-hero${showImage ? '' : ' entity-hero--text'}`}>
+      <span className="entity-ribbon">#1</span>
+      {showImage && <EntityImage src={first.image_url} label={name(first)} size="hero" decorative />}
+      <span className="entity-text">
+        <span className="entity-hero-name" title={name(first)}>{name(first)}</span>
+        {note(first) && <small className="entity-secondary">{note(first)}</small>}
+        <span className="entity-hero-count">{number.format(first.listens)} <small>listens</small></span>
+      </span>
+    </li>
+    {rest.map((item, index) => <EntityRow key={item.key} rank={index + 2} label={name(item)} src={item.image_url} secondary={note(item)} value={number.format(item.listens)} showImage={showImage} />)}
+  </EntityList>
 }
