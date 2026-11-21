@@ -47,26 +47,20 @@ def test_precedence_first_level_wins_no_mixing() -> None:
     assert resolve_genres([], [], [A1], {}) == {}
 
 
-def test_vote_rules() -> None:
-    assert genre_weights([v(G1, 3), v(G2, 1)]) == {G1: 0.75, G2: 0.25}
-    # zero/negative discarded when positives exist
-    assert genre_weights([v(G1, 2), v(G2, 0), v(G3, -4)]) == {G1: 1.0}
-    # recognized but no positive votes -> equal shares
-    assert genre_weights([v(G1, 0), v(G2, -1)]) == {G1: 0.5, G2: 0.5}
-    # duplicate identity aggregated
-    assert genre_weights([v(G1, 1), v(G1, 1), v(G2, 2)]) == {G1: 0.5, G2: 0.5}
+def test_appearance_rules() -> None:
+    # every distinct tag counts 1 regardless of votes (zero/negative included)
+    assert genre_weights([v(G1, 3), v(G2, 1)]) == {G1: 1.0, G2: 1.0}
+    assert genre_weights([v(G1, 2), v(G2, 0), v(G3, -4)]) == {G1: 1.0, G2: 1.0, G3: 1.0}
+    # duplicate identity never double counts
+    assert genre_weights([v(G1, 1), v(G1, 1), v(G2, 2)]) == {G1: 1.0, G2: 1.0}
     assert genre_weights([]) == {}
 
 
-def test_multiartist_dedupe_normalize_skip_unresolved() -> None:
+def test_multiartist_union_counts_each_genre_once() -> None:
     votes = {A1: [v(G1, 9), v(G2, 1)], A2: [v(G2, 4)]}
     r = resolve_genres([], [], [A1, A1, A2, "unresolved"], votes)
-    assert r[G1] == pytest.approx(0.45)
-    assert r[G2] == pytest.approx(0.55)
-    assert sum(r.values()) == pytest.approx(1.0)
-    # duplicated credit does not double weight
-    single = resolve_genres([], [], [A1, A1], votes)
-    assert single == {G1: pytest.approx(0.9), G2: pytest.approx(0.1)}
+    assert r == {G1: 1.0, G2: 1.0}
+    assert resolve_genres([], [], [A1, A1], votes) == {G1: 1.0, G2: 1.0}
 
 
 def test_country_rules() -> None:

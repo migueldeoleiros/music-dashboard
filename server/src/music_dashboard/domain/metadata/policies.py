@@ -26,15 +26,9 @@ class GenreVote:
 
 
 def genre_weights(votes: Iterable[GenreVote]) -> dict[str, float]:
-    """Collapse duplicate identities, prefer positive votes, otherwise equal shares."""
-    totals: dict[str, int] = defaultdict(int)
-    for vote in votes:
-        totals[vote.mbid] += vote.count
-    positive = {key: count for key, count in totals.items() if count > 0}
-    if positive:
-        total = sum(positive.values())
-        return {key: count / total for key, count in positive.items()}
-    return {key: 1 / len(totals) for key in totals}
+    """Appearance counting: each DISTINCT genre identity counts 1, whatever its votes
+    (zero/negative-vote tags included); duplicate identities collapse."""
+    return {vote.mbid: 1.0 for vote in votes}
 
 
 def resolve_genres(
@@ -43,20 +37,16 @@ def resolve_genres(
     credited_artists: Iterable[str],
     artist_votes: Mapping[str, Iterable[GenreVote]],
 ) -> dict[str, float]:
+    """First nonempty level wins; returns one full count per distinct genre of that level
+    (artist level: union across the deduplicated credited artists)."""
     for level in (recording, release_group):
         weights = genre_weights(level)
         if weights:
             return weights
-    resolved = [
-        weights
-        for artist in set(credited_artists)
-        if (weights := genre_weights(artist_votes.get(artist, ())))
-    ]
-    result: dict[str, float] = defaultdict(float)
-    for weights in resolved:
-        for genre, weight in weights.items():
-            result[genre] += weight / len(resolved)
-    return dict(result)
+    result: dict[str, float] = {}
+    for artist in set(credited_artists):
+        result.update(genre_weights(artist_votes.get(artist, ())))
+    return result
 
 
 def valid_country(country: object) -> str | None:
