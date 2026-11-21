@@ -214,17 +214,20 @@ WHERE w.code=:country GROUP BY w.mbid ORDER BY listens DESC, key LIMIT :limit
 # no artwork.
 ARTWORK_TYPES = {"artists": "artist", "albums": "album", "tracks": "track"}
 UUID_KEY = "'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'"
-# Pies and evolution show every entity with a STRICTLY greater than 2% share of the included
-# listens of the selected range (no Top-N truncation first); the rest is one combined Other.
+# Evolution shows every entity with a STRICTLY greater than 2% share of the included listens of
+# the selected range (no Top-N truncation first); the rest is one combined Other.
 # listens/included > 1/50  <=>  listens*50 > included. Rounding to 9 decimals absorbs float noise
 # from fractional weights so an exact 2% never qualifies by accident (or fails to tie).
+# Pies are wider: every named entity with a share of AT LEAST 1% (listens*100 >= included, so an
+# exact 1% is kept) gets a slice, with no fixed cap; the remaining mass is one combined Other.
 SHARE_FAMILIES = ("pies/", "evolution/")
 SHARE_THRESHOLD = "round(listens::numeric, 9) * 50 > :included"
+PIE_THRESHOLD = "round(listens::numeric, 9) * 100 >= :included"
 PIE_SLICES = f"""
- SELECT key, label, false AS is_other, listens FROM totals WHERE {SHARE_THRESHOLD}
+ SELECT key, label, false AS is_other, listens FROM totals WHERE {PIE_THRESHOLD}
  UNION ALL
  SELECT 'other', 'Other', true, sum(listens)::float8 FROM totals
- WHERE NOT ({SHARE_THRESHOLD}) HAVING count(*)>0
+ WHERE NOT ({PIE_THRESHOLD}) HAVING count(*)>0
  ORDER BY is_other, listens DESC, key
 """
 TABLES = {
