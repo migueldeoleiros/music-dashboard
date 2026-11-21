@@ -6,6 +6,10 @@ type AnyOpt = Record<string, any> // eslint-disable-line @typescript-eslint/no-e
 const h = vi.hoisted(() => ({
   charts: [] as { setOption: ReturnType<typeof vi.fn>; resize: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; on: ReturnType<typeof vi.fn> }[],
   handlers: {} as Record<string, (p: unknown) => void>,
+  zr: {} as Record<string, (e: unknown) => void>,
+  inGrid: { value: true },
+  // chart pixel -> [bucket index, value]: x/100 buckets, y as the axis value (tests pass the numbers directly)
+  convert: (pos: number[]) => pos,
   registerMap: vi.fn(),
 }))
 
@@ -18,6 +22,9 @@ vi.mock('../src/components/charts/echarts', () => ({
         getWidth: () => 600,
         getHeight: () => 380,
         dispose: vi.fn(),
+        getZr: () => ({ on: (ev: string, fn: (e: unknown) => void) => { h.zr[ev] = fn } }),
+        containPixel: () => h.inGrid.value,
+        convertFromPixel: (_: string, pos: number[]) => h.convert(pos),
         on: vi.fn((ev: string, fn: (p: unknown) => void) => {
           h.handlers[ev] = fn
         }),
@@ -29,7 +36,7 @@ vi.mock('../src/components/charts/echarts', () => ({
   },
 }))
 
-import { buildRollingGrid, worldWidth } from '../src/components/charts/builders'
+import { buildRollingGrid, pieNarrowHeight, seriesAtValue, worldWidth } from '../src/components/charts/builders'
 import { CountryChart, EvolutionChart, HeatmapChart, PieChart, stableColor } from '../src/components/charts'
 import { esc, mixColors, parseColor, readTheme, seriesColor } from '../src/components/charts/theme'
 
@@ -37,6 +44,7 @@ const roCallbacks: (() => void)[] = []
 const disconnect = vi.fn()
 
 beforeEach(() => {
+  h.inGrid.value = true
   h.charts.length = 0
   roCallbacks.length = 0
   disconnect.mockClear()
@@ -56,6 +64,8 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+// The mocked chart converts pixels to [bucket, value] as identity, so tests pass those numbers directly.
+const point = (x: number, y: number) => h.zr.mousemove({ offsetX: x, offsetY: y })
 const lastOption = (): AnyOpt => h.charts[0].setOption.mock.calls.at(-1)![0]
 const base = {
   coverage: {} as never,
@@ -70,6 +80,27 @@ describe('stableColor', () => {
     expect(stableColor('a')).toBe(stableColor('a'))
     expect(stableColor('a')).not.toBe(stableColor('b'))
     expect(stableColor('x', true)).toBe(stableColor('y', true))
+  })
+})
+
+describe('seriesAtValue', () => {
+  const series = [
+    { key: 'a', label: 'A', is_other: false, values: [4, 0, 2] },
+    { key: 'b', label: 'B', is_other: false, values: [2, 2, 2] },
+    { key: 'o', label: 'Other', is_other: true, values: [1, 1, 1] },
+  ]
+  it('maps a point to its stacked band, interpolating between buckets', () => {
+    expect(seriesAtValue(series, 0, 0)).toBe('key:a')
+    expect(seriesAtValue(series, 0, 3.9)).toBe('key:a')
+    expect(seriesAtValue(series, 0, 4)).toBe('key:b') // bands are half-open [floor, top)
+    expect(seriesAtValue(series, 0, 6.5)).toBe('other:o')
+    expect(seriesAtValue(series, 0, 7)).toBeNull() // above the stack
+    expect(seriesAtValue(series, 1, 0.5)).toBe('key:b') // A is empty in bucket 1
+    expect(seriesAtValue(series, 0.5, 1.9)).toBe('key:a') // A is 2 high half way between 4 and 0
+    expect(seriesAtValue(series, 0.5, 2.1)).toBe('key:b')
+    expect(seriesAtValue(series, 2.4, 1)).toBe('key:a') // clamped to the last bucket
+    expect(seriesAtValue(series, 0, -1)).toBeNull()
+    expect(seriesAtValue([], 0, 1)).toBeNull()
   })
 })
 
@@ -108,18 +139,56 @@ describe('EvolutionChart', () => {
     expect(screen.getByRole('img').getAttribute('aria-label')).toMatch(/Evolution of artists/)
   })
 
-  it('tooltip lists series sorted by value, skipping zeros', () => {
+  const axisHit = [
+    { dataIndex: 1, color: '#111', seriesName: 'other:o', value: 1 },
+    { dataIndex: 1, color: '#222', seriesName: 'key:a', value: 7 },
+  ]
+  it('tooltip shows only the hovered area: date, series and value (never all series)', () => {
     render(<EvolutionChart data={data as never} />)
     const o = lastOption()
-    const html = o.tooltip.formatter([
-      { dataIndex: 1, color: '#111', seriesName: 'other:o', value: 1 },
-      { dataIndex: 1, color: '#222', seriesName: 'key:a', value: 0 },
-      { dataIndex: 1, color: '#333', seriesName: 'key:b', value: 4 },
-    ])
-    expect(html.indexOf('>b<')).toBe(-1) // unknown name falls back to raw seriesName, not label
-    expect(html.indexOf('key:b')).toBeLessThan(html.indexOf('Other'))
-    expect(html).not.toContain('key:a')
+    expect(o.tooltip.trigger).toBe('axis')
+    expect(o.tooltip.formatter(axisHit)).toBe('') // pointer over no area: nothing to show
+    point(0, 3)
+    const html = o.tooltip.formatter(axisHit)
+    expect(html).toContain('2026-01-12 → 2026-01-19')
+    expect(html).toContain('>A<')
+    expect(html).toContain('<b style="font-variant-numeric:tabular-nums">7</b>')
+    expect(html).not.toContain('Other')
+    point(0, 5.5)
+    const other = o.tooltip.formatter(axisHit)
+    expect(other).toContain('Other')
+    expect(other).not.toContain('>A<')
+    point(0, 9) // above the stack
+    expect(o.tooltip.formatter(axisHit)).toBe('')
+    point(0, 3); h.inGrid.value = false; point(0, 3) // outside the plot
+    expect(o.tooltip.formatter(axisHit)).toBe('')
+    h.inGrid.value = true; point(0, 3); h.zr.globalout({})
+    expect(o.tooltip.formatter(axisHit)).toBe('')
     expect(o.tooltip.backgroundColor).toBe(readTheme().surface)
+  })
+
+  it('touch: a tap on an area selects it for the tooltip, and taps open it (triggerOn click)', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(pointer: coarse)', media: query, addEventListener() {}, removeEventListener() {} }))
+    render(<EvolutionChart data={data as never} />)
+    const o = lastOption()
+    expect(o.tooltip.triggerOn).toBe('click')
+    h.zr.click({ offsetX: 0, offsetY: 3 })
+    expect(o.tooltip.formatter(axisHit)).toContain('>A<')
+  })
+
+  it('legend is vertical and scrollable beside (wide) or below (narrow) the plot, with room reserved', () => {
+    render(<EvolutionChart data={data as never} />)
+    const wide = lastOption()
+    expect(wide.legend).toMatchObject({ type: 'scroll', orient: 'vertical', right: 8 })
+    expect(wide.grid.right).toBeGreaterThanOrEqual(150)
+    cleanup(); h.charts.length = 0
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(max-width: 720px)', media: query, addEventListener() {}, removeEventListener() {} }))
+    const many = { ...data, series: Array.from({ length: 12 }, (_, i) => ({ key: `k${i}`, label: `S${i}`, is_other: false, values: [1, 1, 1] })) }
+    render(<EvolutionChart data={many as never} />)
+    const narrow = lastOption()
+    expect(narrow.legend).toMatchObject({ type: 'scroll', orient: 'vertical', left: 'center', bottom: 4 })
+    expect(narrow.legend.height).toBeLessThan(12 * 20) // capped: the rest scrolls
+    expect(narrow.grid.bottom).toBeGreaterThanOrEqual(narrow.legend.height) // plot never overlaps the legend
   })
 
   it('no markArea without partial bucket', () => {
@@ -149,6 +218,7 @@ describe('series identity', () => {
     const names = o.series.map((s: AnyOpt) => s.name)
     expect(new Set(names).size).toBe(4)
     expect(o.legend.formatter(names[1])).toBe('Same')
+    point(0, 0.5) // inside the first band
     const html = o.tooltip.formatter([{ dataIndex: 0, marker: '', seriesName: names[0], value: 1 }])
     expect(html).toContain('Same')
     expect(html).toContain('<b style="font-variant-numeric:tabular-nums">1</b>')
@@ -192,14 +262,45 @@ describe('PieChart', () => {
     expect(s.padAngle).toBeGreaterThan(0)
     expect(s.label.position).toBe('outside')
     expect(s.labelLine.show).toBe(true)
-    expect(s.label.formatter({ data: { share: 0.75 } })).toBe('75%')
-    expect(s.labelLayout.hideOverlap).toBe(true)
-    expect(o.legend.orient).toBe('vertical')
+    expect(s.label.formatter({ name: s.data[0].name, data: { share: 0.75 } })).toBe('Rock 75%') // title + share
+    expect(o.legend).toMatchObject({ type: 'scroll', orient: 'vertical' })
     expect(s.emphasis.scale).toBe(true)
     expect(s.emphasis.focus).toBe('self')
     expect(s.data[0].itemStyle.color).toBe(readTheme().series[0])
     expect(s.data[1].itemStyle.color).toBe(readTheme().other)
     expect(screen.getByText('Rock')).toBeTruthy()
+  })
+  it('labels only slices above 2% (Other included when eligible), with a leader line, title and share', () => {
+    const slices = [
+      { key: 'big', label: 'Big', listens: 90, share: 0.9, is_other: false },
+      { key: 'edge', label: 'Edge', listens: 2, share: 0.02, is_other: false }, // exactly 2%: not above
+      { key: 'just', label: 'Just over', listens: 2.1, share: 0.021, is_other: false },
+      { key: 'other', label: 'Other', listens: 3, share: 0.03, is_other: true }, // eligible Other is labelled
+    ]
+    render(<PieChart data={{ ...base, range, dimension: 'artists', slices } as never} />)
+    const s = lastOption().series[0]
+    expect(s.data.map((d: AnyOpt) => [d.label.show, d.labelLine.show])).toEqual([[true, true], [false, false], [true, true], [true, true]])
+    expect(s.label.formatter({ name: s.data[3].name, data: { share: 0.03 } })).toBe('Other 3%')
+    expect(s.label.formatter({ name: s.data[2].name, data: { share: 0.021 } })).toBe('Just over 2.1%')
+    cleanup(); h.charts.length = 0
+    render(<PieChart data={{ ...base, range, dimension: 'artists', slices: [slices[0], { ...slices[3], share: 0.02 }] } as never} />)
+    expect(lastOption().series[0].data[1].label.show).toBe(false) // ineligible Other stays in the legend only
+  })
+  it('long titles are clipped in the label (share stays whole) and every slice stays in the legend', () => {
+    const slices = [{ key: 'k', label: 'An extremely long artist name indeed', listens: 1, share: 1, is_other: false }]
+    render(<PieChart data={{ ...base, range, dimension: 'artists', slices } as never} />)
+    const o = lastOption()
+    const text = o.series[0].label.formatter({ name: o.series[0].data[0].name, data: { share: 1 } })
+    expect(text).toMatch(/^An extremely lo… 100%$/)
+    expect(o.legend.formatter(o.series[0].data[0].name)).toBe('An extremely long artist name indeed')
+  })
+  it('legend scrolls vertically and is height-capped for many slices, wide and narrow', () => {
+    const many = Array.from({ length: 30 }, (_, i) => ({ key: `k${i}`, label: `S${i}`, listens: 1, share: 1 / 30, is_other: false }))
+    render(<PieChart data={{ ...base, range, dimension: 'artists', slices: many } as never} />)
+    const wide = lastOption().legend
+    expect(wide).toMatchObject({ type: 'scroll', orient: 'vertical' })
+    expect(wide.height).toBeLessThan(30 * 20)
+    expect(pieNarrowHeight(30)).toBeLessThan(pieNarrowHeight(6) + 40) // narrow canvas does not grow per slice past the cap
   })
   it('keeps Other with its exact count, hatched, and explains it in the tooltip', () => {
     render(<PieChart data={data as never} />)
@@ -266,6 +367,7 @@ describe('tooltip escaping', () => {
       />,
     )
     const evo = lastOption()
+    point(0, 1)
     const html2 = evo.tooltip.formatter([{ dataIndex: 0, color: 'red"><b>', seriesName: evo.series[0].name, value: 3 }])
     expect(html2).not.toContain('<img')
     expect(html2).not.toContain('"><b>')

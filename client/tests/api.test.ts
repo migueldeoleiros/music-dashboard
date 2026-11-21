@@ -4,7 +4,7 @@ import { ApiError, COUNTRY_ARTISTS_LIMIT, fetchChart, fetchCountryArtists, fetch
 const filters = { from: '2026-01-05', to: '2026-01-05', tz: 'UTC' }
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs() })
 
-it('serializes exact date/tz filters with endpoint-specific top limits and abort signal', async () => {
+it('serializes exact date/tz filters, caps only rankings, and passes the abort signal', async () => {
   vi.stubEnv('VITE_MOCK_API', 'false')
   const fetch = vi.fn(async (url: string, options?: RequestInit) => { void url; void options; return new Response('{}') })
   vi.stubGlobal('fetch', fetch)
@@ -12,10 +12,12 @@ it('serializes exact date/tz filters with endpoint-specific top limits and abort
   await fetchChart('/api/evolution/genres', { ...filters, tz: 'Asia/Kathmandu' }, signal)
   const [url, options] = fetch.mock.calls[0]
   const params = new URL(url, 'http://localhost').searchParams
-  expect(params.get('limit')).toBe('8'); expect(params.get('tz')).toBe('Asia/Kathmandu'); expect(params.get('from')).toBe(filters.from)
+  expect(params.has('limit')).toBe(false); expect(params.get('tz')).toBe('Asia/Kathmandu'); expect(params.get('from')).toBe(filters.from)
   expect(options?.signal).toBe(signal)
   await fetchChart('/api/pies/artists', filters)
-  expect(new URL(String(fetch.mock.calls[1][0]), 'http://localhost').searchParams.get('limit')).toBe('10')
+  expect(new URL(String(fetch.mock.calls[1][0]), 'http://localhost').searchParams.has('limit')).toBe(false) // share-based, not Top-N
+  await fetchChart('/api/rankings/artists', filters)
+  expect(new URL(String(fetch.mock.calls[2][0]), 'http://localhost').searchParams.get('limit')).toBe('10')
 })
 it('preserves typed 400 errors, and identifies timezone errors without retrying other validation failures', async () => {
   vi.stubEnv('VITE_MOCK_API', 'false')

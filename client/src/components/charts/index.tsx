@@ -13,9 +13,12 @@ import {
   markers,
   nf,
   pct,
+  evolutionNarrowHeight,
+  seriesAtValue,
   pieNarrowHeight,
   polygonCodes,
 } from './builders'
+import type { EChartsType } from 'echarts/core'
 import { echarts } from './echarts'
 import { useECharts, type ChartHandle, type ChartSize, type Opt } from './useECharts'
 import type { ChartTheme } from './theme'
@@ -44,8 +47,9 @@ function Frame(props: {
   table: ReactNode
   register?: () => void
   onClick?: (p: { componentType?: string; name?: string; data?: unknown }) => void
+  onPointer?: (chart: EChartsType, pos: { x: number; y: number } | null) => void
 }) {
-  const ref = useECharts(props.build, { register: props.register, onClick: props.onClick }, props.handleRef)
+  const ref = useECharts(props.build, { register: props.register, onClick: props.onClick, onPointer: props.onPointer }, props.handleRef)
   const scroller = useRef<HTMLDivElement>(null)
   const scrollKey = props.scrollX?.key
   useEffect(() => {
@@ -82,15 +86,23 @@ export function EvolutionChart({ data }: { data: EvolutionResponse }) {
   const { buckets, series, bucket_unit: unit, dimension } = data
   const partialIdx = buckets.findIndex((b) => b.partial)
   const label = (i: number) => (unit === 'month' ? buckets[i].start.slice(0, 7) : buckets[i].start)
-  const build = useMemo(() => (t: ChartTheme) => buildEvolutionOption(data, t), [data])
+  // Series band under the pointer/finger (mouse move or tap), found from the stacked values: drives the single-series tooltip.
+  const hover = useRef<string | null>(null)
+  const build = useMemo(() => (t: ChartTheme) => buildEvolutionOption(data, t, hover), [data])
+  const onPointer = useMemo(() => (chart: EChartsType, pos: { x: number; y: number } | null) => {
+    if (!pos || !chart.containPixel('grid', [pos.x, pos.y])) { hover.current = null; return }
+    const [x, y] = chart.convertFromPixel('grid', [pos.x, pos.y]) as [number, number]
+    hover.current = seriesAtValue(data.series, x, y)
+  }, [data])
   const partial = partialIdx >= 0 ? buckets[partialIdx] : null
   return (
     <Frame
       label={`Evolution of ${dimension}, ${series.length} series per ${unit}`}
       summary={`${series.length} series over ${buckets.length} ${unit} buckets from ${data.range.from} to ${data.range.to} (${data.range.tz}). Not cumulative.`}
       height={360}
-      narrowHeight={300}
+      narrowHeight={evolutionNarrowHeight(series.length)}
       build={build}
+      onPointer={onPointer}
       note={
         partial
           ? `The final ${unit} bucket (${partial.start} → ${partial.end}) is incomplete, so its values may be lower than complete buckets; compare it with them cautiously.`

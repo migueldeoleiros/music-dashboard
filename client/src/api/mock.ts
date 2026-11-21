@@ -7,7 +7,7 @@ import { validateFilters } from '../features/dashboard/filters'
 type Scenario = 'partial' | 'full' | 'empty'
 // Foundation fixtures are illustrative aggregates, not an analytics engine.
 // Only serialization aliases (from_date/to_date -> from/to) were normalized in the copy.
-export function mockChart<P extends ChartPath>(path: P, filters: Filters, _limit = 10, scenario?: Scenario): ChartResponse<P> {
+export function mockChart<P extends ChartPath>(path: P, filters: Filters, _limit: number | undefined = 10, scenario?: Scenario): ChartResponse<P> {
   void _limit
   try { new Intl.DateTimeFormat('en', { timeZone: filters.tz }) } catch {
     throw new ApiError(400, { code: 'invalid_request', message: 'Unsupported IANA timezone', details: ['tz must name a supported IANA timezone.'] })

@@ -29,8 +29,68 @@ const legendStyle = (t: ChartTheme) => ({
   textStyle: { color: t.textMuted, fontFamily: t.font, fontSize: t.narrow ? 12 : 11 },
 })
 
+/** Slices/series above this share of the range get an outer label (pies); same cut-off as server membership. */
+export const LABEL_MIN_SHARE = 0.02
+const LEGEND_ROW = 20
+const NARROW_LEGEND_ROWS = 6
+/** Vertical legend height: one row per entry, capped so longer lists scroll (plus room for the pager). */
+export const verticalLegendHeight = (entries: number, maxRows: number) => {
+  const n = Math.max(1, entries)
+  return Math.min(n, maxRows) * LEGEND_ROW + (n > maxRows ? 28 : 0)
+}
+const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
+
+/** Shared vertical, scrollable legend: right of the plot on wide screens, below it on narrow ones. */
+function verticalLegend(t: ChartTheme, entries: number, wideRows: number, labelOf: Map<string, string>) {
+  const narrow = t.narrow
+  return {
+    ...legendStyle(t),
+    orient: 'vertical' as const,
+    ...(narrow
+      ? { left: 'center', bottom: 4, height: verticalLegendHeight(entries, NARROW_LEGEND_ROWS) }
+      : { right: 8, top: 'middle', height: verticalLegendHeight(entries, wideRows) }),
+    itemGap: 6,
+    pageIconSize: 12,
+    textStyle: {
+      color: t.textMuted,
+      fontFamily: t.font,
+      fontSize: narrow ? 12 : 11,
+      width: narrow ? 240 : LEGEND_WIDTH - 24,
+      overflow: 'truncate' as const,
+    },
+    tooltip: { show: false },
+    formatter: (n: string) => labelOf.get(n) ?? n,
+  }
+}
+const LEGEND_WIDTH = 150
+
+/** Canvas height of an evolution chart: the plot keeps its size; narrow screens add the legend below. */
+export const evolutionNarrowHeight = (series: number) => 250 + verticalLegendHeight(series, NARROW_LEGEND_ROWS)
+
 // ---------- Evolution (stacked areas) ----------
-export function buildEvolutionOption(data: EvolutionResponse, t: ChartTheme): Opt {
+/** `hover` holds the series name under the pointer/finger; the tooltip shows only that series. */
+/**
+ * The stacked band a point falls in: `x` is the (fractional) bucket index, `y` the value on the axis. Cumulative
+ * totals are interpolated between buckets, mirroring the drawn areas, so it never needs polygon hit-testing.
+ * Returns the series id, or null above the stack / below zero.
+ */
+export function seriesAtValue(series: EvolutionResponse['series'], x: number, y: number): string | null {
+  const n = series[0]?.values.length ?? 0
+  if (n === 0 || y < 0 || !Number.isFinite(x) || !Number.isFinite(y)) return null
+  const at = Math.min(Math.max(x, 0), n - 1)
+  const lo = Math.floor(at)
+  const hi = Math.min(lo + 1, n - 1)
+  const f = at - lo
+  let floor = 0
+  for (const s of series) {
+    const top = floor + s.values[lo] * (1 - f) + s.values[hi] * f
+    if (y >= floor && y < top) return seriesId(s)
+    floor = top
+  }
+  return null
+}
+
+export function buildEvolutionOption(data: EvolutionResponse, t: ChartTheme, hover?: { current: string | null }): Opt {
   const { buckets, series, bucket_unit: unit } = data
   const partialIdx = buckets.findIndex((b) => b.partial)
   const label = (i: number) => (unit === 'month' ? buckets[i].start.slice(0, 7) : buckets[i].start)
@@ -42,29 +102,33 @@ export function buildEvolutionOption(data: EvolutionResponse, t: ChartTheme): Op
     animationEasing: 'cubicOut',
     color: colors,
     textStyle: { fontFamily: t.font },
-    grid: { left: t.narrow ? 4 : 8, right: t.narrow ? 10 : 16, top: 16, bottom: t.narrow ? 46 : 40, containLabel: true },
-    legend: { ...legendStyle(t), formatter: (n: string) => labelOf.get(n) ?? n },
+    grid: {
+      left: t.narrow ? 4 : 8,
+      right: t.narrow ? 10 : LEGEND_WIDTH + 16,
+      top: 16,
+      bottom: t.narrow ? verticalLegendHeight(series.length, NARROW_LEGEND_ROWS) + 12 : 24,
+      containLabel: true,
+    },
+    legend: verticalLegend(t, series.length, 15, labelOf),
     tooltip: {
       ...tooltipStyle(t),
       trigger: 'axis',
       axisPointer: { type: 'line', lineStyle: { color: t.border, width: 1 } },
+      // Only the highlighted area: its date, label and value. Without a hovered area there is nothing to show.
       formatter: (params: unknown) => {
         const ps = params as { dataIndex: number; color?: unknown; seriesName: string; value: number }[]
-        if (!ps.length) return ''
-        const b = buckets[ps[0].dataIndex]
+        const p = ps.find((x) => x.seriesName === hover?.current)
+        if (!p) return ''
+        const b = buckets[p.dataIndex]
         const head = `${b.start} → ${b.end} (excl.)${b.partial ? ' · partial bucket' : ''}`
-        const rows = [...ps].sort((a, c) => c.value - a.value)
-        const shown = rows.filter((p) => p.value > 0)
-        return [
-          tipTitle(t, head),
-          ...(shown.length ? shown : rows).map((p) =>
-            tipRow(t, {
-              color: typeof p.color === 'string' ? p.color : undefined,
-              label: labelOf.get(p.seriesName) ?? p.seriesName,
-              value: nf.format(p.value),
-            }),
-          ),
-        ].join('')
+        return (
+          tipTitle(t, head) +
+          tipRow(t, {
+            color: typeof p.color === 'string' ? p.color : undefined,
+            label: labelOf.get(p.seriesName) ?? p.seriesName,
+            value: nf.format(p.value),
+          })
+        )
       },
     },
     xAxis: {
@@ -108,8 +172,8 @@ export function buildEvolutionOption(data: EvolutionResponse, t: ChartTheme): Op
 }
 
 // ---------- Pie / donut ----------
-/** Canvas height at the mobile breakpoint: the vertical legend sits under the pie, one row per slice. */
-export const pieNarrowHeight = (slices: number) => 232 + Math.max(1, slices) * 24
+/** Canvas height at the mobile breakpoint: the scrollable vertical legend sits under the pie. */
+export const pieNarrowHeight = (slices: number) => 232 + verticalLegendHeight(slices, NARROW_LEGEND_ROWS)
 
 /** Hatch for the synthetic "Other": reads as "combined remainder", never as one more real entity. */
 const otherDecal = (t: ChartTheme) => ({
@@ -148,26 +212,12 @@ export function buildPieOption(data: PieResponse, t: ChartTheme): Opt {
         return isOther.get(x.name) ? row + `<div style="color:${esc(t.textMuted)};margin-top:4px">All remaining entries combined</div>` : row
       },
     },
-    // Names live in the legend (vertical, one per row); the outer labels carry only the share.
-    legend: {
-      ...legendStyle(t),
-      orient: 'vertical',
-      ...(narrow ? { left: 'center', bottom: 4 } : { right: 8, top: 'middle' }),
-      itemGap: narrow ? 8 : 7,
-      textStyle: {
-        color: t.textMuted,
-        fontFamily: t.font,
-        fontSize,
-        width: narrow ? 240 : 130,
-        overflow: 'truncate',
-      },
-      tooltip: { show: false },
-      formatter: (n: string) => labelOf.get(n) ?? n,
-    },
+    // Every slice is in the scrollable vertical legend; only slices above 2% get a leader-line label (title + share).
+    legend: verticalLegend(t, slices.length, 14, labelOf),
     series: [
       {
         type: 'pie',
-        radius: narrow ? [38, 70] : ['38%', '58%'],
+        radius: narrow ? [28, 52] : ['24%', '40%'],
         center: narrow ? ['50%', 112] : ['32%', '50%'],
         minAngle: 3,
         padAngle: 2,
@@ -178,19 +228,28 @@ export function buildPieOption(data: PieResponse, t: ChartTheme): Opt {
           color: t.textMuted,
           fontFamily: t.font,
           fontSize,
-          formatter: (p: unknown) => pct((p as { data: { share: number } }).data.share),
+          overflow: 'truncate',
+          formatter: (p: unknown) => {
+            const x = p as { name: string; data: { share: number } }
+            return `${clip(labelOf.get(x.name) ?? x.name, narrow ? 12 : 16)} ${pct(x.data.share)}`
+          },
         },
-        labelLine: { show: true, length: narrow ? 8 : 12, length2: narrow ? 6 : 10, smooth: 0.2, lineStyle: { color: t.textMuted, opacity: 0.6, width: 1 } },
-        labelLayout: { hideOverlap: true, moveOverlap: 'shiftY' },
+        labelLine: { show: true, length: narrow ? 6 : 10, length2: narrow ? 6 : 10, smooth: 0.2, lineStyle: { color: t.textMuted, opacity: 0.6, width: 1 } },
+        labelLayout: { moveOverlap: 'shiftY' },
         itemStyle: { borderRadius: 6, borderWidth: 0 },
         emphasis: { focus: 'self', scale: true, scaleSize: 6, itemStyle: { shadowBlur: 12, shadowColor: t.shadow } },
         blur: { itemStyle: { opacity: 0.4 } },
-        data: slices.map((s, i) => ({
-          name: seriesId(s),
-          value: s.listens,
-          share: s.share,
-          itemStyle: { color: seriesColor(t, i, s.is_other), ...(s.is_other ? { decal: otherDecal(t), opacity: 0.85 } : {}) },
-        })),
+        data: slices.map((s, i) => {
+          const labelled = s.share > LABEL_MIN_SHARE
+          return {
+            name: seriesId(s),
+            value: s.listens,
+            share: s.share,
+            label: { show: labelled },
+            labelLine: { show: labelled },
+            itemStyle: { color: seriesColor(t, i, s.is_other), ...(s.is_other ? { decal: otherDecal(t), opacity: 0.85 } : {}) },
+          }
+        }),
       },
     ],
   }

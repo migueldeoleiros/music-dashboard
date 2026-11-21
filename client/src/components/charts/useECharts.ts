@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import type { EChartsType } from 'echarts/core'
 import { echarts } from './echarts'
 import { readTheme, type ChartTheme } from './theme'
 
@@ -16,7 +17,7 @@ export type ChartHandle = { zoomBy: (factor: number) => void; resetView: () => v
  */
 export function useECharts(
   build: (theme: ChartTheme, size: ChartSize) => Opt,
-  deps: { register?: () => void; onClick?: (p: ClickParams) => void } = {},
+  deps: { register?: () => void; onClick?: (p: ClickParams) => void; onPointer?: (chart: EChartsType, pos: { x: number; y: number } | null) => void } = {},
   handleRef?: { current: ChartHandle | null },
 ) {
   const ref = useRef<HTMLDivElement>(null)
@@ -24,6 +25,7 @@ export function useECharts(
   const buildRef = useRef(build)
   const themeKey = useRef('')
   const clickRef = useRef(deps.onClick)
+  const pointerRef = useRef(deps.onPointer)
   const register = deps.register
 
   const apply = (keepView = true) => {
@@ -41,6 +43,7 @@ export function useECharts(
 
   useEffect(() => {
     clickRef.current = deps.onClick
+    pointerRef.current = deps.onPointer
   })
 
   useEffect(() => {
@@ -50,6 +53,15 @@ export function useECharts(
     const chart = echarts.init(el, undefined, { renderer: 'canvas' })
     chartRef.current = chart
     chart.on?.('click', (p: ClickParams) => clickRef.current?.(p))
+    // Raw pointer position (mouse move, tap/click) and leave, registered before the first setOption so it
+    // runs ahead of the tooltip's own listeners and a tooltip formatter always sees the current position.
+    const zr = chart.getZr?.()
+    if (zr && pointerRef.current) {
+      const at = (e: { offsetX: number; offsetY: number }) => pointerRef.current?.(chart, { x: e.offsetX, y: e.offsetY })
+      zr.on('mousemove', at)
+      zr.on('click', at)
+      zr.on('globalout', () => pointerRef.current?.(chart, null))
+    }
     if (handleRef) {
       handleRef.current = {
         zoomBy: (factor) => chart.dispatchAction({ type: 'geoRoam', componentType: 'geo', zoom: factor, originX: chart.getWidth() / 2, originY: chart.getHeight() / 2 }),

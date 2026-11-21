@@ -19,12 +19,13 @@ function isApiError(value: unknown): value is Schemas['ErrorResponse'] {
 }
 
 export async function fetchChart<P extends ChartPath>(path: P, filters: Filters, signal?: AbortSignal): Promise<ChartResponse<P>> {
-  const limit = path.includes('/evolution/') ? 8 : 10
+  // Only rankings are capped. Pies and evolution select series by share (> 2%) on the server, so no limit is sent.
+  const limit = path.startsWith('/api/rankings/') ? 10 : undefined
   if (import.meta.env.VITE_MOCK_API === 'true') {
     const { mockChart } = await import('./mock')
     return mockChart(path, filters, limit)
   }
-  const query = new URLSearchParams({ ...filters, limit: String(limit) })
+  const query = new URLSearchParams(limit === undefined ? { ...filters } : { ...filters, limit: String(limit) })
   return fetchJson<ChartResponse<P>>(`${path}?${query}`, signal)
 }
 
