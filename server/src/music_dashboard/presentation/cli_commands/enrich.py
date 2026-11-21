@@ -15,5 +15,13 @@ def run(args: argparse.Namespace) -> None:
         raise SystemExit("Pass --allow-network and set MUSIC_FIXTURE_MODE=false for metadata HTTP")
     from music_dashboard.application.jobs.enrichment import run_once
 
-    completed = run_once(args.limit)
+    try:
+        completed = run_once(args.limit)
+    except Exception:
+        # Adapter/DB exceptions can contain private URLs or credentials. Never echo them.
+        raise SystemExit(
+            "Enrichment failed safely. Set MUSIC_FIXTURE_MODE=false and a descriptive "
+            "MUSIC_METADATA_USER_AGENT with contact information; check database and "
+            "upstream availability. No exception details are printed."
+        ) from None
     print(f"Metadata entities completed: {completed}")
