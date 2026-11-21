@@ -40,7 +40,7 @@ GET endpoints (prefix `/api`):
 
 | Path | Response |
 | --- | --- |
-| `/rankings/{artists,albums,tracks,genres}` | ranked entity key/label/MBID/state, weighted listens/share |
+| `/rankings/{artists,albums,tracks,genres}` | ranked entity key/label/MBID/state, weighted listens/share (genres: appearance counts, see below) |
 | `/heatmap` | local daily all-listen cells, Monday-first |
 | `/countries` | artist-associated ISO code, weighted listens/share |
 | `/countries/{code}/artists` | RankingResponse of artists credited to one country; `{code}` is uppercase ISO alpha-2 from `COUNTRY_CODES` (anything else, incl. XW/XE/ZZ, is 400) |
@@ -59,7 +59,9 @@ ISO local-date `from`, `to`, and supported case-sensitive IANA `tz`; optional `l
 is 1..100, default 10 and caps rankings only. Pies and evolution ignore it. Pies keep every
 entity whose share of the range's included listens is at least 1% (`listens*100 >= included`);
 evolution keeps entities strictly above 2% (`listens*50 > included`). Neither truncates to a Top-N
-first; each folds the rest into one Other, so weighted totals are conserved. No all-time duration cap. Invalid dates, reversed dates,
+first; each folds the rest into one Other, so weighted totals are conserved. For genres the
+`included` denominator of share and cutoffs is the total number of genre appearances (not
+unique listens), so genre shares sum to 1. No all-time duration cap. Invalid dates, reversed dates,
 unknown timezone and invalid limits yield 400 `{code,message,details}`, never 422. Missing
 parameters also yield 400. Health requires no filters. No POST/PUT/DELETE/admin endpoints.
 Automatic documentation UIs are disabled; aggregate-only OpenAPI remains available.
@@ -204,7 +206,8 @@ All responses have coverage keyed by dimension: `artists, albums, tracks, genres
 listens`, each `{total_listens,included_listens,excluded_listens}`; included + excluded = total.
 Each chart's relevant dimension is authoritative; future adapters must fill every dimension
 consistently. Shares use included listens, not total; empty denominator yields empty data.
-Weights can be fractional while coverage counts whole listens. Responses carry generation
+Weights can be fractional while coverage counts whole listens. Genre counts are whole genre
+appearances and can exceed covered listens; genre coverage counts unique listens with at least one genre. Responses carry generation
 and nullable last_updated; health's unknown lag is null, never invented zero. Chart ranges
 serialize `from/to/tz`, with canonical tz. `fixture=true` labels stub data. Health coverage is
 all-history; chart coverage is the selected range. Generation is a monotonic invalidation
@@ -243,11 +246,19 @@ recording/release-group/artist `inc=genres`; one shared ~1 request/sec limiter, 
 rate headers, durable retries. Distinguish transient failure and empty negative cache; proposed
 TTLs 7 days empty / 30 days positive, configurable. Prioritize frequent entities.
 
-First recognized level wins: recording -> release-group -> artist. At winning level,
-positive votes are normalized proportionally, discarding nonpositives if positives exist;
-recognized genres with no positives use equal shares. Artist fallback deduplicates MBIDs,
-normalizes within each genre-resolved artist, shares equally among those artists, then
-aggregates identical genres. Unresolved artists do not dilute resolved shares. Apply newest
+First nonempty level wins: recording -> release-group -> artist. Genre counting is
+**appearance based** (user-approved, replaces vote-proportional fractions): each listen adds
+one full count (1) to every DISTINCT genre at its winning level. A Rock + Jazz listen adds 1
+to Rock and 1 to Jazz; repeated plays are separate listens and count separately; duplicate
+same-genre tags (same level repeated, or several credited artists tagging the same genre)
+never double count. Votes never weight anything: every projected `entity_genres` row counts,
+including zero-vote tags (the enrichment projection keeps count 0 tags; non-positive votes are
+stored, not dropped) and, as a corollary, negative-vote rows. Unknown genres are omitted, never
+an `Unmapped` bucket. Counting happens at read time in SQL (`genre_values` in
+`statistics_queries.py`) from `entity_genres`; no historical metadata is rewritten, so the
+change applies to all history immediately. Genre share = appearances / total genre
+appearances in range; pie (>=1%) and evolution (>2%) cutoffs use that same denominator.
+Coverage stays unique covered listens (listens with at least one genre). Apply newest
 enrichment to all history (not historical truth); increment enrichment generation.
 
 Country is associated credited artist ISO country, not nationality/birthplace or guessed area.
@@ -263,7 +274,7 @@ casefold composite with prefix. No arbitrary feat/& splitting, no blind ambiguou
 Only unique unambiguous aliases may resolve fallback names; document that policy in T-005.
 Albums prefer release-group, then release, then artist+album fallback identity.
 All listens count in heatmap. Omit unresolved genre only from genre views, unresolved country
-only from map. Genre/country weights sum to included count within tolerance. Other is known
+only from map. Country weights sum to included count within tolerance; genre counts sum to total genre appearances (>= covered listens). Other is known
 categories outside the view's threshold (pies <1%, evolution <=2%), never unknown metadata.
 Evolution uses its own whole-range membership, ordered by total desc then key with Other last,
 zero-fills daily/weekly/monthly buckets, noncumulative, marks partial final bucket.

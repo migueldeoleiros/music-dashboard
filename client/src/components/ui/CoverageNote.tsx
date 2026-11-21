@@ -34,6 +34,7 @@ export function CoverageNote({ coverage }: { coverage: Coverage }) {
     <span className="coverage-pop" role="tooltip" id={id}>
       <span className="coverage-title">Listens with metadata</span>
       <dl>{rows.map(row => { const value = coverage[row.key]; return <Fragment key={row.key}><dt>{row.label}</dt><dd>{number.format(value.included_listens)} of {number.format(value.total_listens)}</dd></Fragment> })}</dl>
+      <span className="coverage-title">Genre counts add 1 per distinct genre per listen, so they can exceed listens.</span>
     </span>
   </span>
 }

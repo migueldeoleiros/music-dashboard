@@ -9,6 +9,7 @@ const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 })
 type Item = components['schemas']['RankedEntity']
 
 // On Repeat. Listens only (no percentages). #1 is a hero card, 2..N are compact EntityRows.
+// Genre counts are tag appearances: one per distinct genre per listen (a Rock+Jazz listen adds 1 to each).
 // Genres have no artwork at all: no image and no initials tile, just the text.
 export function RankingList({ data }: { data: components['schemas']['RankingResponse'] }) {
   if (!data.items.length) return <EmptyState />
@@ -22,7 +23,7 @@ export function RankingList({ data }: { data: components['schemas']['RankingResp
       <span className="entity-text">
         <span className="entity-hero-name" title={name(first)}>{name(first)}</span>
         {note(first) && <small className="entity-secondary">{note(first)}</small>}
-        <span className="entity-hero-count">{number.format(first.listens)} <small>listens</small></span>
+        <span className="entity-hero-count">{number.format(first.listens)} <small>{data.dimension === 'genres' ? 'genre tags' : 'listens'}</small></span>
       </span>
     </li>
     {rest.map((item, index) => <EntityRow key={item.key} rank={index + 2} label={name(item)} src={item.image_url} showImage={showImage} secondary={note(item)} value={number.format(item.listens)} />)}

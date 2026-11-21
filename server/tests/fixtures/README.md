@@ -2,7 +2,7 @@
 
 No real user data. `aggregate_responses.json` contains populated examples for every chart
 family (four rankings, heatmap, countries, two evolutions, two pies), including fractional
-weights, partial coverage, missing metadata and known `Other` categories. These examples
+weights (illustrative contract samples; live SQL genre counts are whole appearances), partial coverage, missing metadata and known `Other` categories. These examples
 are illustrative contract data, NOT aggregates computed from the separate DB seed.
 Examples use `from=2026-01-05&to=2026-01-05&tz=UTC&limit=1`; rankings are sliced to limit
 when served; use limit=2 on rankings to expose the missing-title/album rows. Other
