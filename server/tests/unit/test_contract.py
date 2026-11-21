@@ -84,6 +84,21 @@ def test_dates_are_strict_local_calendar_dates(name: str, value: str) -> None:
     assert response.status_code == 400
 
 
+@pytest.mark.parametrize("dimension", ["albums", "tracks"])
+def test_missing_metadata_is_available_in_http_fixtures(dimension: str) -> None:
+    response = client.get(
+        f"/api/rankings/{dimension}",
+        params={
+            "from": "2026-01-05",
+            "to": "2026-01-05",
+            "tz": "UTC",
+            "limit": 2,
+        },
+    )
+    assert response.status_code == 200
+    assert any(item["metadata_state"] == "missing" for item in response.json()["items"])
+
+
 def test_populated_contract_fixtures() -> None:
     root = Path(__file__).parents[2]
     examples_path = root / "tests/fixtures/aggregate_responses.json"

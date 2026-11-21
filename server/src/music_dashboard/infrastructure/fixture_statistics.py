@@ -22,7 +22,7 @@ class FixtureStatisticsQueries:
             filters.from_date.isoformat() == "2026-01-05"
             and filters.to_date.isoformat() == "2026-01-05"
             and filters.timezone == "Etc/UTC"
-            and filters.limit == 1
+            and (filters.limit == 1 or (family.startswith("rankings/") and filters.limit == 2))
         ):
             examples = json.loads(Path(__file__).with_name("aggregate_responses.json").read_text())
             example = cast(dict[str, Any], examples[family])

@@ -106,6 +106,7 @@ generated JSON or TS. Public requests use strict YYYY-MM-DD dates (0001-01-01..9
 not timestamps; PostgreSQL computes all boundaries. Same-day/full-history requests are valid.
 
 Populated synthetic responses use `from=2026-01-05&to=2026-01-05&tz=UTC&limit=1`.
+Rankings also support limit=2 on that range to show missing-title/album states.
 Other ranges currently return empty fixture data. See `server/tests/fixtures/README.md`.
 The later statistics agent replaces this adapter, not the frozen public shapes.
 

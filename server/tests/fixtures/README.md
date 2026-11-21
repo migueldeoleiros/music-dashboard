@@ -5,7 +5,8 @@ family (four rankings, heatmap, countries, two evolutions, two pies), including 
 weights, partial coverage, missing metadata and known `Other` categories. These examples
 are illustrative contract data, NOT aggregates computed from the separate DB seed.
 Examples use `from=2026-01-05&to=2026-01-05&tz=UTC&limit=1`; rankings are sliced to limit
-when served. Other requests return empty, schema-valid fixture responses. All are marked
+when served; use limit=2 on rankings to expose the missing-title/album rows. Other
+requests return empty, schema-valid fixture responses. All are marked
 `fixture=true`. The package copy is checked for equality by unit tests.
 
 `__init__.py` exposes deterministic seed inputs from

@@ -24,15 +24,11 @@ chmod 700 backups
 umask 077
 docker compose exec -T db pg_dump -U music_writer -Fc music_dashboard > backups/local.dump
 docker compose exec -T db createdb -U postgres -O music_writer music_dashboard_restore
-docker compose exec -T db pg_restore -U postgres --role=music_writer --no-owner --exit-on-error \\
-  -d music_dashboard_restore < backups/local.dump
-docker compose exec -T db psql -U music_writer -d music_dashboard_restore \\
-  -c 'SELECT count(*) FROM listens'
-docker compose exec -T db psql -U music_api -d music_dashboard_restore \\
-  -c 'SELECT count(*) FROM listens'
+docker compose exec -T db pg_restore -U postgres --role=music_writer --no-owner --exit-on-error -d music_dashboard_restore < backups/local.dump
+docker compose exec -T db psql -U music_writer -d music_dashboard_restore -c 'SELECT count(*) FROM listens'
+docker compose exec -T db psql -U music_api -d music_dashboard_restore -c 'SELECT count(*) FROM listens'
 # Expected permission denial; raw payload never becomes API-readable:
-docker compose exec -T db psql -U music_api -d music_dashboard_restore \\
-  -c 'SELECT count(*) FROM raw_listens'
+docker compose exec -T db psql -U music_api -d music_dashboard_restore -c 'SELECT count(*) FROM raw_listens'
 ```
 
 Roles must already exist (the local init hook creates them). Preserve ACLs: do not use
