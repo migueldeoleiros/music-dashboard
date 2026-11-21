@@ -24,6 +24,7 @@ RG = "77777777-7777-4777-8777-777777777777"
 H = "b" * 32
 COVER = f"https://cdn-images.dzcdn.net/images/cover/{H}/1000x1000-000000-80-0-0.jpg"
 PIC = f"https://cdn-images.dzcdn.net/images/artist/{H}/1000x1000-000000-80-0-0.jpg"
+EMPTY_URL_ARTIST = f"https://cdn-images.dzcdn.net/images/artist/{EMPTY_HASH}/1000x1000.jpg"
 
 
 class Fake:
@@ -122,6 +123,89 @@ def test_deezer_quota_busy_and_http_errors():
     assert err.value.retry_after == 7
     with pytest.raises(ArtworkTransientError):
         client.album("3")
+
+
+def test_deezer_search_builds_encoded_bounded_requests_and_parses_candidates():
+    from urllib.parse import parse_qs, urlsplit
+
+    empty = f"https://cdn-images.dzcdn.net/images/cover/{EMPTY_HASH}/1000x1000.jpg"
+    client, fake = deezer(
+        {
+            "search/artist": js(
+                {
+                    "data": [
+                        {"id": 5, "name": "Muse", "picture_xl": PIC},
+                        {"id": "x/../y", "name": "Bad id", "picture_xl": PIC},
+                        {"id": 6, "name": "Muse", "picture_xl": EMPTY_URL_ARTIST},
+                        "junk",
+                    ]
+                }
+            ),
+            "search/album": js(
+                {
+                    "data": [
+                        {"id": 1, "title": "Blue", "artist": {"name": "Joni"}, "cover_xl": COVER},
+                        {"id": 2, "title": "Blue", "artist": {"name": "X"}, "cover_xl": empty},
+                        {"id": 3, "title": "No artist", "cover_xl": COVER},
+                    ]
+                }
+            ),
+            "search/track": js(
+                {
+                    "data": [
+                        {
+                            "id": 8,
+                            "title": "Song",
+                            "artist": {"name": "Ann"},
+                            "album": {"title": "Album", "cover_xl": COVER},
+                        },
+                        {"id": 9, "title": "Song", "artist": {"name": "Ann"}, "album": None},
+                    ]
+                }
+            ),
+        }
+    )
+    artists = client.search_artists('Mu"se\n\x00\\ ')
+    assert [(a.id, a.name, a.image) for a in artists] == [("5", "Muse", PIC), ("6", "Muse", None)]
+    albums = client.search_albums("Blue", "Joni")
+    assert [(a.id, a.artist, a.image) for a in albums] == [("1", "Joni", COVER), ("2", "X", None)]
+    tracks = client.search_tracks("Song", "Ann")
+    assert [(t.id, t.album_title, t.image) for t in tracks] == [("8", "Album", COVER)]
+    for request in fake.requests:
+        parts = urlsplit(request.url)
+        assert (parts.scheme, parts.netloc) == ("https", "api.deezer.com")
+        assert set(request.headers) == {"User-Agent", "Accept"}  # no credentials
+        assert parse_qs(parts.query)["limit"] == ["25"]
+    q = [parse_qs(urlsplit(r.url).query)["q"][0] for r in fake.requests]
+    assert q == ['artist:"Mu se"', 'album:"Blue" artist:"Joni"', 'track:"Song" artist:"Ann"']
+    assert all(" " not in r.url and '"' not in r.url for r in fake.requests)
+
+
+def test_deezer_search_skips_unusable_names_and_maps_errors():
+    client, fake = deezer(
+        {
+            "search/album": js({"error": {"code": 4}}),
+            "search/artist": js({"error": {"code": 800}}),
+            "search/track": js({"data": "not a list"}),
+        }
+    )
+    assert client.search_artists('  "" ') == [] and client.search_albums("\x00") == []
+    assert client.search_tracks("Song", "") == [] and fake.requests == []
+    assert client.search_artists("Nobody") == []  # 800 = miss
+    assert client.search_tracks("Song", "Ann") == []
+    with pytest.raises(ArtworkQuotaError):
+        client.search_albums("Blue")
+    long_name = "a" * 5000
+    client.search_artists(long_name)
+    assert len(fake.requests[-1].url) < 600
+
+
+def test_deezer_search_uses_the_shared_rate_limiter():
+    limiter = NoLimit()
+    client = DeezerClient(UA, Fake({"search/artist": js({"data": []})}), limiter)  # type: ignore[arg-type]
+    client.search_artists("Muse")
+    client.artist_picture("9")
+    assert limiter.acquired == 2
 
 
 def test_token_bucket_is_well_under_deezer_quota():

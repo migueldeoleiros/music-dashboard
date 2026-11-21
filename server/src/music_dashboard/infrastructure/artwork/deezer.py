@@ -1,4 +1,11 @@
-"""Deezer adapter: exact UPC / ISRC / id lookups only (never search). Stores hash URLs only.
+"""Deezer adapter: exact UPC / ISRC / id lookups plus bounded name SEARCH (fallback only).
+Stores hash URLs only.
+
+Search is the only place a name reaches a request URL: it is sanitised (control characters and
+quotes removed, length capped), percent-encoded into the `q` parameter of a fixed host/path, and
+answered with at most MAX_RESULTS candidates. Search responses are never trusted: matching
+(exact normalized names, ambiguity and credit-conflict rejection) happens in the domain layer.
+Search shares the same token bucket as every other Deezer request; no credentials are sent.
 
 Deezer replies HTTP 200 with {"error": {...}} for most failures: code 800 (no data) is a miss,
 code 4 (quota) raises ArtworkQuotaError, 700 (busy) is transient. Images are never downloaded.
@@ -9,8 +16,15 @@ import threading
 import time
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlencode
 
 from music_dashboard.domain.artwork.errors import ArtworkQuotaError, ArtworkTransientError
+from music_dashboard.domain.artwork.matching import (
+    MAX_NAME,
+    AlbumCandidate,
+    ArtistCandidate,
+    TrackCandidate,
+)
 from music_dashboard.infrastructure.artwork.http import DEFAULT_RETRY_AFTER, fetch, json_body
 from music_dashboard.infrastructure.artwork.transport import (
     HttpTransport,
@@ -28,6 +42,16 @@ _HASH_URL = re.compile(r"^https://[^/]+/images/(?:cover|artist)/([0-9a-f]{32})/"
 QUOTA_CODE = 4
 NO_DATA_CODE = 800
 BUSY_CODE = 700
+MAX_RESULTS = 25
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\"\\]+")
+
+
+def search_term(value: str | None) -> str | None:
+    """Name safe to embed in a quoted Deezer search term, or None when nothing usable remains."""
+    if not isinstance(value, str):
+        return None
+    cleaned = " ".join(_CONTROL.sub(" ", value).split())[:MAX_NAME].strip()
+    return cleaned or None
 
 
 class TokenBucket:
@@ -136,3 +160,64 @@ class DeezerClient:
         if not NUMERIC_ID.match(deezer_id):
             return None
         return self._first(self._get(f"artist/{deezer_id}"), "picture_xl", "picture_big")
+
+    # --- name search (fallback; candidates only, never trusted) ------------------------------
+    def _search(self, kind: str, query: str) -> list[dict[str, Any]]:
+        params = urlencode({"q": query, "limit": MAX_RESULTS})
+        rows = (self._get(f"search/{kind}?{params}") or {}).get("data")
+        if not isinstance(rows, list):
+            return []
+        return [r for r in rows[:MAX_RESULTS] if isinstance(r, dict)]
+
+    @staticmethod
+    def _id(value: object) -> str | None:
+        text = str(value) if isinstance(value, int) and not isinstance(value, bool) else value
+        return text if isinstance(text, str) and NUMERIC_ID.match(text) else None
+
+    @staticmethod
+    def _name(row: object, field: str) -> str | None:
+        value = row.get(field) if isinstance(row, dict) else None
+        return value if isinstance(value, str) and value.strip() else None
+
+    def search_artists(self, name: str) -> list[ArtistCandidate]:
+        term = search_term(name)
+        if term is None:
+            return []
+        out: list[ArtistCandidate] = []
+        for row in self._search("artist", f'artist:"{term}"'):
+            ident, label = self._id(row.get("id")), self._name(row, "name")
+            if ident and label:
+                out.append(
+                    ArtistCandidate(ident, label, self._first(row, "picture_xl", "picture_big"))
+                )
+        return out
+
+    def search_albums(self, title: str, artist: str | None = None) -> list[AlbumCandidate]:
+        term, artist_term = search_term(title), search_term(artist)
+        if term is None:
+            return []
+        query = f'album:"{term}"' + (f' artist:"{artist_term}"' if artist_term else "")
+        out: list[AlbumCandidate] = []
+        for row in self._search("album", query):
+            ident, label = self._id(row.get("id")), self._name(row, "title")
+            who = self._name(row.get("artist"), "name")
+            if ident and label and who:
+                out.append(
+                    AlbumCandidate(ident, label, who, self._first(row, "cover_xl", "cover_big"))
+                )
+        return out
+
+    def search_tracks(self, title: str, artist: str) -> list[TrackCandidate]:
+        term, artist_term = search_term(title), search_term(artist)
+        if term is None or artist_term is None:
+            return []
+        out: list[TrackCandidate] = []
+        for row in self._search("track", f'track:"{term}" artist:"{artist_term}"'):
+            ident, label = self._id(row.get("id")), self._name(row, "title")
+            who = self._name(row.get("artist"), "name")
+            album = row.get("album")
+            album_title = self._name(album, "title")
+            if ident and label and who and album_title:
+                cover = self._first(album, "cover_xl", "cover_big")
+                out.append(TrackCandidate(ident, label, who, album_title, cover))
+        return out
