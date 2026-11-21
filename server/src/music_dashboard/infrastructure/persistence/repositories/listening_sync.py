@@ -20,6 +20,8 @@ from typing import Any
 
 from sqlalchemy import Connection, Engine, text
 
+from music_dashboard.domain.listening.entities import epoch_seconds
+
 from ..models import DataGeneration
 
 CHECKPOINT_KEYS = (
@@ -33,7 +35,6 @@ RUN_KINDS = ("incremental", "export", "reconcile")
 RUN_STATUSES = ("running", "succeeded", "failed", "ambiguous", "aborted")
 MAX_DELETE_FRACTION_PERCENT = 10
 _CHUNK = 1000
-_MAX_EPOCH = 253402300799  # 9999-12-31T23:59:59Z
 _MAX_ERROR_CHARS = 1000
 
 _SNAPSHOT_DDL = (
@@ -103,8 +104,8 @@ def _parse(payload: Any, user: str) -> _Parsed:
     # top-level mbid_mapping (API/export) wins per key; track_metadata one is the fallback
     mapping = {**_dict(tm.get("mbid_mapping")), **_dict(payload.get("mbid_mapping"))}
 
-    ts = payload.get("listened_at")
-    if isinstance(ts, int) and not isinstance(ts, bool) and 0 <= ts <= _MAX_EPOCH:
+    ts = epoch_seconds(payload.get("listened_at"))  # int or integral float (real export)
+    if ts is not None:
         out.listened_at = datetime.fromtimestamp(ts, UTC)
     else:
         out.missing.append("listened_at")

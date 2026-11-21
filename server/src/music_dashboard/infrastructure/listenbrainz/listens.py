@@ -12,38 +12,54 @@ Methods: ``page(user, *, max_ts=None, min_ts=None, count=1000) -> list[dict]``,
 ``listen_count(user) -> int``, ``export(user, *, min_records=None) -> ExportSnapshot``.
 Listen dicts are returned untouched (``track_metadata``/``mbid_mapping`` preserved).
 
-Supported response shapes (assumptions; deployed export shape is unverified, no real smoke):
+Response shapes (VERIFIED against the real service in the first real run, except where noted):
 * page:   ``GET /1/user/{user}/listens?count=N[&max_ts=T|&min_ts=T]`` ->
-          ``{"payload": {"listens": [ {...}, ... ]}}``
-* count:  ``GET /1/user/{user}/listen-count`` -> ``{"payload": {"count": <int>}}``
+          ``{"payload": {"listens": [ {...}, ... ], "latest_listen_ts": int, ...}}``
+          (public docs; ``listened_at`` is an int here; ``count`` <= 1000; bounds exclusive)
+* count:  ``GET /1/user/{user}/listen-count`` -> ``{"payload": {"count": <int>}}`` (verified)
 * token owner: ``GET /1/validate-token`` (authenticated) ->
           ``{"valid": true, "user_name": "<owner>"}``; must be valid and the owner must equal
           (casefold) the requested user, else ``ExportAccountMismatchError`` and nothing is
           requested. Checked first, always.
-* export create: ``POST /1/export/`` (authenticated, no body) ->
-          ``{"export_id": <int|str>}`` (``"id"`` accepted as alias)
-* export status: ``GET /1/export/{id}`` (authenticated) -> ``{"status": <str>, ...}``.
-          Ready ONLY when status (case-insensitive) is ``complete``/``completed``/``ready``.
-          ``failed``/``error``/``expired``/``deleted`` abort; every other status keeps polling
-          up to ``max_polls`` (then ``ExportTimeoutError``). Optional snapshot manifest:
-          ``"listen_count": <int >= 0>`` in the ready status (synthetic/assumed field name).
-* download: status ``download_url`` (absolute https, host validated by the transport) if
-          present, else ``GET /1/export/download/{id}`` (authenticated); body is a ZIP.
-* ZIP: members named ``listens*.jsonl`` (any directory) are read; if none, a single ``*.jsonl``
-          member is used; otherwise error. Each non-blank line must be a JSON object.
+* export create: ``POST /1/export/`` (authenticated, no body) -> ``{"export_id": <int|str>}``
+          (verified; ``"id"`` accepted as alias)
+* export status: ``GET /1/export/{id}`` (authenticated) -> verified keys ``available_until,
+          created, end_time, export_id, filename, progress, start_time, status, type``.
+          Ready ONLY when status (case-insensitive) is ``complete``/``completed``/``ready``
+          (the real ready value is ``"completed"``). ``failed``/``error``/``expired``/``deleted``
+          abort; every other status keeps polling up to ``max_polls`` (then
+          ``ExportTimeoutError``). The real status has NO snapshot manifest. A ``listen_count``
+          key (never observed; kept as an optional trusted manifest) would make the snapshot
+          deletion-safe; it is never invented.
+* download: ``GET /1/export/{id}/download`` (authenticated; ``application/zip``). No
+          status-supplied URL is followed.
+* ZIP (verified layout): ``user.json`` (``user_id`` int, ``username`` str),
+          ``listens/YYYY/MM.jsonl`` (one JSON object per line) and
+          ``feedback.jsonl`` (ignored). Only ``user.json`` and ``listens/**/*.jsonl`` are read;
+          every other member is ignored. ``user.json`` is REQUIRED and its ``username`` must equal
+          (casefold) the configured user, else
+          ``ExportAccountMismatchError`` (checked eagerly, before any row is yielded).
+* listens rows: ``listened_at`` is a FLOAT in exports (``1790856000.0``); see
+          ``epoch_seconds``. Integral finite non-negative floats and ints map to the exact
+          stored int; NaN/inf/negative/non-integral/oversized values (including decimals whose
+          float form would lose precision) yield an invalid identity: the row is yielded
+          unchanged-but-flagged for raw quarantine, never invented. ``mbid_mapping`` may be null.
 
-Result: ``ExportSnapshot(rows, user, expected_count, complete)``.
-* ``complete`` is True ONLY with the account check passed, explicit ready status and a trusted
-  snapshot ``listen_count`` manifest; otherwise False (rows usable for import, but callers must
-  not infer deletions). The pre-export global ``listen_count`` is supplemental only.
+Result: ``ExportSnapshot(rows, user, expected_count, complete, lower_bound)``.
+* ``complete`` (= deletion-safe) is True ONLY with the account check passed, explicit ready
+  status and a trusted snapshot ``listen_count`` manifest; with real-shape statuses it is
+  always False. The pre-export global ``listen_count`` is a lower bound only.
+* import-complete = account verified + rows exhausted without error + rows >= ``lower_bound``
+  (``listen-count`` fetched immediately BEFORE the export is created; rows may exceed it).
+  It permits upsert and checkpoint advance, never deletions.
 * ``rows`` is a single-pass lazy generator (no list is materialised). Validation completes only
   when it is EXHAUSTED: consumers must fully consume/stage it before activating anything.
   It raises ``ExportCorruptError`` (bad CRC reached at member EOF, bad JSON/non-object/
   undecodable line, duplicate ``(listened_at, recording_msid)`` identity) or
   ``ExportIncompleteError`` (no rows; unique valid + invalid-identity rows != manifest; fewer
-  rows than the pre-export count). Rows without a valid identity are yielded (for raw
-  quarantine) and counted toward the manifest; ``complete`` stays True, so the repository
-  remains the final identity safety check (it must block deletions when any are present).
+  rows than the lower bound). Rows without a valid identity are yielded (for raw
+  quarantine) and counted toward the manifest; the repository remains the final identity
+  safety check (it blocks deletions when any are present).
 
 Resource bounds (defaults 64 MiB compressed / 256 MiB uncompressed):
 download body <= ``max_zip_bytes``; archive member count <= ``max_members``
@@ -61,11 +77,12 @@ import re
 import uuid
 import zipfile
 from collections.abc import Iterator
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import quote, urlencode
 from zlib import error as zlib_error
 
-from music_dashboard.domain.listening.entities import ExportSnapshot
+from music_dashboard.domain.listening.entities import ExportSnapshot, epoch_seconds
 from music_dashboard.infrastructure.listenbrainz.transport import (
     ListenBrainzError,
     ListenBrainzTransport,
@@ -76,6 +93,8 @@ MAX_PAGE_COUNT = 1000
 _READY = frozenset({"complete", "completed", "ready"})
 _FAILED = frozenset({"failed", "error", "expired", "deleted"})
 _EXPORT_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_USER_MEMBER = "user.json"
+_MAX_USER_JSON = 64 << 10
 
 
 class ExportError(ListenBrainzError):
@@ -176,20 +195,16 @@ class ListenBrainzClient:
             if isinstance(manifest, int) and not isinstance(manifest, bool) and manifest >= 0
             else None
         )
-        target = status.get("download_url")
-        if target is None:
-            target = f"/1/export/download/{export_id}"
-        elif not isinstance(target, str):
-            raise ProtocolError("download_url malformed")
-        blob = self._t.download(target, authenticated=True)
+        blob = self._t.download(f"/1/export/{export_id}/download", authenticated=True)
         if len(blob) > self._max_zip:
             raise ExportCorruptError("export archive exceeds size limit")
-        zf, info = self._open_zip(blob)
+        zf, members = self._open_zip(blob, user)
         return ExportSnapshot(
-            rows=self._rows(zf, info, expected, min_records),
+            rows=self._rows(zf, members, expected, min_records),
             user=user,
             expected_count=expected,
             complete=expected is not None,
+            lower_bound=min_records,
         )
 
     # ---- helpers ----------------------------------------------------------------------
@@ -234,7 +249,9 @@ class ListenBrainzClient:
         if owner.casefold() != user.casefold():
             raise ExportAccountMismatchError("token does not belong to the configured user")
 
-    def _open_zip(self, blob: bytes) -> tuple[zipfile.ZipFile, zipfile.ZipInfo]:
+    def _open_zip(
+        self, blob: bytes, user: str
+    ) -> tuple[zipfile.ZipFile, list[zipfile.ZipInfo]]:
         try:
             zf = zipfile.ZipFile(io.BytesIO(blob))
         except (zipfile.BadZipFile, EOFError, zlib_error):
@@ -245,51 +262,66 @@ class ListenBrainzClient:
                 raise ExportCorruptError("export archive has too many members")
             if sum(i.file_size for i in infos) > self._max_unzipped:
                 raise ExportCorruptError("export archive exceeds uncompressed size limit")
-            jsonl = [i for i in infos if not i.is_dir() and i.filename.lower().endswith(".jsonl")]
-            chosen = [
-                i for i in jsonl if i.filename.rsplit("/", 1)[-1].lower().startswith("listens")
-            ]
-            chosen = chosen or (jsonl if len(jsonl) == 1 else [])
-            if len(chosen) != 1:
-                raise ExportCorruptError("export archive has no single identifiable listens JSONL")
-            return zf, chosen[0]
+            users = [i for i in infos if i.filename == _USER_MEMBER]
+            if len(users) != 1:
+                raise ExportAccountMismatchError("export owner could not be verified")
+            self._verify_archive_user(zf, users[0], user)
+            members = sorted(
+                (i for i in infos if _is_listens_member(i)), key=lambda i: i.filename
+            )
+            return zf, members
         except BaseException:
             zf.close()
             raise
 
+    @staticmethod
+    def _verify_archive_user(zf: zipfile.ZipFile, info: zipfile.ZipInfo, user: str) -> None:
+        if info.file_size > _MAX_USER_JSON:
+            raise ExportCorruptError("export user.json is too large")
+        try:
+            with zf.open(info) as fh:
+                data = fh.read(_MAX_USER_JSON + 1)
+            doc = json.loads(data.decode("utf-8"))
+        except (ValueError, zipfile.BadZipFile, EOFError, zlib_error):
+            raise ExportCorruptError("export user.json is corrupt") from None
+        name = doc.get("username") if isinstance(doc, dict) else None
+        if not isinstance(name, str) or not name:
+            raise ExportAccountMismatchError("export owner could not be verified")
+        if name.casefold() != user.casefold():
+            raise ExportAccountMismatchError("export belongs to a different account")
+
     def _rows(
         self,
         zf: zipfile.ZipFile,
-        info: zipfile.ZipInfo,
+        members: list[zipfile.ZipInfo],
         expected: int | None,
         min_records: int,
     ) -> Iterator[dict[str, Any]]:
         seen: set[tuple[int, uuid.UUID]] = set()
         invalid = 0
         try:
-            with zf, zf.open(info) as raw:
-                for line in io.TextIOWrapper(raw, encoding="utf-8", errors="strict"):
-                    if not line.strip():
-                        continue
-                    try:
-                        obj = json.loads(line)
-                    except ValueError:
-                        raise ExportCorruptError("export contains invalid JSON") from None
-                    if not isinstance(obj, dict):
-                        raise ExportCorruptError("export line is not a JSON object")
-                    ident = _identity(obj)
-                    if ident is None:
-                        invalid += 1
-                    elif ident in seen:
-                        raise ExportCorruptError("export contains duplicate listen identity")
-                    else:
-                        seen.add(ident)
-                    yield obj
+            with zf:
+                for info in members:
+                    with zf.open(info) as raw:
+                        for line in io.TextIOWrapper(raw, encoding="utf-8", errors="strict"):
+                            if not line.strip():
+                                continue
+                            obj = _load_row(line)
+                            ident = _identity(obj)
+                            if ident is None:
+                                invalid += 1
+                            elif ident in seen:
+                                raise ExportCorruptError(
+                                    "export contains duplicate listen identity"
+                                )
+                            else:
+                                seen.add(ident)
+                            yield obj
         except ExportError:
             raise
         except (zipfile.BadZipFile, UnicodeDecodeError, EOFError, zlib_error):
             raise ExportCorruptError("export archive is corrupt") from None
-        # reached only after the member was read to EOF (CRC verified)
+        # reached only after every member was read to EOF (CRC verified)
         if not seen and not invalid:
             raise ExportIncompleteError("export contains no listens")
         received = len(seen) + invalid
@@ -304,12 +336,60 @@ class ListenBrainzClient:
             )
 
 
-def _identity(obj: dict[str, Any]) -> tuple[int, uuid.UUID] | None:
+class _ExactFloat(float):
+    """A float that remembers its source text, so precision loss can be detected."""
+
+    __slots__ = ("text",)
+    text: str
+
+
+def _parse_float(text: str) -> float:
+    value = _ExactFloat(text)
+    value.text = text
+    return value
+
+
+def _is_listens_member(info: zipfile.ZipInfo) -> bool:
+    parts = info.filename.split("/")
+    return (
+        not info.is_dir()
+        and len(parts) >= 2
+        and parts[0] == "listens"
+        and all(p not in ("", "..") for p in parts)
+        and parts[-1].lower().endswith(".jsonl")
+    )
+
+
+def _load_row(line: str) -> dict[str, Any]:
+    try:
+        obj = json.loads(line, parse_float=_parse_float, parse_constant=str)
+    except (ValueError, RecursionError):
+        raise ExportCorruptError("export contains invalid JSON") from None
+    if not isinstance(obj, dict):
+        raise ExportCorruptError("export line is not a JSON object")
     ts = obj.get("listened_at")
+    if isinstance(ts, _ExactFloat) and not _exact_epoch(ts):
+        # Never round: keep the exact source text (a string is an invalid identity, so the
+        # row is quarantined by the repository instead of importing a different timestamp).
+        obj["listened_at"] = ts.text
+    return obj
+
+
+def _exact_epoch(ts: _ExactFloat) -> bool:
+    if epoch_seconds(float(ts)) is None:
+        return False
+    try:
+        return Decimal(ts.text) == Decimal(int(ts))
+    except (InvalidOperation, ValueError):
+        return False
+
+
+def _identity(obj: dict[str, Any]) -> tuple[int, uuid.UUID] | None:
+    ts = epoch_seconds(obj.get("listened_at"))
     metadata = obj.get("track_metadata")
     info = metadata.get("additional_info") if isinstance(metadata, dict) else None
     msid = obj.get("recording_msid", info.get("recording_msid") if isinstance(info, dict) else None)
-    if type(ts) is not int or not 0 <= ts <= 253402300799 or not isinstance(msid, str):
+    if ts is None or not isinstance(msid, str):
         return None
     try:
         parsed = uuid.UUID(msid.strip())

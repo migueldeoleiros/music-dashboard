@@ -12,6 +12,7 @@ import pytest
 from music_dashboard.infrastructure.listenbrainz.listens import (
     ExportAccountMismatchError,
     ExportCorruptError,
+    ExportError,
     ExportFailedError,
     ExportIncompleteError,
     ExportTimeoutError,
@@ -86,13 +87,19 @@ def listen(ts: int, msid: str = "m1") -> dict[str, Any]:
 
 
 def make_zip(
-    records: list[Any] | None = None, name: str = "listens.jsonl", raw: bytes | None = None
+    records: list[Any] | None = None,
+    name: str = "listens/2026/01.jsonl",
+    raw: bytes | None = None,
+    username: str | None = "u",
 ) -> bytes:
+    """Real archive layout: user.json, listens/YYYY/MM.jsonl and an ignored feedback.jsonl."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
         data = raw if raw is not None else "".join(json.dumps(r) + "\n" for r in records or [])
         zf.writestr(name, data)
-        zf.writestr("user.json", "{}")
+        if username is not None:
+            zf.writestr("user.json", json.dumps({"user_id": 7, "username": username}))
+        zf.writestr("feedback.jsonl", '{"recording_msid": "ignored", "score": 1}\n')
     return buf.getvalue()
 
 
@@ -330,7 +337,7 @@ def export_http(
     with_count: bool = True,
     owner: dict[str, Any] | None = None,
 ) -> FakeHttp:
-    states = states if states is not None else [{"status": "complete", "listen_count": 2}]
+    states = states if states is not None else [{"status": "completed", "listen_count": 2}]
     seq: list[HttpResponse] = [
         ok(owner if owner is not None else {"valid": True, "user_name": "U"}),
         *([ok({"payload": {"count": count}})] if with_count else []),
@@ -367,7 +374,7 @@ def test_export_happy_path_complete_snapshot_and_calls() -> None:
         ("GET", "/1/export/77"),
         ("GET", "/1/export/77"),
         ("GET", "/1/export/77"),
-        ("GET", "/1/export/download/77"),
+        ("GET", "/1/export/77/download"),
     ]
     assert all("Authorization" in r.headers for r in http.requests if "listen-count" not in r.url)
     assert clock.sleeps == [2, 2]
@@ -384,25 +391,15 @@ def test_export_without_manifest_is_not_complete_but_usable() -> None:
         assert not snap.complete and snap.expected_count is None
 
 
-def test_export_documented_alt_shapes() -> None:
+def test_export_alt_shapes_id_alias_status_case_and_nested_member() -> None:
     http = export_http(
-        make_zip(RECORDS, name="export/listens.jsonl"),
-        [
-            {
-                "status": "Completed",
-                "listen_count": 2,
-                "download_url": "https://api.listenbrainz.org/dl/77.zip",
-            }
-        ],
+        make_zip(RECORDS, name="listens/2020/12.jsonl"),
+        [{"status": "Completed", "listen_count": 2}],
         create={"id": "abc-1"},
     )
     assert rows_of(client(http).export("u")) == RECORDS
-    assert http.requests[-1].url == "https://api.listenbrainz.org/dl/77.zip"
     assert http.requests[3].url.endswith("/1/export/abc-1")
-    one = export_http(
-        make_zip(RECORDS, name="dump.jsonl"), [{"status": "ready", "listen_count": 2}]
-    )
-    assert rows_of(client(one).export("u")) == RECORDS
+    assert http.requests[-1].url.endswith("/1/export/abc-1/download")
 
 
 @pytest.mark.parametrize(
@@ -427,17 +424,19 @@ def test_export_token_owner_mismatch_or_unvalidated_aborts_before_export(
 
 
 def test_export_owner_match_is_casefold() -> None:
-    http = export_http(make_zip(RECORDS), owner={"valid": True, "user_name": "MiGuEl"})
+    http = export_http(
+        make_zip(RECORDS, username="MIGUEL"), owner={"valid": True, "user_name": "MiGuEl"}
+    )
     assert client(http).export("miguel").complete
 
 
-def test_export_foreign_download_url_rejected_before_download() -> None:
+def test_export_status_download_url_is_never_followed() -> None:
     http = export_http(
-        make_zip(RECORDS), [{"status": "complete", "download_url": "https://evil.test/z"}]
+        make_zip(RECORDS), [{"status": "completed", "download_url": "https://evil.test/z"}]
     )
-    with pytest.raises(ConfigurationError):
-        client(http).export("u")
+    assert rows_of(client(http).export("u"))
     assert all("evil" not in r.url for r in http.requests)
+    assert http.requests[-1].url.endswith("/1/export/77/download")
 
 
 @pytest.mark.parametrize(
@@ -600,15 +599,30 @@ def test_export_invalid_jsonl_fails_on_exhaustion(raw: bytes) -> None:
         rows_of(snap)
 
 
-def test_export_zip_without_listens_member_or_ambiguous() -> None:
+def test_export_archive_without_listens_members_is_incomplete_not_imported() -> None:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
-        zf.writestr("a.jsonl", '{"a":1}\n')
-        zf.writestr("b.jsonl", '{"b":1}\n')
-    with pytest.raises(ExportCorruptError):
+        zf.writestr("user.json", json.dumps({"user_id": 1, "username": "u"}))
+        zf.writestr("feedback.jsonl", '{"a":1}\n')
+        zf.writestr("listens.jsonl", '{"a":1}\n')  # old guessed flat name: ignored
+        zf.writestr("notes.txt", "x")
+    snap = client(export_http(buf.getvalue(), count=0)).export("u")
+    with pytest.raises(ExportIncompleteError, match="no listens"):
+        rows_of(snap)
+
+
+@pytest.mark.parametrize(
+    "doc",
+    [None, b"not json", b"[]", b"{}", b'{"username": ""}', b'{"username": 5}', b"\xff"],
+)
+def test_export_user_json_missing_or_unreadable_never_verifies(doc: bytes | None) -> None:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("listens/2026/01.jsonl", json.dumps(RECORDS[0]) + "\n")
+        if doc is not None:
+            zf.writestr("user.json", doc)
+    with pytest.raises(ExportError):
         client(export_http(buf.getvalue(), count=0)).export("u")
-    with pytest.raises(ExportCorruptError):
-        client(export_http(make_zip(raw=b"", name="notes.txt"), count=0)).export("u")
 
 
 def test_export_size_limits_checked_before_decompression_or_crc() -> None:
@@ -624,7 +638,8 @@ def test_export_size_limits_checked_before_decompression_or_crc() -> None:
 def test_oversized_unselected_member_and_lying_archive_rejected_pre_read() -> None:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("listens.jsonl", json.dumps(listen(1)) + "\n")
+        zf.writestr("user.json", json.dumps({"username": "u"}))
+        zf.writestr("listens/2026/01.jsonl", json.dumps(listen(1)) + "\n")
         zf.writestr("big.bin", b"\0" * (5 << 20))  # compresses to ~5 KiB
     blob = buf.getvalue()
     assert len(blob) < 100_000
