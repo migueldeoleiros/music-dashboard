@@ -29,8 +29,8 @@ const legendStyle = (t: ChartTheme) => ({
   textStyle: { color: t.textMuted, fontFamily: t.font, fontSize: t.narrow ? 12 : 11 },
 })
 
-/** Slices/series above this share of the range get an outer label (pies); same cut-off as server membership. */
-export const LABEL_MIN_SHARE = 0.02
+/** Only the largest named pie slices get an outer label + leader line; the rest live in the legend and tooltips. */
+export const PIE_LABEL_COUNT = 5
 const LEGEND_ROW = 20
 const NARROW_LEGEND_ROWS = 6
 /** Vertical legend height: one row per entry, capped so longer lists scroll (plus room for the pager). */
@@ -185,10 +185,26 @@ const otherDecal = (t: ChartTheme) => ({
   color: mixColors(t.other, t.surface, 0.55),
 })
 
+/**
+ * Indexes of the slices that get an external label: the top `PIE_LABEL_COUNT` named (non-Other) slices by the
+ * server ranking (listens desc, key asc). Input order is the tie-break of last resort, so the result is stable.
+ */
+export function labelledPieIndexes(slices: PieResponse['slices']): Set<number> {
+  return new Set(
+    slices
+      .map((s, i) => ({ s, i }))
+      .filter(({ s }) => !s.is_other)
+      .sort((a, b) => b.s.listens - a.s.listens || (a.s.key < b.s.key ? -1 : a.s.key > b.s.key ? 1 : 0) || a.i - b.i)
+      .slice(0, PIE_LABEL_COUNT)
+      .map(({ i }) => i),
+  )
+}
+
 export function buildPieOption(data: PieResponse, t: ChartTheme): Opt {
   const { slices } = data
   const labelOf = new Map(slices.map((s) => [seriesId(s), s.label]))
   const isOther = new Map(slices.map((s) => [seriesId(s), s.is_other]))
+  const labelled = labelledPieIndexes(slices)
   const narrow = t.narrow
   const fontSize = narrow ? 12 : 11
   return {
@@ -212,7 +228,7 @@ export function buildPieOption(data: PieResponse, t: ChartTheme): Opt {
         return isOther.get(x.name) ? row + `<div style="color:${esc(t.textMuted)};margin-top:4px">All remaining entries combined</div>` : row
       },
     },
-    // Every slice is in the scrollable vertical legend; only slices above 2% get a leader-line label (title + share).
+    // Every slice is in the scrollable vertical legend; only the top five named slices get a leader-line label (title + share).
     legend: verticalLegend(t, slices.length, 14, labelOf),
     series: [
       {
@@ -240,13 +256,13 @@ export function buildPieOption(data: PieResponse, t: ChartTheme): Opt {
         emphasis: { focus: 'self', scale: true, scaleSize: 6, itemStyle: { shadowBlur: 12, shadowColor: t.shadow } },
         blur: { itemStyle: { opacity: 0.4 } },
         data: slices.map((s, i) => {
-          const labelled = s.share > LABEL_MIN_SHARE
+          const labelShown = labelled.has(i)
           return {
             name: seriesId(s),
             value: s.listens,
             share: s.share,
-            label: { show: labelled },
-            labelLine: { show: labelled },
+            label: { show: labelShown },
+            labelLine: { show: labelShown },
             itemStyle: { color: seriesColor(t, i, s.is_other), ...(s.is_other ? { decal: otherDecal(t), opacity: 0.85 } : {}) },
           }
         }),

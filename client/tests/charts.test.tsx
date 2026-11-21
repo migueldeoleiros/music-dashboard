@@ -36,7 +36,7 @@ vi.mock('../src/components/charts/echarts', () => ({
   },
 }))
 
-import { buildRollingGrid, pieNarrowHeight, seriesAtValue, worldWidth } from '../src/components/charts/builders'
+import { buildRollingGrid, labelledPieIndexes, pieNarrowHeight, seriesAtValue, worldWidth } from '../src/components/charts/builders'
 import { CountryChart, EvolutionChart, HeatmapChart, PieChart, stableColor } from '../src/components/charts'
 import { esc, mixColors, parseColor, readTheme, seriesColor } from '../src/components/charts/theme'
 
@@ -270,21 +270,38 @@ describe('PieChart', () => {
     expect(s.data[1].itemStyle.color).toBe(readTheme().other)
     expect(screen.getByText('Rock')).toBeTruthy()
   })
-  it('labels only slices above 2% (Other included when eligible), with a leader line, title and share', () => {
+  it('labels only the top five named slices (listens desc, key tie-break); Other and the rest stay in legend/tooltip', () => {
     const slices = [
-      { key: 'big', label: 'Big', listens: 90, share: 0.9, is_other: false },
-      { key: 'edge', label: 'Edge', listens: 2, share: 0.02, is_other: false }, // exactly 2%: not above
-      { key: 'just', label: 'Just over', listens: 2.1, share: 0.021, is_other: false },
-      { key: 'other', label: 'Other', listens: 3, share: 0.03, is_other: true }, // eligible Other is labelled
+      { key: 'a', label: 'A', listens: 30, share: 0.3, is_other: false },
+      { key: 'b', label: 'B', listens: 20, share: 0.2, is_other: false },
+      { key: 'c', label: 'C', listens: 10, share: 0.1, is_other: false },
+      { key: 'd', label: 'D', listens: 10, share: 0.1, is_other: false },
+      { key: 'e', label: 'E', listens: 10, share: 0.1, is_other: false },
+      { key: 'f', label: 'F', listens: 10, share: 0.1, is_other: false }, // 6th named: tie lost on key
+      { key: 'g', label: 'G', listens: 2, share: 0.02, is_other: false },
+      { key: 'other', label: 'Other', listens: 8, share: 0.08, is_other: true }, // large Other: still unlabelled
     ]
     render(<PieChart data={{ ...base, range, dimension: 'artists', slices } as never} />)
-    const s = lastOption().series[0]
-    expect(s.data.map((d: AnyOpt) => [d.label.show, d.labelLine.show])).toEqual([[true, true], [false, false], [true, true], [true, true]])
-    expect(s.label.formatter({ name: s.data[3].name, data: { share: 0.03 } })).toBe('Other 3%')
-    expect(s.label.formatter({ name: s.data[2].name, data: { share: 0.021 } })).toBe('Just over 2.1%')
-    cleanup(); h.charts.length = 0
-    render(<PieChart data={{ ...base, range, dimension: 'artists', slices: [slices[0], { ...slices[3], share: 0.02 }] } as never} />)
-    expect(lastOption().series[0].data[1].label.show).toBe(false) // ineligible Other stays in the legend only
+    const o = lastOption()
+    const s = o.series[0]
+    expect(s.data.map((d: AnyOpt) => [d.label.show, d.labelLine.show])).toEqual([
+      [true, true], [true, true], [true, true], [true, true], [true, true], [false, false], [false, false], [false, false],
+    ]) // prettier-ignore
+    expect(s.label.formatter({ name: s.data[0].name, data: { share: 0.3 } })).toBe('A 30%')
+    expect(o.legend.formatter(s.data[7].name)).toBe('Other') // unlabelled slices stay in the legend
+    const tip = o.tooltip.formatter({ name: s.data[5].name, value: 10, data: s.data[5] })
+    expect(tip).toContain('F')
+    expect(tip).toContain('10%')
+  })
+  it('ranks label eligibility by listens/key even if slices arrive unsorted, and fewer than five all get labels', () => {
+    const slices = [
+      { key: 'z', label: 'Z', listens: 1, share: 0.01, is_other: false },
+      { key: 'y', label: 'Y', listens: 5, share: 0.05, is_other: false },
+    ]
+    expect([...labelledPieIndexes(slices as never)].sort()).toEqual([0, 1])
+    const six = Array.from({ length: 6 }, (_, i) => ({ key: `k${5 - i}`, label: 'x', listens: 1, share: 0.01, is_other: false }))
+    // equal listens: lowest keys win (k0..k4 = indexes 5..1)
+    expect([...labelledPieIndexes(six as never)].sort()).toEqual([1, 2, 3, 4, 5])
   })
   it('long titles are clipped in the label (share stays whole) and every slice stays in the legend', () => {
     const slices = [{ key: 'k', label: 'An extremely long artist name indeed', listens: 1, share: 1, is_other: false }]
@@ -295,12 +312,13 @@ describe('PieChart', () => {
     expect(o.legend.formatter(o.series[0].data[0].name)).toBe('An extremely long artist name indeed')
   })
   it('legend scrolls vertically and is height-capped for many slices, wide and narrow', () => {
-    const many = Array.from({ length: 30 }, (_, i) => ({ key: `k${i}`, label: `S${i}`, listens: 1, share: 1 / 30, is_other: false }))
+    const many = Array.from({ length: 100 }, (_, i) => ({ key: `k${i}`, label: `S${i}`, listens: 1, share: 1 / 100, is_other: false }))
     render(<PieChart data={{ ...base, range, dimension: 'artists', slices: many } as never} />)
     const wide = lastOption().legend
     expect(wide).toMatchObject({ type: 'scroll', orient: 'vertical' })
     expect(wide.height).toBeLessThan(30 * 20)
-    expect(pieNarrowHeight(30)).toBeLessThan(pieNarrowHeight(6) + 40) // narrow canvas does not grow per slice past the cap
+    expect(lastOption().series[0].data.filter((d: AnyOpt) => d.label.show)).toHaveLength(5) // 100 slices, five labels
+    expect(pieNarrowHeight(100)).toBeLessThan(pieNarrowHeight(6) + 40) // narrow canvas does not grow per slice past the cap
   })
   it('keeps Other with its exact count, hatched, and explains it in the tooltip', () => {
     render(<PieChart data={data as never} />)
