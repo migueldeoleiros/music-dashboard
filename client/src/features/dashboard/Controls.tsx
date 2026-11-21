@@ -1,30 +1,41 @@
-import { useState } from 'react'
-import { browserTimezone, changeTimezone, clampToToday, presetRange, todayInZone, validateFilters, type Filters, type Preset } from './filters'
+import { useState, type ReactNode } from 'react'
+import { ALL_TIME_FROM, clampToToday, presetRange, todayInZone, validateFilters, type Filters, type Period, type Preset } from './filters'
 
-const presets: { key: Preset; label: string }[] = [{ key: 'today', label: 'Today' }, { key: '7d', label: '7 days' }, { key: '30d', label: '30 days' }, { key: 'year', label: 'This year' }, { key: 'all', label: 'All time' }]
+const presets: { key: Preset; label: string }[] = [
+  { key: 'today', label: 'Today' }, { key: 'week', label: 'This week' }, { key: '7d', label: 'Last 7 days' }, { key: 'month', label: 'This month' },
+  { key: '30d', label: 'Last 30 days' }, { key: 'year', label: 'This year' }, { key: 'all', label: 'All time' },
+]
 
-export function Controls({ filters, onChange }: { filters: Filters; onChange: (filters: Filters) => void }) {
-  const [draft, setDraft] = useState(filters)
+type Props = { filters: Filters; period: Period; onChange: (filters: Filters, period: Period) => void; children?: ReactNode }
+
+export function Controls({ filters, period, onChange, children }: Props) {
+  const [customOpen, setCustomOpen] = useState(period === 'custom')
+  // All time uses a lower bound that is never shown: an empty From means "from the beginning".
+  const shown = (from: string) => (from === ALL_TIME_FROM ? '' : from)
+  const [draft, setDraft] = useState({ from: shown(filters.from), to: filters.to })
   const [error, setError] = useState<string | null>(null)
-  const change = (key: keyof Filters, value: string) => setDraft(previous => ({ ...previous, [key]: value }))
-  const apply = (next: Filters) => { setDraft(next); setError(null); onChange(next) }
-  return <section className="controls" aria-label="Shared dashboard filters">
-    <div className="preset-row">{presets.map(preset => <button type="button" key={preset.key} onClick={() => apply(presetRange(preset.key, filters.tz))}>{preset.label}</button>)}</div>
-    <form onSubmit={event => {
+  const selected: Period = customOpen ? 'custom' : period
+  const today = todayInZone(filters.tz)
+  return <section className="controls" aria-label="Period">
+    <div className="controls-bar">
+      <div className="preset-row" role="group" aria-label="Period presets">
+        {presets.map(preset => <button type="button" className="pill" key={preset.key} aria-pressed={selected === preset.key}
+          onClick={() => { setCustomOpen(false); setError(null); onChange(presetRange(preset.key, filters.tz), preset.key) }}>{preset.label}</button>)}
+        <button type="button" className="pill" aria-pressed={selected === 'custom'} aria-expanded={customOpen} onClick={() => setCustomOpen(true)}>Custom range</button>
+      </div>
+      <div className="controls-meta">{children}</div>
+    </div>
+    {customOpen && <form className="custom-range" onSubmit={event => {
       event.preventDefault()
-      const next = clampToToday({ ...draft, tz: draft.tz.trim() })
+      const next = clampToToday({ from: draft.from || ALL_TIME_FROM, to: draft.to, tz: filters.tz })
       const message = validateFilters(next)
       setError(message)
-      if (!message) apply(next)
+      if (!message) onChange(next, 'custom')
     }}>
-      <label>From <input type="date" required value={draft.from} max={draft.to} onChange={event => change('from', event.target.value)} /></label>
-      <label>To <input type="date" required value={draft.to} min={draft.from} max={todayInZone(draft.tz)} onChange={event => change('to', event.target.value)} /></label>
-      <label className="timezone-field">Timezone <input type="text" required list="timezones" value={draft.tz} onChange={event => change('tz', event.target.value)} spellCheck={false} autoComplete="off" /></label>
-      <datalist id="timezones">{['UTC', 'Europe/Lisbon', 'Europe/London', 'America/New_York', 'Asia/Tokyo', 'Asia/Kathmandu', 'Australia/Sydney', 'Pacific/Apia'].map(tz => <option key={tz} value={tz} />)}</datalist>
-      <button className="primary" type="submit">Apply range</button>
-      <button type="button" onClick={() => apply(changeTimezone(filters, browserTimezone()))}>Reset to browser</button>
-    </form>
-    <p className="filter-explainer">{filters.from} → {filters.to} · <strong>{filters.tz}</strong> · inclusive local dates · all views share this range</p>
+      <label>From <input type="date" value={draft.from} max={draft.to || today} onChange={event => setDraft(previous => ({ ...previous, from: event.target.value }))} /></label>
+      <label>To <input type="date" required value={draft.to} min={draft.from || undefined} max={today} onChange={event => setDraft(previous => ({ ...previous, to: event.target.value }))} /></label>
+      <button className="primary" type="submit">Apply</button>
+    </form>}
     {error && <p role="alert" className="error">{error}</p>}
   </section>
 }
