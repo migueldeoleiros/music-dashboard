@@ -7,7 +7,6 @@ import {
   LegendComponent,
   MarkLineComponent,
   TooltipComponent,
-  VisualMapComponent,
 } from 'echarts/components'
 import * as echarts from 'echarts/core'
 
@@ -23,7 +22,6 @@ echarts.use([
   LegendComponent,
   MarkLineComponent,
   TooltipComponent,
-  VisualMapComponent,
 ])
 
 export { echarts }
