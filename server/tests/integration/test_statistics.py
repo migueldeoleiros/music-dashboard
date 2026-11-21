@@ -91,7 +91,8 @@ def test_representative_cold_alltime_and_health_load(stats, capsys):
           INSERT INTO listens(user_name,listened_at,recording_msid,artist_name,track_name,
                               release_name,recording_mbid,release_group_mbid)
           SELECT 'statistics-scale', timestamptz '2010-01-01 00:00Z'+g*interval '1 hour',
-                 md5('statistics-scale-'||g)::uuid, 'Scale artist', 'Scale track', 'Scale album',
+                 md5('statistics-scale-'||g)::uuid, 'Scale artist '||(g%1000),
+                 'Scale track '||(g%10000), 'Scale album '||(g%1000),
                  (SELECT recording_mbid FROM listens WHERE recording_mbid IS NOT NULL LIMIT 1),
                  (SELECT release_group_mbid FROM listens
                   WHERE release_group_mbid IS NOT NULL LIMIT 1)
@@ -345,7 +346,14 @@ def test_zero_and_full_enrichment_and_rebuild_determinism(stats):
     # Fixed raw/cache -> repeated foundation rebuild gives identical chart payloads,
     # except the explicitly mutable freshness timestamp.
     before = {f: q.query(f, filters()) for f in FAMILIES}
+    with writer.begin() as c:
+        fixed_raw = c.execute(text('SELECT count(*) FROM raw_listens')).scalar_one()
+        fixed_cache = c.execute(text('SELECT count(*) FROM metadata_cache')).scalar_one()
+        c.execute(text('DELETE FROM listens'))
     seed_fixtures(writer)
+    with writer.connect() as c:
+        assert c.execute(text('SELECT count(*) FROM raw_listens')).scalar_one() == fixed_raw
+        assert c.execute(text('SELECT count(*) FROM metadata_cache')).scalar_one() == fixed_cache
     rebuilt = SQLStatisticsQueries(q.engine)
     after = {f: rebuilt.query(f, filters()) for f in FAMILIES}
     for f in FAMILIES:

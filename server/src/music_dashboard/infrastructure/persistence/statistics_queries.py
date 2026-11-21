@@ -67,16 +67,17 @@ WITH bounds AS (
  FROM names WHERE name IS NOT NULL
 ), credits AS (
  SELECT DISTINCT l.id, l.day, a.artist_mbid::text AS mbid,
-        coalesce(nullif(btrim(a.artist_name), ''), '[Missing artist]') AS label,
+        coalesce(nullif(btrim(a.artist_name, :whitespace), ''), '[Missing artist]') AS label,
         coalesce(a.artist_mbid::text, 'name:' || n.folded) AS key,
-        CASE WHEN nullif(btrim(a.artist_name),'') IS NULL THEN 'missing'
+        CASE WHEN coalesce(n.folded,'')='' THEN 'missing'
              WHEN a.artist_mbid IS NULL THEN 'unmapped' ELSE 'resolved' END AS state
  FROM selected l JOIN listen_artists a ON a.listen_id=l.id
  LEFT JOIN normalized n ON n.name=a.artist_name
  UNION ALL
- SELECT l.id, l.day, NULL, coalesce(nullif(btrim(l.artist_name),''),'[Missing artist]'),
+ SELECT l.id, l.day, NULL,
+        coalesce(nullif(btrim(l.artist_name, :whitespace),''),'[Missing artist]'),
         'name:' || coalesce(n.folded,''),
-        CASE WHEN nullif(btrim(l.artist_name),'') IS NULL THEN 'missing' ELSE 'unmapped' END
+        CASE WHEN coalesce(n.folded,'')='' THEN 'missing' ELSE 'unmapped' END
  FROM selected l LEFT JOIN normalized n ON n.name=l.artist_name
  WHERE NOT EXISTS (SELECT 1 FROM listen_artists a WHERE a.listen_id=l.id)
 ), unique_credits AS (
@@ -123,9 +124,9 @@ WITH bounds AS (
  SELECT l.id, l.day,
    coalesce(l.release_group_mbid::text,l.release_mbid::text,
      'name:' || jsonb_build_array(coalesce(a.folded,''),coalesce(n.folded,''))::text) AS key,
-   coalesce(nullif(btrim(l.release_name),''),'[Missing album]') AS label,
+   coalesce(nullif(btrim(l.release_name, :whitespace),''),'[Missing album]') AS label,
    coalesce(l.release_group_mbid::text,l.release_mbid::text) AS mbid,
-   CASE WHEN nullif(btrim(l.release_name),'') IS NULL THEN 'missing'
+   CASE WHEN coalesce(n.folded,'')='' THEN 'missing'
         WHEN coalesce(l.release_group_mbid,l.release_mbid) IS NULL THEN 'unmapped'
         ELSE 'resolved' END AS state, 1.0 AS weight
  FROM selected l LEFT JOIN normalized n ON n.name=l.release_name
@@ -134,9 +135,9 @@ WITH bounds AS (
  SELECT l.id, l.day,
    coalesce(l.recording_mbid::text,
      'name:' || jsonb_build_array(coalesce(a.folded,''),coalesce(n.folded,''))::text) AS key,
-   coalesce(nullif(btrim(l.track_name),''),'[Missing title]') AS label,
+   coalesce(nullif(btrim(l.track_name, :whitespace),''),'[Missing title]') AS label,
    l.recording_mbid::text AS mbid,
-   CASE WHEN nullif(btrim(l.track_name),'') IS NULL THEN 'missing'
+   CASE WHEN coalesce(n.folded,'')='' THEN 'missing'
         WHEN l.recording_mbid IS NULL THEN 'unmapped' ELSE 'resolved' END AS state,
    1.0 AS weight
  FROM selected l LEFT JOIN normalized n ON n.name=l.track_name
@@ -400,18 +401,22 @@ class SQLStatisticsQueries:
 
     @staticmethod
     def _evolution(c: Connection, dimension: str, params: dict[str, Any]) -> dict[str, Any]:
-        # Clamp empty edges to history, not to an arbitrary duration cap. This keeps an
-        # all-calendar URL affordable without excluding any history or emitting 10k years of zeros.
+        # Extreme calendar bounds express all-time: trim only those empty edges to
+        # history. Ordinary custom ranges retain every requested zero-filled bucket.
         extent = (
             c.execute(
                 text(
                     COMMON
                     + """
           , extent AS (
-            SELECT CASE WHEN count(*)>0 THEN greatest(CAST(:from_date AS date),
-                     (min(listened_at) AT TIME ZONE :tz)::date) END AS lo,
-                   CASE WHEN count(*)>0 THEN least(CAST(:to_date AS date),
-                     (max(listened_at) AT TIME ZONE :tz)::date) END AS hi
+            SELECT CASE WHEN count(*)>0 THEN CASE
+                     WHEN CAST(:from_date AS date)=date '0001-01-01'
+                     THEN (min(listened_at) AT TIME ZONE :tz)::date
+                     ELSE CAST(:from_date AS date) END END AS lo,
+                   CASE WHEN count(*)>0 THEN CASE
+                     WHEN CAST(:to_date AS date)=date '9999-12-31'
+                     THEN (max(listened_at) AT TIME ZONE :tz)::date
+                     ELSE CAST(:to_date AS date) END END AS hi
             FROM listens
           )
           SELECT lo, hi, CASE WHEN hi-lo<90 THEN 'day'
