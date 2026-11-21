@@ -288,9 +288,13 @@ export function buildYearGrid(
 
 export function HeatmapChart({ data }: { data: HeatmapResponse }) {
   const years = useMemo(() => {
-    const set = new Set<number>([Number(data.range.from.slice(0, 4)), Number(data.range.to.slice(0, 4))])
-    for (const c of data.cells) set.add(Number(c.day.slice(0, 4)))
-    return [...set].sort((a, b) => a - b)
+    // Extreme dates are API all-history bounds, not useful empty calendar years.
+    const firstDay = data.range.from === '0001-01-01' && data.cells.length ? data.cells[0].day : data.range.from
+    const lastDay = data.range.to === '9999-12-31' && data.cells.length ? data.cells[data.cells.length - 1].day : data.range.to
+    const first = Number(firstDay.slice(0, 4))
+    const last = Number(lastDay.slice(0, 4))
+    // Include quiet years between listens, not just years with nonzero cells.
+    return Array.from({ length: last - first + 1 }, (_, i) => first + i)
   }, [data.cells, data.range.from, data.range.to])
   const latestWithCells = useMemo(
     () => data.cells.reduce((m, c) => Math.max(m, Number(c.day.slice(0, 4))), 0) || years[years.length - 1],
