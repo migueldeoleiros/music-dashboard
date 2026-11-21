@@ -13,11 +13,15 @@ function showStatus(status: 'ok' | 'degraded', lag: number | null, updated: stri
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
   render(<QueryClientProvider client={client}><SyncStatus /></QueryClientProvider>)
 }
-it('shows unknown lag and no import without inventing zero', async () => {
+it('shows no import without inventing a time; lag stays in the title', async () => {
   showStatus('degraded', null, null)
-  expect(await screen.findByText(/Live data · Sync degraded · Lag: unknown · No successful import yet/)).toBeTruthy()
+  const line = await screen.findByText(/Sync degraded · No import yet/)
+  expect(line.getAttribute('title')).toBe('Live data · Sync lag: unknown')
 })
 it('shows successful freshness and measured lag', async () => {
   showStatus('ok', 120, '2026-01-06T00:00:00Z')
-  expect(await screen.findByText(/Sync OK · Lag: 2 min · Last import:/)).toBeTruthy()
+  const line = await screen.findByText(/Updated/)
+  expect(line.closest('p')?.getAttribute('title')).toBe('Live data · Sync lag: 2 min')
+  expect(line.querySelector('time')?.getAttribute('datetime')).toBe('2026-01-06T00:00:00Z')
+  expect(screen.queryByText(/Sync degraded/)).toBeNull()
 })
