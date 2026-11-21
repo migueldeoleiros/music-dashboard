@@ -82,12 +82,12 @@ it('RankingList: hero first, rows after, no percentages', () => {
   expect(container.textContent).not.toContain('%')
 })
 
-it('RankingList genres show initials tiles in the hero and rows, without percentages', () => {
+it('RankingList genres render no image and no initials tile, and no percentages', () => {
   const { container } = render(<RankingList data={ranking('genres')} />)
-  const tiles = container.querySelectorAll('.entity-image--placeholder')
-  expect(tiles).toHaveLength(3)
-  expect(container.querySelector('.entity-hero .entity-image--placeholder')).not.toBeNull()
-  expect(container.querySelector('img')).toBeNull()
+  expect(container.querySelector('.entity-image, .entity-image--placeholder, img')).toBeNull()
+  expect(container.querySelectorAll('.entity-row, .entity-hero').length).toBeGreaterThan(0)
+  const artists = render(<RankingList data={ranking('artists')} />)
+  expect(artists.container.querySelector('.entity-image')).not.toBeNull() // other dimensions keep their image/initials
   expect(container.textContent).not.toContain('%')
 })
 
