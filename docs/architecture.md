@@ -43,18 +43,42 @@ GET endpoints (prefix `/api`):
 | `/rankings/{artists,albums,tracks,genres}` | ranked entity key/label/MBID/state, weighted listens/share |
 | `/heatmap` | local daily all-listen cells, Monday-first |
 | `/countries` | artist-associated ISO code, weighted listens/share |
+| `/countries/{code}/artists` | RankingResponse of artists credited to one country; `{code}` is uppercase ISO alpha-2 from `COUNTRY_CODES` (anything else, incl. XW/XE/ZZ, is 400) |
 | `/evolution/{artists,genres}` | local half-open buckets, whole-range top N series + Other |
 | `/pies/{artists,genres}` | weighted slices + Other |
 | `/health` | mode/status, last_updated, sync_lag_seconds, generation, coverage |
 
-Braces above are documentation shorthand: the contract contains ten concrete chart paths
-and one health path, not arbitrary path parameters. Every chart request requires inclusive
+Braces above are documentation shorthand, except `/countries/{code}/artists`, the only real
+path parameter: the contract contains ten code-free chart paths, that one, and one health path.
+Country artists reuse the `country_credits` / `unique_credits` CTEs of `/countries` (1/N split
+over unique country-resolved credits, XW/XE/ZZ excluded), so for identical filters each
+country's item listens sum to its `/countries` listens, and `share` uses the same denominator
+(country-resolved included listens), so item shares sum to the country's share. The response
+cache key includes the code. Every chart request requires inclusive
 ISO local-date `from`, `to`, and supported case-sensitive IANA `tz`; optional `limit`
 is 1..100, default 10. Pies default top 10; evolution use-case default top 8 is a presentation
 choice passed explicitly as `limit=8`. No all-time duration cap. Invalid dates, reversed dates,
 unknown timezone and invalid limits yield 400 `{code,message,details}`, never 422. Missing
 parameters also yield 400. Health requires no filters. No POST/PUT/DELETE/admin endpoints.
 Automatic documentation UIs are disabled; aggregate-only OpenAPI remains available.
+
+Every ranked entity carries `image_url: string | null` (default null). It stays null until
+artwork enrichment (lane L-ART) fills it; clients render a placeholder tile for null.
+
+### Artwork key rule
+
+Images come only from exact identifier keys, never from name search. Unmapped `name:` keys and
+genres have `image_url = null`.
+
+- **Album**: the ranking key is the release-group MBID. Its representative release is the
+  most-listened `release_mbid` within that release group in `listens` (ties broken by smallest
+  mbid). Chain: Deezer `album/upc:{barcode of representative release}` -> Deezer URL relation on
+  the representative release -> Cover Art Archive `release-group/{rg}/front` -> placeholder.
+- **Track**: Cover Art Archive for the listen's own release (most-listened release of that
+  recording) first, then Deezer `track/isrc:` -> placeholder. Compilation covers are a known risk.
+- **Artist**: only through the MusicBrainz artist URL relation to a Deezer id (or a Wikidata
+  Deezer artist id, P2722, reached through that relation) -> `artist/{id}`. Never "primary artist
+  of an ISRC hit" (that is name matching). Otherwise placeholder.
 
 All responses have coverage keyed by dimension: `artists, albums, tracks, genres, countries,
 listens`, each `{total_listens,included_listens,excluded_listens}`; included + excluded = total.
@@ -133,6 +157,18 @@ all-time away. T-005 sets a measured bucket budget and bounded TTL/LRU cache key
 filters + generation. API role statement_timeout=5s; nginx limits 10 requests/sec, burst20.
 Public aggregates can reveal listening patterns, especially narrow ranges/timezone comparisons;
 there is no privacy guarantee.
+
+## UI lane ownership
+
+| Lane | Owns |
+| --- | --- |
+| C1 shell/theme | `styles/global.css` token values, `styles/shell.css`, `app/App.tsx`, `features/dashboard/{Controls,filters}`, `components/ui/{SyncStatus,CoverageNote}`, `tests/App.test.tsx` |
+| C2 charts | `components/charts/*`, `styles/charts.css`, `tests/charts.test.tsx`; `features/dashboard/{HeatmapPanel,MapPanel}.tsx` bodies |
+| C3 entity-list/rankings/country panel | `components/ui/{EntityImage,EntityRow,EntityList}`, `styles/entity-list.css`, `features/dashboard/RankingList.tsx`, `features/rankings/`, `features/origin-map/CountryArtistsPanel` |
+| L-ART server artwork + deploy | server artwork migration/jobs/adapters, artwork LEFT JOINs in ranking and country-artist queries, `deploy/proxy.conf` (CSP) |
+
+`features/dashboard/ChartSection.tsx` (generic frame) and `ChartPanel.tsx` (thin dispatcher) are
+shared; change them only in the integration phase. Token names: see `docs/ui-tokens.md`.
 
 ## Ownership after foundation merge
 
