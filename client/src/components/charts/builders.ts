@@ -347,6 +347,20 @@ export function buildCountryOption(
       itemStyle: { areaColor: noDataColor(t), borderColor: t.border, borderWidth: 0.5 },
       emphasis: { label: { show: false }, itemStyle: { areaColor: hover } },
       select: { disabled: true },
+      // A map series bound by geoIndex does not paint its own regions: the shared geo does, so the
+      // choropleth fills must live here (series itemStyle alone leaves every region at the no-data color).
+      regions: countries
+        .filter((c) => polygonCodes.has(c.code.toUpperCase()))
+        .map((c) => {
+          const code = c.code.toUpperCase()
+          const isSel = code === sel
+          const fill = mapColor(t, c.listens, max)
+          return {
+            name: code,
+            itemStyle: { areaColor: fill, borderColor: isSel ? t.accent : t.border, borderWidth: isSel ? 2 : 0.5 },
+            emphasis: { itemStyle: { areaColor: mixColors(fill, t.text, 0.18), borderColor: isSel ? t.accent : t.text, borderWidth: isSel ? 2 : 1 } },
+          }
+        }),
     },
     series: [
       {

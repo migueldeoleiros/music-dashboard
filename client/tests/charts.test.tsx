@@ -375,6 +375,15 @@ describe('CountryChart colors and selection', () => {
     expect(lum(fr.itemStyle.areaColor)).toBeGreaterThan(lum(de.itemStyle.areaColor))
     expect(lum(de.itemStyle.areaColor)).toBeGreaterThan(lum(o.geo.itemStyle.areaColor))
   })
+  it('paints fills on the shared geo regions (the map series alone never paints them)', () => {
+    render(<CountryChart data={data as never} selectedCountry="DE" />)
+    const t = readTheme()
+    const regions = lastOption().geo.regions as { name: string; itemStyle: { areaColor: string; borderColor: string } }[]
+    expect(regions.map(r => r.name)).toEqual(['FR', 'DE'])
+    for (const r of regions) expect(r.itemStyle.areaColor).not.toBe(t.surface2)
+    expect(regions[0].itemStyle.areaColor).toBe(mixColors(t.surface2, t.accent, 1))
+    expect(regions[1].itemStyle.borderColor).toBe(t.accent)
+  })
   it('highlights selected country with accent outline; null clears', () => {
     const { rerender } = render(<CountryChart data={data as never} selectedCountry="de" />)
     const t = readTheme()
