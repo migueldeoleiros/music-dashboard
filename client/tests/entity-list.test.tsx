@@ -82,10 +82,12 @@ it('RankingList: hero first, rows after, no percentages', () => {
   expect(container.textContent).not.toContain('%')
 })
 
-it('RankingList genres use text-only hero and rows', () => {
+it('RankingList genres show initials tiles in the hero and rows, without percentages', () => {
   const { container } = render(<RankingList data={ranking('genres')} />)
-  expect(container.querySelector('.entity-image')).toBeNull()
-  expect(container.querySelector('.entity-hero--text')).not.toBeNull()
+  const tiles = container.querySelectorAll('.entity-image--placeholder')
+  expect(tiles).toHaveLength(3)
+  expect(container.querySelector('.entity-hero .entity-image--placeholder')).not.toBeNull()
+  expect(container.querySelector('img')).toBeNull()
   expect(container.textContent).not.toContain('%')
 })
 

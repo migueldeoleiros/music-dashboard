@@ -24,7 +24,6 @@
 
 .entity-hero { position: relative; display: flex; align-items: center; gap: 1rem; padding: .9rem 1rem; margin-bottom: .5rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: inset 3px 0 0 var(--accent); min-width: 0; }
 .entity-hero .entity-image { box-shadow: 0 0 0 2px var(--accent); }
-.entity-hero--text { padding-block: 1.1rem; }
 .entity-ribbon { position: absolute; top: .5rem; right: .6rem; padding: .1rem .5rem; border-radius: var(--radius-lg); background: var(--accent-soft); color: var(--accent); font-size: .65rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .entity-hero-name { font-size: 1.1rem; font-weight: 600; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
 .entity-hero-count { font-size: 1rem; color: var(--accent); font-variant-numeric: tabular-nums; }
