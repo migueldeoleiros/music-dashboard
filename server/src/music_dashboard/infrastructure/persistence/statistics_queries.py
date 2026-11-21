@@ -124,17 +124,47 @@ WITH bounds AS (
  WHERE c.country_code = ANY(:country_codes)
 ), country_values AS (
  SELECT id, code, 1.0 / count(*) OVER (PARTITION BY id) AS weight FROM country_credits
+), album_history AS MATERIALIZED (
+ -- Stable identity across date ranges: canonical albums come from ALL history, not the
+ -- selected window. Read-only; raw listens are never rewritten. Only evaluated for albums.
+ SELECT DISTINCT artist_name, release_name,
+        coalesce(release_group_mbid,release_mbid)::text AS kid
+ FROM listens WHERE coalesce(release_group_mbid,release_mbid) IS NOT NULL
+ AND artist_name IS NOT NULL AND release_name IS NOT NULL
+ -- Skip the history scan entirely when the window has no unmapped named album.
+ AND EXISTS (SELECT 1 FROM selected s WHERE s.release_group_mbid IS NULL
+             AND s.release_mbid IS NULL AND s.release_name IS NOT NULL)
+), album_history_names AS (
+ SELECT artist_name AS name FROM album_history UNION SELECT release_name FROM album_history
+), album_history_normalized AS MATERIALIZED (
+ SELECT name, coalesce((SELECT string_agg(
+   coalesce(CAST(:casefold AS jsonb)->>ch, ch), '' ORDER BY ord)
+   FROM regexp_split_to_table(btrim(normalize(name, NFKC), :whitespace), '')
+        WITH ORDINALITY AS chars(ch, ord)), '') AS folded
+ FROM album_history_names
+), canonical_albums AS (
+ -- Exact normalized (artist, album) -> exactly ONE known id. Two or more distinct ids
+ -- (e.g. deluxe vs original, release vs release group) stay ambiguous: no entry.
+ SELECT a.folded AS artist, n.folded AS album, min(h.kid) AS kid
+ FROM album_history h
+ JOIN album_history_normalized a ON a.name=h.artist_name
+ JOIN album_history_normalized n ON n.name=h.release_name
+ WHERE a.folded<>'' AND n.folded<>''
+ GROUP BY a.folded, n.folded HAVING count(DISTINCT h.kid)=1
 ), album_values AS (
  SELECT l.id, l.day,
-   coalesce(l.release_group_mbid::text,l.release_mbid::text,
+   coalesce(l.release_group_mbid::text,l.release_mbid::text,c.kid,
      'name:' || jsonb_build_array(coalesce(a.folded,''),coalesce(n.folded,''))::text) AS key,
    coalesce(nullif(btrim(l.release_name, :whitespace),''),'[Missing album]') AS label,
-   coalesce(l.release_group_mbid::text,l.release_mbid::text) AS mbid,
+   coalesce(l.release_group_mbid::text,l.release_mbid::text,c.kid) AS mbid,
    CASE WHEN coalesce(n.folded,'')='' THEN 'missing'
-        WHEN coalesce(l.release_group_mbid,l.release_mbid) IS NULL THEN 'unmapped'
+        WHEN coalesce(l.release_group_mbid::text,l.release_mbid::text,c.kid) IS NULL
+          THEN 'unmapped'
         ELSE 'resolved' END AS state, 1.0 AS weight
  FROM selected l LEFT JOIN normalized n ON n.name=l.release_name
  LEFT JOIN normalized a ON a.name=l.artist_name
+ LEFT JOIN canonical_albums c ON l.release_group_mbid IS NULL AND l.release_mbid IS NULL
+  AND c.artist=a.folded AND c.album=n.folded
 ), track_values AS (
  SELECT l.id, l.day,
    coalesce(l.recording_mbid::text,
@@ -186,7 +216,9 @@ TABLES = {
 # Closed, internal identifier substitution only. Every user value remains bound.
 def totals_sql(dimension: str) -> str:
     return f"""
- SELECT key, min(label) AS label, min(mbid) AS mbid,
+ SELECT key,
+        coalesce(min(label) FILTER (WHERE mbid IS NOT NULL), min(label)) AS label,
+        min(mbid) AS mbid,
         CASE WHEN bool_or(state='missing') THEN 'missing'
              WHEN bool_or(state='resolved') THEN 'resolved' ELSE 'unmapped' END AS state,
         sum(weight)::float8 AS listens
