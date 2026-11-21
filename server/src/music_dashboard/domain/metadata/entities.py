@@ -1,0 +1,16 @@
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Literal
+
+EntityType = Literal["recording", "release_group", "artist"]
+CacheStatus = Literal["pending", "positive", "empty", "transient_error"]
+
+
+@dataclass(frozen=True)
+class MetadataEntry:
+    entity_type: EntityType
+    mbid: str
+    payload: dict[str, object]
+    status: CacheStatus
+    fetched_at: datetime | None
+    next_retry_at: datetime | None
