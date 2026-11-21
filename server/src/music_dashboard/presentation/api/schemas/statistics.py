@@ -25,6 +25,15 @@ class Coverage(ContractModel):
         return self
 
 
+class DimensionCoverage(ContractModel):
+    artists: Coverage
+    albums: Coverage
+    tracks: Coverage
+    genres: Coverage
+    countries: Coverage
+    listens: Coverage
+
+
 class DateRange(ContractModel):
     from_date: date = Field(serialization_alias="from")
     to_date: date = Field(serialization_alias="to")
@@ -33,7 +42,7 @@ class DateRange(ContractModel):
 
 class AggregateResponse(ContractModel):
     range: DateRange
-    coverage: dict[Dimension, Coverage]
+    coverage: DimensionCoverage
     last_updated: datetime | None = Field(description="UTC ingestion freshness; null before import")
     generation: int = Field(
         ge=0, description="Combined ingestion/enrichment invalidation generation"
@@ -118,7 +127,7 @@ class HealthResponse(ContractModel):
     mode: Literal["fixture", "live"]
     last_updated: datetime | None
     sync_lag_seconds: int | None = Field(ge=0, description="Null if no successful import")
-    coverage: dict[Dimension, Coverage]
+    coverage: DimensionCoverage
     generation: int = Field(ge=0)
 
 

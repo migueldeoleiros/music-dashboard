@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from music_dashboard.app import app
-from music_dashboard.presentation.api.schemas.statistics import Coverage
+from music_dashboard.presentation.api.schemas.statistics import Coverage, DimensionCoverage
 
 client = TestClient(app)
 PARAMS = {"from": "2024-03-10", "to": "2024-03-10", "tz": "America/New_York"}
@@ -73,3 +73,49 @@ def test_supported_alias_and_full_range() -> None:
 def test_coverage_invariant() -> None:
     with pytest.raises(ValidationError):
         Coverage(total_listens=3, included_listens=2, excluded_listens=2)
+    with pytest.raises(ValidationError):
+        DimensionCoverage.model_validate({})
+
+
+@pytest.mark.parametrize("name", ["from", "to"])
+@pytest.mark.parametrize("value", ["0", "1704067200", "2024-01-01T00:00:00", "2024-1-1"])
+def test_dates_are_strict_local_calendar_dates(name: str, value: str) -> None:
+    response = client.get("/api/heatmap", params={**PARAMS, name: value})
+    assert response.status_code == 400
+
+
+def test_populated_contract_fixtures() -> None:
+    root = Path(__file__).parents[2]
+    examples_path = root / "tests/fixtures/aggregate_responses.json"
+    package_path = root / "src/music_dashboard/infrastructure/aggregate_responses.json"
+    assert examples_path.read_bytes() == package_path.read_bytes()
+    examples = json.loads(examples_path.read_text())
+    assert len(examples) == 10
+    for family in examples:
+        response = client.get(
+            f"/api/{family}",
+            params={
+                "from": "2026-01-05",
+                "to": "2026-01-05",
+                "tz": "UTC",
+                "limit": 1,
+            },
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()  # FastAPI has validated the full nested response model.
+        field = (
+            "items"
+            if family.startswith("rankings/")
+            else "series"
+            if family.startswith("evolution/")
+            else "slices"
+            if family.startswith("pies/")
+            else "cells"
+            if family == "heatmap"
+            else "countries"
+        )
+        assert data[field], family
+        assert data["coverage"]["genres"]["excluded_listens"] == 1
+        assert data["coverage"]["countries"]["included_listens"] == 2
+        if field in ("series", "slices"):
+            assert any(item["is_other"] for item in data[field])

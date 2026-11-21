@@ -215,10 +215,7 @@ export interface components {
         CountryResponse: {
             /** Countries */
             countries: components["schemas"]["CountryValue"][];
-            /** Coverage */
-            coverage: {
-                [key: string]: components["schemas"]["Coverage"];
-            };
+            coverage: components["schemas"]["DimensionCoverage"];
             /**
              * Fixture
              * @description True only for clearly marked synthetic stub responses
@@ -280,6 +277,15 @@ export interface components {
              */
             tz: string;
         };
+        /** DimensionCoverage */
+        DimensionCoverage: {
+            albums: components["schemas"]["Coverage"];
+            artists: components["schemas"]["Coverage"];
+            countries: components["schemas"]["Coverage"];
+            genres: components["schemas"]["Coverage"];
+            listens: components["schemas"]["Coverage"];
+            tracks: components["schemas"]["Coverage"];
+        };
         /** ErrorResponse */
         ErrorResponse: {
             /**
@@ -301,10 +307,7 @@ export interface components {
             bucket_unit: "day" | "week" | "month";
             /** Buckets */
             buckets: components["schemas"]["Bucket"][];
-            /** Coverage */
-            coverage: {
-                [key: string]: components["schemas"]["Coverage"];
-            };
+            coverage: components["schemas"]["DimensionCoverage"];
             /**
              * Dimension
              * @enum {string}
@@ -348,10 +351,7 @@ export interface components {
         };
         /** HealthResponse */
         HealthResponse: {
-            /** Coverage */
-            coverage: {
-                [key: string]: components["schemas"]["Coverage"];
-            };
+            coverage: components["schemas"]["DimensionCoverage"];
             /** Generation */
             generation: number;
             /** Last Updated */
@@ -386,10 +386,7 @@ export interface components {
         HeatmapResponse: {
             /** Cells */
             cells: components["schemas"]["HeatmapCell"][];
-            /** Coverage */
-            coverage: {
-                [key: string]: components["schemas"]["Coverage"];
-            };
+            coverage: components["schemas"]["DimensionCoverage"];
             /**
              * Fixture
              * @description True only for clearly marked synthetic stub responses
@@ -415,10 +412,7 @@ export interface components {
         };
         /** PieResponse */
         PieResponse: {
-            /** Coverage */
-            coverage: {
-                [key: string]: components["schemas"]["Coverage"];
-            };
+            coverage: components["schemas"]["DimensionCoverage"];
             /**
              * Dimension
              * @enum {string}
@@ -482,10 +476,7 @@ export interface components {
         };
         /** RankingResponse */
         RankingResponse: {
-            /** Coverage */
-            coverage: {
-                [key: string]: components["schemas"]["Coverage"];
-            };
+            coverage: components["schemas"]["DimensionCoverage"];
             /**
              * Dimension
              * @enum {string}

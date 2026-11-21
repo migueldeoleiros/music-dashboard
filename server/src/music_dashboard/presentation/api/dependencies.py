@@ -1,15 +1,30 @@
+import re
 from datetime import date
 from typing import Annotated
 
 from fastapi import HTTPException, Query
+from pydantic import BeforeValidator, Field
 
 from music_dashboard.domain.statistics.models import StatisticsFilter
 from music_dashboard.infrastructure.persistence.timezones import load_timezones
 
 
+def exact_local_date(value: object) -> object:
+    if not isinstance(value, str) or re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value) is None:
+        raise ValueError("Expected a local calendar date in YYYY-MM-DD format")
+    return value
+
+
+LocalDate = Annotated[
+    date,
+    BeforeValidator(exact_local_date),
+    Field(json_schema_extra={"pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}),
+]
+
+
 def statistics_filter(
-    from_date: Annotated[date, Query(alias="from", description="Inclusive local start date")],
-    to_date: Annotated[date, Query(alias="to", description="Inclusive local end date")],
+    from_date: Annotated[LocalDate, Query(alias="from", description="Inclusive local start date")],
+    to_date: Annotated[LocalDate, Query(alias="to", description="Inclusive local end date")],
     tz: Annotated[str, Query(description="Supported IANA timezone, canonicalized")],
     limit: Annotated[int, Query(ge=1, le=100)] = 10,
 ) -> StatisticsFilter:

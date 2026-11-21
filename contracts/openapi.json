@@ -39,21 +39,7 @@
             "type": "array"
           },
           "coverage": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/Coverage"
-            },
-            "propertyNames": {
-              "enum": [
-                "artists",
-                "albums",
-                "tracks",
-                "genres",
-                "countries",
-                "listens"
-              ]
-            },
-            "title": "Coverage",
-            "type": "object"
+            "$ref": "#/components/schemas/DimensionCoverage"
           },
           "fixture": {
             "description": "True only for clearly marked synthetic stub responses",
@@ -182,6 +168,39 @@
         "title": "DateRange",
         "type": "object"
       },
+      "DimensionCoverage": {
+        "additionalProperties": false,
+        "properties": {
+          "albums": {
+            "$ref": "#/components/schemas/Coverage"
+          },
+          "artists": {
+            "$ref": "#/components/schemas/Coverage"
+          },
+          "countries": {
+            "$ref": "#/components/schemas/Coverage"
+          },
+          "genres": {
+            "$ref": "#/components/schemas/Coverage"
+          },
+          "listens": {
+            "$ref": "#/components/schemas/Coverage"
+          },
+          "tracks": {
+            "$ref": "#/components/schemas/Coverage"
+          }
+        },
+        "required": [
+          "artists",
+          "albums",
+          "tracks",
+          "genres",
+          "countries",
+          "listens"
+        ],
+        "title": "DimensionCoverage",
+        "type": "object"
+      },
       "ErrorResponse": {
         "additionalProperties": false,
         "properties": {
@@ -233,21 +252,7 @@
             "type": "array"
           },
           "coverage": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/Coverage"
-            },
-            "propertyNames": {
-              "enum": [
-                "artists",
-                "albums",
-                "tracks",
-                "genres",
-                "countries",
-                "listens"
-              ]
-            },
-            "title": "Coverage",
-            "type": "object"
+            "$ref": "#/components/schemas/DimensionCoverage"
           },
           "dimension": {
             "enum": [
@@ -345,21 +350,7 @@
         "additionalProperties": false,
         "properties": {
           "coverage": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/Coverage"
-            },
-            "propertyNames": {
-              "enum": [
-                "artists",
-                "albums",
-                "tracks",
-                "genres",
-                "countries",
-                "listens"
-              ]
-            },
-            "title": "Coverage",
-            "type": "object"
+            "$ref": "#/components/schemas/DimensionCoverage"
           },
           "generation": {
             "minimum": 0.0,
@@ -451,21 +442,7 @@
             "type": "array"
           },
           "coverage": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/Coverage"
-            },
-            "propertyNames": {
-              "enum": [
-                "artists",
-                "albums",
-                "tracks",
-                "genres",
-                "countries",
-                "listens"
-              ]
-            },
-            "title": "Coverage",
-            "type": "object"
+            "$ref": "#/components/schemas/DimensionCoverage"
           },
           "fixture": {
             "description": "True only for clearly marked synthetic stub responses",
@@ -516,21 +493,7 @@
         "additionalProperties": false,
         "properties": {
           "coverage": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/Coverage"
-            },
-            "propertyNames": {
-              "enum": [
-                "artists",
-                "albums",
-                "tracks",
-                "genres",
-                "countries",
-                "listens"
-              ]
-            },
-            "title": "Coverage",
-            "type": "object"
+            "$ref": "#/components/schemas/DimensionCoverage"
           },
           "dimension": {
             "enum": [
@@ -684,21 +647,7 @@
         "additionalProperties": false,
         "properties": {
           "coverage": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/Coverage"
-            },
-            "propertyNames": {
-              "enum": [
-                "artists",
-                "albums",
-                "tracks",
-                "genres",
-                "countries",
-                "listens"
-              ]
-            },
-            "title": "Coverage",
-            "type": "object"
+            "$ref": "#/components/schemas/DimensionCoverage"
           },
           "dimension": {
             "enum": [

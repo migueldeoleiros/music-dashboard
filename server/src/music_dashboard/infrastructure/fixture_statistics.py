@@ -1,6 +1,8 @@
 """Contract-only synthetic responses, NOT statistics implementation (T-005 owns SQL)."""
 
-from typing import Any
+import json
+from pathlib import Path
+from typing import Any, cast
 
 from music_dashboard.domain.statistics.models import StatisticsFilter
 
@@ -16,6 +18,17 @@ def empty_coverage() -> dict[str, dict[str, int]]:
 
 class FixtureStatisticsQueries:
     def query(self, family: str, filters: StatisticsFilter) -> dict[str, Any]:
+        if (
+            filters.from_date.isoformat() == "2026-01-05"
+            and filters.to_date.isoformat() == "2026-01-05"
+            and filters.timezone == "Etc/UTC"
+            and filters.limit == 1
+        ):
+            examples = json.loads(Path(__file__).with_name("aggregate_responses.json").read_text())
+            example = cast(dict[str, Any], examples[family])
+            if family.startswith("rankings/"):
+                example["items"] = example["items"][: filters.limit]
+            return example
         result: dict[str, Any] = {
             "range": {
                 "from_date": filters.from_date,

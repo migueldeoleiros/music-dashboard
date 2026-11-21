@@ -1,0 +1,606 @@
+{
+  "rankings/artists": {
+    "range": {
+      "from_date": "2026-01-05",
+      "to_date": "2026-01-05",
+      "tz": "Etc/UTC"
+    },
+    "coverage": {
+      "artists": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "albums": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "tracks": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "genres": {
+        "total_listens": 4,
+        "included_listens": 3,
+        "excluded_listens": 1
+      },
+      "countries": {
+        "total_listens": 4,
+        "included_listens": 2,
+        "excluded_listens": 2
+      },
+      "listens": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      }
+    },
+    "last_updated": "2026-01-06T00:00:00Z",
+    "generation": 2,
+    "fixture": true,
+    "dimension": "artists",
+    "items": [
+      {
+        "key": "artist:name:blue-harbor",
+        "label": "Blue Harbor",
+        "mbid": null,
+        "metadata_state": "unmapped",
+        "listens": 2.5,
+        "share": 0.625
+      },
+      {
+        "key": "artist:name:aoi-tanaka",
+        "label": "Aoi Tanaka",
+        "mbid": null,
+        "metadata_state": "unmapped",
+        "listens": 1.5,
+        "share": 0.375
+      }
+    ]
+  },
+  "rankings/albums": {
+    "range": {
+      "from_date": "2026-01-05",
+      "to_date": "2026-01-05",
+      "tz": "Etc/UTC"
+    },
+    "coverage": {
+      "artists": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "albums": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "tracks": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "genres": {
+        "total_listens": 4,
+        "included_listens": 3,
+        "excluded_listens": 1
+      },
+      "countries": {
+        "total_listens": 4,
+        "included_listens": 2,
+        "excluded_listens": 2
+      },
+      "listens": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      }
+    },
+    "last_updated": "2026-01-06T00:00:00Z",
+    "generation": 2,
+    "fixture": true,
+    "dimension": "albums",
+    "items": [
+      {
+        "key": "album:name:blue-harbor:demo",
+        "label": "Demo",
+        "mbid": null,
+        "metadata_state": "unmapped",
+        "listens": 3,
+        "share": 0.75
+      },
+      {
+        "key": "album:missing:blue-harbor",
+        "label": "Missing album",
+        "mbid": null,
+        "metadata_state": "missing",
+        "listens": 1,
+        "share": 0.25
+      }
+    ]
+  },
+  "rankings/tracks": {
+    "range": {
+      "from_date": "2026-01-05",
+      "to_date": "2026-01-05",
+      "tz": "Etc/UTC"
+    },
+    "coverage": {
+      "artists": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "albums": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "tracks": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "genres": {
+        "total_listens": 4,
+        "included_listens": 3,
+        "excluded_listens": 1
+      },
+      "countries": {
+        "total_listens": 4,
+        "included_listens": 2,
+        "excluded_listens": 2
+      },
+      "listens": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      }
+    },
+    "last_updated": "2026-01-06T00:00:00Z",
+    "generation": 2,
+    "fixture": true,
+    "dimension": "tracks",
+    "items": [
+      {
+        "key": "track:name:blue-harbor:demo",
+        "label": "Demo",
+        "mbid": null,
+        "metadata_state": "unmapped",
+        "listens": 2,
+        "share": 0.5
+      },
+      {
+        "key": "track:missing:aoi-tanaka",
+        "label": "Missing title",
+        "mbid": null,
+        "metadata_state": "missing",
+        "listens": 2,
+        "share": 0.5
+      }
+    ]
+  },
+  "rankings/genres": {
+    "range": {
+      "from_date": "2026-01-05",
+      "to_date": "2026-01-05",
+      "tz": "Etc/UTC"
+    },
+    "coverage": {
+      "artists": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "albums": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "tracks": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "genres": {
+        "total_listens": 4,
+        "included_listens": 3,
+        "excluded_listens": 1
+      },
+      "countries": {
+        "total_listens": 4,
+        "included_listens": 2,
+        "excluded_listens": 2
+      },
+      "listens": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      }
+    },
+    "last_updated": "2026-01-06T00:00:00Z",
+    "generation": 2,
+    "fixture": true,
+    "dimension": "genres",
+    "items": [
+      {
+        "key": "genre:jazz",
+        "label": "Jazz",
+        "mbid": null,
+        "metadata_state": "resolved",
+        "listens": 1.5,
+        "share": 0.5
+      },
+      {
+        "key": "genre:folk",
+        "label": "Folk",
+        "mbid": null,
+        "metadata_state": "resolved",
+        "listens": 1.5,
+        "share": 0.5
+      }
+    ]
+  },
+  "heatmap": {
+    "range": {
+      "from_date": "2026-01-05",
+      "to_date": "2026-01-05",
+      "tz": "Etc/UTC"
+    },
+    "coverage": {
+      "artists": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "albums": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "tracks": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "genres": {
+        "total_listens": 4,
+        "included_listens": 3,
+        "excluded_listens": 1
+      },
+      "countries": {
+        "total_listens": 4,
+        "included_listens": 2,
+        "excluded_listens": 2
+      },
+      "listens": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      }
+    },
+    "last_updated": "2026-01-06T00:00:00Z",
+    "generation": 2,
+    "fixture": true,
+    "week_starts_on": "monday",
+    "cells": [
+      {
+        "day": "2026-01-05",
+        "listens": 4
+      }
+    ]
+  },
+  "countries": {
+    "range": {
+      "from_date": "2026-01-05",
+      "to_date": "2026-01-05",
+      "tz": "Etc/UTC"
+    },
+    "coverage": {
+      "artists": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "albums": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "tracks": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "genres": {
+        "total_listens": 4,
+        "included_listens": 3,
+        "excluded_listens": 1
+      },
+      "countries": {
+        "total_listens": 4,
+        "included_listens": 2,
+        "excluded_listens": 2
+      },
+      "listens": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      }
+    },
+    "last_updated": "2026-01-06T00:00:00Z",
+    "generation": 2,
+    "fixture": true,
+    "countries": [
+      {
+        "code": "US",
+        "listens": 1.5,
+        "share": 0.75
+      },
+      {
+        "code": "JP",
+        "listens": 0.5,
+        "share": 0.25
+      }
+    ],
+    "partial_credit_note": "Only country-resolved unique credited artists share each listen."
+  },
+  "evolution/artists": {
+    "range": {
+      "from_date": "2026-01-05",
+      "to_date": "2026-01-05",
+      "tz": "Etc/UTC"
+    },
+    "coverage": {
+      "artists": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "albums": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "tracks": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "genres": {
+        "total_listens": 4,
+        "included_listens": 3,
+        "excluded_listens": 1
+      },
+      "countries": {
+        "total_listens": 4,
+        "included_listens": 2,
+        "excluded_listens": 2
+      },
+      "listens": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      }
+    },
+    "last_updated": "2026-01-06T00:00:00Z",
+    "generation": 2,
+    "fixture": true,
+    "dimension": "artists",
+    "bucket_unit": "day",
+    "buckets": [
+      {
+        "start": "2026-01-05",
+        "end": "2026-01-06",
+        "partial": false
+      }
+    ],
+    "series": [
+      {
+        "key": "artist:name:blue-harbor",
+        "label": "Blue Harbor",
+        "is_other": false,
+        "values": [
+          2.5
+        ]
+      },
+      {
+        "key": "other",
+        "label": "Other",
+        "is_other": true,
+        "values": [
+          1.5
+        ]
+      }
+    ]
+  },
+  "pies/artists": {
+    "range": {
+      "from_date": "2026-01-05",
+      "to_date": "2026-01-05",
+      "tz": "Etc/UTC"
+    },
+    "coverage": {
+      "artists": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "albums": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "tracks": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "genres": {
+        "total_listens": 4,
+        "included_listens": 3,
+        "excluded_listens": 1
+      },
+      "countries": {
+        "total_listens": 4,
+        "included_listens": 2,
+        "excluded_listens": 2
+      },
+      "listens": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      }
+    },
+    "last_updated": "2026-01-06T00:00:00Z",
+    "generation": 2,
+    "fixture": true,
+    "dimension": "artists",
+    "slices": [
+      {
+        "key": "artist:name:blue-harbor",
+        "label": "Blue Harbor",
+        "is_other": false,
+        "listens": 2.5,
+        "share": 0.625
+      },
+      {
+        "key": "other",
+        "label": "Other",
+        "is_other": true,
+        "listens": 1.5,
+        "share": 0.375
+      }
+    ]
+  },
+  "evolution/genres": {
+    "range": {
+      "from_date": "2026-01-05",
+      "to_date": "2026-01-05",
+      "tz": "Etc/UTC"
+    },
+    "coverage": {
+      "artists": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "albums": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "tracks": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "genres": {
+        "total_listens": 4,
+        "included_listens": 3,
+        "excluded_listens": 1
+      },
+      "countries": {
+        "total_listens": 4,
+        "included_listens": 2,
+        "excluded_listens": 2
+      },
+      "listens": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      }
+    },
+    "last_updated": "2026-01-06T00:00:00Z",
+    "generation": 2,
+    "fixture": true,
+    "dimension": "genres",
+    "bucket_unit": "day",
+    "buckets": [
+      {
+        "start": "2026-01-05",
+        "end": "2026-01-06",
+        "partial": false
+      }
+    ],
+    "series": [
+      {
+        "key": "genre:jazz",
+        "label": "Jazz",
+        "is_other": false,
+        "values": [
+          1.5
+        ]
+      },
+      {
+        "key": "other",
+        "label": "Other",
+        "is_other": true,
+        "values": [
+          1.5
+        ]
+      }
+    ]
+  },
+  "pies/genres": {
+    "range": {
+      "from_date": "2026-01-05",
+      "to_date": "2026-01-05",
+      "tz": "Etc/UTC"
+    },
+    "coverage": {
+      "artists": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "albums": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "tracks": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      },
+      "genres": {
+        "total_listens": 4,
+        "included_listens": 3,
+        "excluded_listens": 1
+      },
+      "countries": {
+        "total_listens": 4,
+        "included_listens": 2,
+        "excluded_listens": 2
+      },
+      "listens": {
+        "total_listens": 4,
+        "included_listens": 4,
+        "excluded_listens": 0
+      }
+    },
+    "last_updated": "2026-01-06T00:00:00Z",
+    "generation": 2,
+    "fixture": true,
+    "dimension": "genres",
+    "slices": [
+      {
+        "key": "genre:jazz",
+        "label": "Jazz",
+        "is_other": false,
+        "listens": 1.5,
+        "share": 0.5
+      },
+      {
+        "key": "other",
+        "label": "Other",
+        "is_other": true,
+        "listens": 1.5,
+        "share": 0.5
+      }
+    ]
+  }
+}
