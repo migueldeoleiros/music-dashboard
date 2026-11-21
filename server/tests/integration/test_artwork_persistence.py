@@ -719,3 +719,40 @@ def test_downgrade_drops_name_artwork_and_provenance(fresh_db, admin_url):
     )
     command.upgrade(cfg, "head")
     assert scalar(fresh_db, "SELECT to_regclass('public.artwork_name') IS NOT NULL") is True
+
+
+def test_canonical_album_keys_from_album_identity_keep_mbid_artwork(env):
+    """An unmapped listen merged into a unique canonical album uses the album's MBID key and
+    MBID artwork; the name-only row for the (now unused) name key can never override it."""
+    admin, api = env
+    with admin.begin() as c:
+        add_named(c, 50, artist="Artist", track="X", album="Album")  # same names as RG's listens
+    q = SQLStatisticsQueries(api)
+    before = items(q.query("rankings/albums", flt()))
+    assert not any(k.startswith("name:") and "album" in k for k in before)  # merged into RG
+    assert before[RG]["listens"] == 6
+    name_key = 'name:["artist", "album"]'
+    assert ("album", name_key) in {
+        (w.entity_type, w.name_key) for w in SqlArtworkRepository(admin).due(NOW, 100)
+    }  # still discoverable (documented waste); never displayed while the canonical key wins
+    with admin.begin() as c:
+        c.execute(
+            text(
+                "INSERT INTO artwork_name(entity_type,name_key,source,image_url,status,"
+                "match_kind,provider_ref) VALUES ('album',:k,'deezer',:u,'resolved',"
+                "'album_title','1')"
+            ),
+            {"k": name_key, "u": DZ_ARTIST.replace("artist", "cover")},
+        )
+        c.execute(
+            text("UPDATE data_generation SET enrichment_generation = enrichment_generation + 1")
+        )
+    mid = items(q.query("rankings/albums", flt()))
+    assert mid[RG]["image_url"] is None and set(mid) == set(before)
+    put(admin, "album", RG, DZ)
+    with admin.begin() as c:
+        c.execute(
+            text("UPDATE data_generation SET enrichment_generation = enrichment_generation + 1")
+        )
+    after = items(q.query("rankings/albums", flt()))
+    assert after[RG]["image_url"] == DZ and after[RG]["listens"] == 6
