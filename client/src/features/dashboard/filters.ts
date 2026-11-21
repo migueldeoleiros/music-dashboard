@@ -79,24 +79,30 @@ export function utcFallback(filters: Filters, now = new Date()): Filters {
   return changeTimezone(filters, 'UTC', now)
 }
 
+// URL contract: the timezone is never in the URL (always the browser's) and presets are not either
+// (a bare page is "Last 30 days"). Only a custom range carries `from`/`to`. Legacy links still open:
+// `tz` is ignored, a `preset` param applies while its range still matches (or when it has no dates),
+// and explicit dates otherwise become a custom range.
 export function readFilters(search: string, browserTz = browserTimezone(), now = new Date()): Filters {
   const params = new URLSearchParams(search)
-  const tz = params.get('tz')?.trim() || browserTz
+  const tz = browserTz
   const presetParam = params.get('preset')
-  const defaults = presetRange(isPreset(presetParam) ? presetParam : '30d', tz, now)
-  return clampToToday({ from: params.get('from') ?? defaults.from, to: params.get('to') ?? defaults.to, tz }, now)
+  const from = params.get('from')
+  const to = params.get('to')
+  const defaults = presetRange(from === null && to === null && isPreset(presetParam) ? presetParam : '30d', tz, now)
+  return clampToToday({ from: from ?? defaults.from, to: to ?? defaults.to, tz }, now)
 }
 
-// Which period button is selected for a URL. A preset param only counts while its range still matches;
-// anything else (stale shared link, hand-edited dates) opens as Custom.
+// Which period button is selected for a URL.
 export function readPeriod(search: string, filters: Filters, now = new Date()): Period {
-  const param = new URLSearchParams(search).get('preset')
-  if (param === 'custom') return 'custom'
-  if (isPreset(param)) {
-    const range = presetRange(param, filters.tz, now)
-    if (range.from === filters.from && range.to === filters.to) return param
+  const params = new URLSearchParams(search)
+  const preset = params.get('preset')
+  if (!params.has('from') && !params.has('to')) return isPreset(preset) ? preset : '30d'
+  if (isPreset(preset)) {
+    const range = presetRange(preset, filters.tz, now)
+    if (range.from === filters.from && range.to === filters.to) return preset
   }
-  return detectPeriod(filters, now)
+  return 'custom'
 }
 
 export function validateFilters(filters: Filters): string | null {
@@ -106,9 +112,12 @@ export function validateFilters(filters: Filters): string | null {
   return null
 }
 
-export function writeFilters(filters: Filters, search = window.location.search, period?: Period): string {
+// Rewrites only the filter params: legacy tz/preset are stripped, from/to appear for custom ranges only,
+// and every unrelated param is preserved.
+export function writeFilters(filters: Filters, search = window.location.search, period: Period = 'custom'): string {
   const params = new URLSearchParams(search)
-  for (const key of ['from', 'to', 'tz'] as const) params.set(key, filters[key])
-  if (period) params.set('preset', period)
-  return `?${params.toString()}`
+  for (const key of ['from', 'to', 'tz', 'preset']) params.delete(key)
+  if (period === 'custom') { params.set('from', filters.from); params.set('to', filters.to) }
+  const query = params.toString()
+  return `${query ? `?${query}` : window.location.pathname}${window.location.hash}`
 }

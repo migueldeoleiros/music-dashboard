@@ -265,8 +265,10 @@ only from map. Genre/country weights sum to included count within tolerance. Oth
 categories outside top N, never unknown metadata. Evolution picks top 8 across whole range,
 zero-fills daily/weekly/monthly buckets, noncumulative, marks partial final bucket. Pies top10.
 
-Visitor timezone is browser Intl default, explicit override/reset, UTC fallback. URL shares
-absolute from/to/tz, not immutable snapshots. Controlled timezone alias metadata is bundled
+Visitor timezone is always the browser Intl zone (never in the URL), with a visible UTC fallback
+when the API rejects it. The URL carries `from`/`to` only for custom ranges; presets are bare and
+a bare page is Last 30 days. Legacy `tz`/`preset` params are ignored and stripped. Links are not
+immutable snapshots. Controlled timezone alias metadata is bundled
 from tzdata 2025b (PyPI 2025.2), shared by request validation and database seed. PostgreSQL is
 sole authority for date boundaries and buckets: inclusive local from through day after local
 to becomes half-open UTC range, DST-aware; no Python boundary math. Day is finest bucket;

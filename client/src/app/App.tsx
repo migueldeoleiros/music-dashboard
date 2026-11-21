@@ -2,14 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChartPanel } from '../features/dashboard/ChartPanel'
 import { useChartQuery } from '../features/dashboard/ChartSection'
 import { Controls } from '../features/dashboard/Controls'
-import { clampToToday, presetRange, readFilters, readPeriod, rollingYearRange, utcFallback, validateFilters, writeFilters, type Filters, type Period } from '../features/dashboard/filters'
+import { browserTimezone, clampToToday, presetRange, readFilters, readPeriod, rollingYearRange, utcFallback, validateFilters, writeFilters, type Filters, type Period } from '../features/dashboard/filters'
 import { CountryArtistsPanel } from '../features/origin-map/CountryArtistsPanel'
 import { CoverageNote } from '../components/ui/CoverageNote'
 import { SyncStatus } from '../components/ui/SyncStatus'
 
 type State = { filters: Filters; period: Period }
-const readState = (): State => {
-  const filters = readFilters(window.location.search)
+// The request timezone always comes from the browser; it is never read from or written to the URL.
+// After the API rejects it, the visible UTC fallback is kept in memory for later navigation in this page session.
+const readState = (tz: string = browserTimezone()): State => {
+  const filters = readFilters(window.location.search, tz)
   return { filters, period: readPeriod(window.location.search, filters) }
 }
 
@@ -20,7 +22,8 @@ function PeriodCoverage({ filters }: { filters: Filters }) {
 }
 
 export function App() {
-  const [{ filters, period }, setState] = useState(readState)
+  const [{ filters, period }, setState] = useState(() => readState())
+  const zone = useRef(browserTimezone())
   const [timezoneNotice, setTimezoneNotice] = useState('')
   // Kept across period changes: the panel refetches with the new shared filters (an empty range shows its empty state).
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null)
@@ -33,6 +36,7 @@ export function App() {
     setTimezoneNotice('')
   }, [])
   const fallbackTimezone = useCallback(() => {
+    zone.current = 'UTC'
     setState(previous => {
       if (previous.filters.tz === 'UTC') return previous
       const next = previous.period === 'custom' ? utcFallback(previous.filters) : presetRange(previous.period, 'UTC')
@@ -43,7 +47,7 @@ export function App() {
   }, [])
   useEffect(() => {
     window.history.replaceState(null, '', writeFilters(filters, window.location.search, period))
-    const onPopState = () => { setState(readState()); setTimezoneNotice('') }
+    const onPopState = () => { setState(readState(zone.current)); setTimezoneNotice('') }
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
     // Initial normalization only; subsequent navigation uses apply / popstate.

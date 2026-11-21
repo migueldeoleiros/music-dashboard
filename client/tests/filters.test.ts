@@ -7,8 +7,8 @@ describe('absolute local-date shared filters', () => {
     expect(readFilters('', 'America/New_York', now)).toEqual({ from: '2026-02-07', to: '2026-03-08', tz: 'America/New_York' })
     expect(todayInZone('Asia/Kathmandu', now)).toBe('2026-03-09')
   })
-  it('preserves explicit timezone and one-day ranges', () => {
-    expect(readFilters('?from=2026-01-05&to=2026-01-05&tz=UTC', 'Asia/Tokyo', now)).toEqual({ from: '2026-01-05', to: '2026-01-05', tz: 'UTC' })
+  it('preserves one-day ranges and ignores a legacy tz param in favour of the browser timezone', () => {
+    expect(readFilters('?from=2026-01-05&to=2026-01-05&tz=UTC', 'Asia/Tokyo', now)).toEqual({ from: '2026-01-05', to: '2026-01-05', tz: 'Asia/Tokyo' })
   })
   it('clamps future to to today in the selected timezone', () => {
     expect(clampToToday({ from: '2026-01-01', to: '2027-01-01', tz: 'America/New_York' }, now).to).toBe('2026-03-08')
@@ -33,12 +33,13 @@ describe('absolute local-date shared filters', () => {
     expect(next).toEqual({ from: '2026-03-08', to: '2026-03-08', tz: 'UTC' })
     expect(validateFilters(next)).toBeNull()
   })
-  it('preserves unknown zones for API validation, and serializes links losslessly', () => {
-    const filters = readFilters('?from=2026-01-05&to=2026-01-05&tz=Unknown/Zone', 'UTC', now)
+  it('passes unknown browser zones on for API validation, and serializes custom links losslessly', () => {
+    const filters = readFilters('?from=2026-01-05&to=2026-01-05', 'Unknown/Zone', now)
     expect(filters.tz).toBe('Unknown/Zone')
-    const search = writeFilters(filters, '?fixture=partial')
+    const search = writeFilters(filters, '?fixture=partial', 'custom')
+    expect(new URLSearchParams(search).has('tz')).toBe(false)
     expect(new URLSearchParams(search).get('fixture')).toBe('partial')
-    expect(readFilters(search, 'UTC', now)).toEqual(filters)
+    expect(readFilters(search, 'Unknown/Zone', now)).toEqual(filters)
   })
 })
 
@@ -86,28 +87,38 @@ describe('tz-aware presets', () => {
 describe('preset URL state', () => {
   const tz = 'UTC'
   const today = new Date('2026-11-21T12:00:00Z') // Saturday
-  it('defaults to last 30 days and round-trips every preset through the URL', () => {
+  it('defaults a bare URL to last 30 days', () => {
     expect(detectPeriod(readFilters('', tz, today), today)).toBe('30d')
+    expect(readPeriod('', readFilters('', tz, today), today)).toBe('30d')
+  })
+  it('serializes presets without range, preset name or timezone; custom ranges only as from/to', () => {
     for (const preset of ['today', 'week', '7d', 'month', '30d', 'year', 'all'] as const) {
-      const filters = presetRange(preset, tz, today)
-      const search = writeFilters(filters, '', preset)
-      expect(new URLSearchParams(search).get('preset')).toBe(preset)
-      expect(new URLSearchParams(search).get('from')).toBe(filters.from) // absolute dates stay in the link
-      expect(new URLSearchParams(search).get('tz')).toBe(tz)
+      const search = writeFilters(presetRange(preset, tz, today), '', preset)
+      expect(search).not.toMatch(/[?&](from|to|tz|preset)=/)
       const back = readFilters(search, 'Asia/Tokyo', today)
-      expect(back).toEqual(filters)
-      expect(readPeriod(search, back, today)).toBe(preset)
+      expect(readPeriod(search, back, today)).toBe('30d') // a bare link always reloads as the default
     }
+    const custom = writeFilters({ from: '2026-11-15', to: '2026-11-21', tz }, '', 'custom')
+    expect([...new URLSearchParams(custom).keys()].sort()).toEqual(['from', 'to'])
+    const back = readFilters(custom, tz, today)
+    expect(back).toEqual({ from: '2026-11-15', to: '2026-11-21', tz })
+    // A custom range equal to a preset stays custom across reloads.
+    expect(readPeriod(custom, back, today)).toBe('custom')
   })
-  it('lets the preset param win only while its range still matches, otherwise opens as custom', () => {
-    expect(readPeriod('?preset=week&from=2026-11-16&to=2026-11-21&tz=UTC', { from: '2026-11-16', to: '2026-11-21', tz }, today)).toBe('week')
-    expect(readPeriod('?preset=30d&from=2026-10-01&to=2026-10-30&tz=UTC', { from: '2026-10-01', to: '2026-10-30', tz }, today)).toBe('custom')
-    expect(readPeriod('?from=2026-11-10&to=2026-11-12&tz=UTC', { from: '2026-11-10', to: '2026-11-12', tz }, today)).toBe('custom')
-    expect(readPeriod('?preset=custom&from=2026-11-15&to=2026-11-21&tz=UTC', { from: '2026-11-15', to: '2026-11-21', tz }, today)).toBe('custom')
-    expect(readPeriod('?from=2026-11-15&to=2026-11-21&tz=UTC', { from: '2026-11-15', to: '2026-11-21', tz }, today)).toBe('7d')
+  it('preserves unrelated params and hash, and strips legacy filter params', () => {
+    window.history.replaceState(null, '', '/x#frag')
+    const search = writeFilters(presetRange('7d', tz, today), '?fixture=full&preset=7d&from=2026-11-15&to=2026-11-21&tz=UTC&other=1', '7d')
+    expect(search).toBe('?fixture=full&other=1#frag')
+    window.history.replaceState(null, '', '/')
+    expect(writeFilters(presetRange('7d', tz, today), '?tz=UTC', '7d')).toBe('/')
   })
-  it('derives the range from a bare preset param', () => {
-    expect(readFilters('?preset=week&tz=UTC', 'Asia/Tokyo', today)).toEqual({ from: '2026-11-16', to: '2026-11-21', tz: 'UTC' })
-    expect(readFilters('?preset=bogus', 'UTC', today)).toEqual(presetRange('30d', 'UTC', today))
+  it('opens legacy links sensibly', () => {
+    const open = (search: string, zone = tz) => { const f = readFilters(search, zone, today); return { f, period: readPeriod(search, f, today) } }
+    expect(open('?preset=week&from=2026-11-16&to=2026-11-21&tz=UTC').period).toBe('week')
+    expect(open('?preset=30d&from=2026-10-01&to=2026-10-30&tz=UTC')).toMatchObject({ period: 'custom', f: { from: '2026-10-01', to: '2026-10-30' } })
+    expect(open('?preset=custom&from=2026-11-15&to=2026-11-21&tz=America/New_York', 'Asia/Tokyo')).toMatchObject({ period: 'custom', f: { tz: 'Asia/Tokyo' } })
+    expect(open('?preset=week&tz=UTC')).toMatchObject({ period: 'week', f: { from: '2026-11-16', to: '2026-11-21' } })
+    expect(open('?preset=bogus').period).toBe('30d')
+    expect(open('?preset=custom').period).toBe('30d')
   })
 })

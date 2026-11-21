@@ -14,7 +14,9 @@ vi.mock('../src/components/charts', () => ({
 let queryClient: QueryClient
 beforeEach(() => {
   vi.setSystemTime(new Date('2026-11-21T12:00:00Z'))
-  window.history.replaceState(null, '', '?from=2026-01-05&to=2026-01-05&tz=UTC')
+  // The request timezone is always the browser's; pin it (individual tests override).
+  vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockReturnValue({ timeZone: 'UTC' } as Intl.ResolvedDateTimeFormatOptions)
+  window.history.replaceState(null, '', '?from=2026-01-05&to=2026-01-05')
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     const parsed = new URL(url, 'http://localhost')
     const filters = { from: parsed.searchParams.get('from') ?? '', to: parsed.searchParams.get('to') ?? '', tz: parsed.searchParams.get('tz') ?? '' }
@@ -67,7 +69,7 @@ it('shows one coverage indicator near the period selector with per-dimension det
 })
 
 it('keeps the heatmap on its own rolling-365-day window and query, independent of the period', async () => {
-  window.history.replaceState(null, '', '?tz=UTC')
+  window.history.replaceState(null, '', '?')
   showApp(); await screen.findByText('Daily chart')
   await waitFor(() => expect(calls()).toHaveLength(10))
   expect(pressed()).toEqual(['Last 30 days'])
@@ -83,25 +85,25 @@ it('keeps the heatmap on its own rolling-365-day window and query, independent o
   expect(calls().slice(total).every(url => url.pathname !== '/api/heatmap')).toBe(true)
 })
 
-it('selects presets, keeps every shared query consistent, writes preset plus absolute dates to the URL', async () => {
-  window.history.replaceState(null, '', '?tz=UTC')
+it('selects presets, keeps every shared query consistent, and keeps range, preset and tz out of the URL', async () => {
+  window.history.replaceState(null, '', '?')
   showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(10))
   expect(screen.queryByLabelText('From')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'All time' }))
-  await waitFor(() => expect(search().get('from')).toBe('0001-01-01'))
-  expect(search().get('preset')).toBe('all'); expect(search().get('tz')).toBe('UTC')
-  expect(pressed()).toEqual(['All time'])
+  await waitFor(() => expect(pressed()).toEqual(['All time']))
+  expect(window.location.search).toBe('')
   await waitFor(() => expect(calls().filter(url => url.searchParams.get('from') === '0001-01-01')).toHaveLength(9))
   expect(document.body.textContent).not.toContain('0001')
   fireEvent.click(screen.getByRole('button', { name: 'This week' }))
-  expect(search().get('preset')).toBe('week'); expect(search().get('from')).toBe('2026-11-16'); expect(search().get('to')).toBe('2026-11-21')
+  expect(window.location.search).toBe('')
+  expect(calls().some(url => url.searchParams.get('from') === '2026-11-16' && url.searchParams.get('to') === '2026-11-21' && url.searchParams.get('tz') === 'UTC')).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: 'Today' }))
-  expect(search().get('from')).toBe('2026-11-21'); expect(search().get('to')).toBe('2026-11-21')
+  expect(window.location.search).toBe('')
   await waitFor(() => expect(screen.getAllByText(/No listening data available/)).toHaveLength(9))
 })
 
 it('reveals from/to only for Custom range, hides 0001 from All time, and applies a custom range', async () => {
-  window.history.replaceState(null, '', '?tz=UTC')
+  window.history.replaceState(null, '', '?')
   showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(10))
   fireEvent.click(screen.getByRole('button', { name: 'All time' }))
   fireEvent.click(screen.getByRole('button', { name: 'Custom range' }))
@@ -110,16 +112,41 @@ it('reveals from/to only for Custom range, hides 0001 from All time, and applies
   fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-01-01' } })
   fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-01-10' } })
   fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
-  expect(search().get('preset')).toBe('custom'); expect(search().get('from')).toBe('2026-01-01'); expect(search().get('to')).toBe('2026-01-10')
+  expect(window.location.search).toBe('?from=2026-01-01&to=2026-01-10')
   expect(pressed()).toEqual(['Custom range'])
   expect(screen.getByLabelText<HTMLInputElement>('From').value).toBe('2026-01-01')
   fireEvent.click(screen.getByRole('button', { name: 'Last 7 days' }))
   expect(screen.queryByLabelText('From')).toBeNull()
   expect(pressed()).toEqual(['Last 7 days'])
+  expect(window.location.search).toBe('')
+})
+
+it('reloads a custom range from the URL, then switching back to a preset clears the range but keeps unrelated params', async () => {
+  window.history.replaceState(null, '', '?fixture=partial&from=2026-01-01&to=2026-01-10')
+  showApp(); await screen.findByText('Daily chart')
+  expect(pressed()).toEqual(['Custom range'])
+  expect(screen.getByLabelText<HTMLInputElement>('From').value).toBe('2026-01-01')
+  expect(window.location.search).toBe('?fixture=partial&from=2026-01-01&to=2026-01-10')
+  cleanup()
+  showApp(); await screen.findByText('Daily chart')
+  expect(pressed()).toEqual(['Custom range'])
+  fireEvent.click(screen.getByRole('button', { name: 'Last 7 days' }))
+  expect(window.location.search).toBe('?fixture=partial')
+  expect(pressed()).toEqual(['Last 7 days'])
+  cleanup()
+  showApp(); await screen.findByText('Daily chart')
+  expect(pressed()).toEqual(['Last 30 days']) // reload of a preset is the bare default
+})
+
+it('reloading the bare page defaults to Last 30 days', async () => {
+  window.history.replaceState(null, '', '/')
+  showApp(); await screen.findByText('Daily chart')
+  expect(pressed()).toEqual(['Last 30 days'])
+  expect(window.location.search).toBe('')
 })
 
 it('applies a custom range with an empty From as all time and rejects an inverted range', async () => {
-  window.history.replaceState(null, '', '?tz=UTC')
+  window.history.replaceState(null, '', '?')
   showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(10))
   fireEvent.click(screen.getByRole('button', { name: 'Custom range' }))
   fireEvent.change(screen.getByLabelText('From'), { target: { value: '' } })
@@ -127,27 +154,26 @@ it('applies a custom range with an empty From as all time and rejects an inverte
   expect(search().get('from')).toBe('0001-01-01')
 })
 
-it('restores a shared link: matching preset is selected, unmatched dates open Custom with inputs', async () => {
+it('opens legacy links: matching preset is selected, unmatched dates open Custom, legacy params are stripped', async () => {
   window.history.replaceState(null, '', '?preset=7d&from=2026-11-15&to=2026-11-21&tz=UTC')
   showApp(); await screen.findByText('Daily chart')
   expect(pressed()).toEqual(['Last 7 days'])
   expect(screen.queryByLabelText('From')).toBeNull()
+  expect(window.location.search).toBe('')
   cleanup()
   window.history.replaceState(null, '', '?preset=7d&from=2026-11-01&to=2026-11-10&tz=UTC')
   showApp()
   expect(pressed()).toEqual(['Custom range'])
   expect(screen.getByLabelText<HTMLInputElement>('From').value).toBe('2026-11-01')
   expect(screen.getByLabelText<HTMLInputElement>('To').value).toBe('2026-11-10')
-  expect(search().get('preset')).toBe('custom')
-  expect(search().get('from')).toBe('2026-11-01')
+  expect(window.location.search).toBe('?from=2026-11-01&to=2026-11-10')
 })
 
 it('uses the browser timezone automatically and shows no timezone control', async () => {
   vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockReturnValue({ timeZone: 'Asia/Tokyo' } as Intl.ResolvedDateTimeFormatOptions)
   window.history.replaceState(null, '', '?')
   showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(10))
-  expect(search().get('tz')).toBe('Asia/Tokyo')
-  expect(search().get('preset')).toBe('30d')
+  expect(window.location.search).toBe('')
   expect(calls().every(url => url.searchParams.get('tz') === 'Asia/Tokyo')).toBe(true)
   expect(screen.queryByLabelText(/timezone/i)).toBeNull()
   expect(screen.queryByRole('button', { name: /reset to browser/i })).toBeNull()
@@ -156,14 +182,15 @@ it('uses the browser timezone automatically and shows no timezone control', asyn
 it('handles browser back/popstate and rejects invalid URL dates without API calls', async () => {
   showApp(); await screen.findByText('Blue Harbor')
   vi.mocked(fetch).mockClear()
-  window.history.replaceState(null, '', '?from=invalid&to=2026-01-05&tz=UTC')
+  window.history.replaceState(null, '', '?from=invalid&to=2026-01-05')
   fireEvent.popState(window)
   expect(await screen.findByRole('alert')).toBeTruthy()
   expect(fetch).not.toHaveBeenCalled()
 })
 
 it('falls back to UTC visibly when typed 400 rejects timezone; all requests, heatmap included, use fallback', async () => {
-  window.history.replaceState(null, '', '?from=2026-01-05&to=2026-01-05&tz=Not/AZone')
+  vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockReturnValue({ timeZone: 'Not/AZone' } as Intl.ResolvedDateTimeFormatOptions)
+  window.history.replaceState(null, '', '?from=2026-01-05&to=2026-01-05')
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     const parsed = new URL(url, 'http://localhost')
     if (parsed.searchParams.get('tz') !== 'UTC') return new Response(JSON.stringify({ code: 'invalid_request', message: 'Unsupported IANA timezone', details: ['Choose a supported tz'] }), { status: 400 })
@@ -173,7 +200,7 @@ it('falls back to UTC visibly when typed 400 rejects timezone; all requests, hea
   expect(await screen.findByText(/does not support your browser timezone/)).toBeTruthy()
   expect(await screen.findByText('Blue Harbor')).toBeTruthy()
   expect(await screen.findByText('Daily chart')).toBeTruthy()
-  expect(search().get('tz')).toBe('UTC')
+  expect(search().has('tz')).toBe(false)
 })
 
 it('shows typed non-timezone validation details and offers per-view retry', async () => {
@@ -182,7 +209,7 @@ it('shows typed non-timezone validation details and offers per-view retry', asyn
   const region = screen.getByRole('region', { name: 'Top artists' })
   expect(await within(region).findByText('Choose valid dates')).toBeTruthy()
   expect(within(region).getByRole('button', { name: 'Retry this view' })).toBeTruthy()
-  expect(search().get('tz')).toBe('UTC')
+  expect(search().has('tz')).toBe(false)
 })
 
 it('shows loading and network errors per view', async () => {
