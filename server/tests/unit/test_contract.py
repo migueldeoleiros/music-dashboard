@@ -19,10 +19,11 @@ def test_contract_is_frozen() -> None:
 
 def test_all_chart_families_and_get_only() -> None:
     paths = app.openapi()["paths"]
-    assert len(paths) == 11
+    assert len(paths) == 12
+    assert "/api/countries/{code}/artists" in paths
     for path, operations in paths.items():
         assert set(operations) == {"get"}
-        response = client.get(path, params=PARAMS)
+        response = client.get(path.replace("{code}", "US"), params=PARAMS)
         assert response.status_code == 200, response.text
         assert set(response.json()["coverage"]) == {
             "artists",
@@ -34,7 +35,8 @@ def test_all_chart_families_and_get_only() -> None:
         }
         if path != "/api/health":
             params = {p["name"] for p in operations["get"]["parameters"]}
-            assert params == {"from", "to", "tz", "limit"}
+            expected = {"from", "to", "tz", "limit"} | ({"code"} if "{code}" in path else set())
+            assert params == expected
             assert "422" not in operations["get"]["responses"]
             assert "400" in operations["get"]["responses"]
 
@@ -55,6 +57,39 @@ def test_bad_params_are_400(overrides: dict[str, object]) -> None:
     assert response.status_code == 400
     assert response.json()["code"] == "invalid_request"
     assert "details" in response.json()
+
+
+def test_image_url_is_nullable_with_null_default() -> None:
+    schemas = app.openapi()["components"]["schemas"]
+    entity = schemas["RankedEntity"]
+    assert entity["properties"]["image_url"]["default"] is None
+    assert {"type": "null"} in entity["properties"]["image_url"]["anyOf"]
+    assert "image_url" not in entity["required"]
+    assert entity["additionalProperties"] is False
+    response = client.get("/api/rankings/artists", params={**PARAMS, "limit": 1})
+    assert all(item["image_url"] is None for item in response.json()["items"])
+
+
+def test_country_artists_route_contract() -> None:
+    operation = app.openapi()["paths"]["/api/countries/{code}/artists"]["get"]
+    schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
+    assert schema == {"$ref": "#/components/schemas/RankingResponse"}
+    response = client.get("/api/countries/US/artists", params={**PARAMS, "limit": 1})
+    assert response.status_code == 200
+    assert response.json()["dimension"] == "artists"
+    assert response.json()["items"] == []  # fixture-mode empty for non-example filters
+
+
+@pytest.mark.parametrize("code", ["XX", "ZZ", "XW", "XE", "us", "USA", "U", "00", "%20", "A1"])
+def test_country_artists_rejects_unknown_codes_with_400(code: str) -> None:
+    response = client.get(f"/api/countries/{code}/artists", params=PARAMS)
+    assert response.status_code == 400
+    assert response.json()["code"] == "invalid_request"
+
+
+def test_country_artists_validates_filters_too() -> None:
+    response = client.get("/api/countries/US/artists", params={**PARAMS, "limit": 101})
+    assert response.status_code == 400
 
 
 def test_supported_alias_and_full_range() -> None:
@@ -105,10 +140,10 @@ def test_populated_contract_fixtures() -> None:
     package_path = root / "src/music_dashboard/infrastructure/aggregate_responses.json"
     assert examples_path.read_bytes() == package_path.read_bytes()
     examples = json.loads(examples_path.read_text())
-    assert len(examples) == 10
+    assert len(examples) == 11
     for family in examples:
         response = client.get(
-            f"/api/{family}",
+            "/api/countries/US/artists" if family == "countries/artists" else f"/api/{family}",
             params={
                 "from": "2026-01-05",
                 "to": "2026-01-05",
@@ -127,6 +162,8 @@ def test_populated_contract_fixtures() -> None:
             if family.startswith("pies/")
             else "cells"
             if family == "heatmap"
+            else "items"
+            if family == "countries/artists"
             else "countries"
         )
         assert data[field], family

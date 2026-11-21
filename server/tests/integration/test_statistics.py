@@ -5,6 +5,7 @@ import random
 import statistics
 import time
 import uuid
+from dataclasses import replace
 from datetime import date
 
 import pytest
@@ -13,7 +14,12 @@ from sqlalchemy import create_engine, text
 
 from music_dashboard.app import app
 from music_dashboard.domain.statistics.models import StatisticsFilter
-from music_dashboard.domain.statistics.policies import DIMENSIONS, FAMILIES
+from music_dashboard.domain.statistics.policies import (
+    DIMENSIONS,
+    FAMILIES,
+    SUPPORTED_FAMILIES,
+    InvalidStatisticsRequest,
+)
 from music_dashboard.infrastructure.persistence.seed import seed_fixtures
 from music_dashboard.infrastructure.persistence.statistics_queries import SQLStatisticsQueries
 from music_dashboard.presentation.api.dependencies import get_statistics, statistics_queries
@@ -173,9 +179,10 @@ def test_all_endpoints_real_role_and_contract(stats):
     app.dependency_overrides[get_statistics] = lambda: GetStatistics(q)
     try:
         client = TestClient(app)
-        for family in sorted(FAMILIES):
+        for family in sorted(SUPPORTED_FAMILIES):
             response = client.get(
-                f"/api/{family}", params={"from": "2026-01-05", "to": "2026-01-05", "tz": "UTC"}
+                "/api/countries/US/artists" if family == "countries/artists" else f"/api/{family}",
+                params={"from": "2026-01-05", "to": "2026-01-05", "tz": "UTC"},
             )
             assert response.status_code == 200, response.text
             data = response.json()
@@ -221,6 +228,59 @@ def test_fixture_weights_and_fallback_precedence(stats):
     feb = q.query("countries", filters("2026-02-11"))
     assert [r["code"] for r in feb["countries"]] == ["RO"]
     assert feb["coverage"]["countries"]["included_listens"] == 1
+
+
+def test_country_artists_reconcile_with_countries(stats):
+    q, db = stats
+    for start, end in (("2026-01-05", None), ("2026-02-11", None), ("2026-01-01", "2026-12-31")):
+        flt = filters(start, end, limit=100)
+        countries = q.query("countries", flt)
+        assert countries["countries"], start
+        for row in countries["countries"]:
+            r = q.query("countries/artists", replace(flt, country_code=row["code"]))
+            RankingResponse.model_validate(r)
+            assert r["dimension"] == "artists"
+            assert r["coverage"] == countries["coverage"]
+            assert all(i["mbid"] and i["image_url"] is None for i in r["items"])
+            assert all(i["image_url"] is None for i in q.query("rankings/artists", flt)["items"])
+            # Totals AND shares reconcile with /api/countries for identical filters.
+            assert sum(i["listens"] for i in r["items"]) == pytest.approx(row["listens"])
+            assert sum(i["share"] for i in r["items"]) == pytest.approx(row["share"])
+            assert [i["listens"] for i in r["items"]] == sorted(
+                (i["listens"] for i in r["items"]), reverse=True
+            )
+    # Per-code cache keys: same filters, different codes, never conflated (and repeatable).
+    flt = filters(limit=100)
+    us = q.query("countries/artists", replace(flt, country_code="US"))
+    jp = q.query("countries/artists", replace(flt, country_code="JP"))
+    assert us["items"] != jp["items"]
+    assert q.query("countries/artists", replace(flt, country_code="US")) == us
+    # Countries with no listens, and pseudo-countries, are empty / rejected.
+    assert q.query("countries/artists", replace(flt, country_code="FR"))["items"] == []
+    for bad in ("XW", "XE", "ZZ", "us"):
+        with pytest.raises(InvalidStatisticsRequest):
+            q.query("countries/artists", replace(flt, country_code=bad))
+
+
+def test_country_artists_split_credits_and_exclude_pseudo_countries(stats):
+    q, db = stats
+    with db.begin() as c:
+        c.execute(text("UPDATE artist_countries SET country_code='US'"))
+        c.execute(
+            text(
+                "UPDATE artist_countries SET country_code='XW' WHERE artist_mbid="
+                "(SELECT artist_mbid FROM artist_countries ORDER BY artist_mbid LIMIT 1)"
+            )
+        )
+    flt = filters("2026-01-01", "2026-12-31", limit=100)
+    countries = q.query("countries", flt)
+    assert {r["code"] for r in countries["countries"]} == {"US"}
+    us = q.query("countries/artists", replace(flt, country_code="US"))
+    assert sum(i["listens"] for i in us["items"]) == pytest.approx(
+        countries["countries"][0]["listens"]
+    )
+    with pytest.raises(InvalidStatisticsRequest):
+        q.query("countries/artists", replace(flt, country_code="XW"))
 
 
 @pytest.mark.parametrize(

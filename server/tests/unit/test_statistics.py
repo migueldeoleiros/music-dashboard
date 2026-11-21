@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date
 from unittest.mock import patch
 
@@ -12,6 +13,7 @@ from music_dashboard.domain.statistics.policies import (
     InvalidStatisticsRequest,
     StatisticsUnavailable,
     normalized_name,
+    validate_filters,
 )
 from music_dashboard.infrastructure.persistence.statistics_queries import (
     ResponseCache,
@@ -64,6 +66,40 @@ def test_adapter_validates_before_database_access(tz, limit):
     q = SQLStatisticsQueries(create_engine("sqlite://"))
     with pytest.raises(InvalidStatisticsRequest):
         q.query("heatmap", StatisticsFilter(date(2026, 1, 1), date(2026, 1, 1), tz, limit))
+
+
+def test_validate_filters_accepts_366_day_leap_year_window():
+    # 2024 is a leap year: Jan 1..Dec 31 is 366 inclusive local days.
+    assert (date(2024, 12, 31) - date(2024, 1, 1)).days + 1 == 366
+    validate_filters(date(2024, 1, 1), date(2024, 12, 31), 10)
+    # Rolling-365 heatmap spanning a leap day, and one day more than a non-leap year.
+    validate_filters(date(2023, 3, 1), date(2024, 2, 29), 10)
+    validate_filters(date(2025, 1, 1), date(2025, 12, 31), 10)
+    with pytest.raises(InvalidStatisticsRequest):
+        validate_filters(date(2024, 12, 31), date(2024, 1, 1), 10)
+
+
+@pytest.mark.parametrize("code", ["XX", "ZZ", "XW", "XE", "us", ""])
+def test_country_artists_invalid_code_rejected_before_database_access(code):
+    q = SQLStatisticsQueries(create_engine("sqlite://"))
+    with pytest.raises(InvalidStatisticsRequest):
+        q.query(
+            "countries/artists",
+            StatisticsFilter(date(2026, 1, 1), date(2026, 1, 1), "UTC", 10, code),
+        )
+
+
+def test_use_case_requires_code_only_for_country_artists():
+    class Never:
+        def query(self, family, filters):
+            raise AssertionError("must not reach the database")
+
+    use_case = GetStatistics(Never())
+    base = StatisticsFilter(date(2026, 1, 1), date(2026, 1, 1), "UTC", 10)
+    with pytest.raises(InvalidStatisticsRequest):
+        use_case.execute("countries/artists", base)
+    with pytest.raises(InvalidStatisticsRequest):
+        use_case.execute("countries", replace(base, country_code="US"))
 
 
 def test_public_unavailability_never_leaks_driver_details():
