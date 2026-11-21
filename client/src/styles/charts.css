@@ -1,0 +1,16 @@
+/* C2 chart polish. Colors come from the token contract (docs/ui-tokens.md) only. */
+.chart canvas { max-width: 100%; }
+
+.heat-legend { display: flex; align-items: center; justify-content: flex-end; gap: 3px; margin-top: .35rem; font-size: .65rem; color: var(--text-muted); }
+.heat-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.heat-legend span:first-child { margin-right: 3px; }
+.heat-legend span:last-child { margin-left: 3px; }
+
+/* Compact map legend: a thin gradient bar with min/max only. */
+.map-legend { display: flex; align-items: center; justify-content: center; gap: .4rem; margin-top: .25rem; font-size: .65rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.map-legend i { width: 72px; max-width: 30%; height: 4px; border-radius: 2px; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 40%, var(--surface-2)), var(--accent)); }
+
+/* Keyboard alternative to clicking a country: compact, scrollable toggle chips. */
+.map-picker { display: flex; flex-wrap: wrap; gap: .3rem; max-height: 5.5rem; overflow-y: auto; margin-top: .6rem; }
+.map-picker button { min-height: 0; padding: .15rem .5rem; font-size: .68rem; border-radius: var(--radius-lg); background: var(--surface-2); color: var(--text-muted); }
+.map-picker button[aria-pressed='true'] { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }

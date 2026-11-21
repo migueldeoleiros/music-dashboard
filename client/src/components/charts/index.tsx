@@ -1,10 +1,22 @@
-import { useId, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useMemo, type ReactNode } from 'react'
 import type { components } from '../../api/schema'
 import worldGeoJson from '../../assets/maps/world-countries.geo.json'
-import markerJson from '../../assets/maps/country-markers.json'
+import {
+  buildCountryOption,
+  buildEvolutionOption,
+  buildHeatmapOption,
+  buildPieOption,
+  countryName,
+  HEAT_LEVELS,
+  MAP_NAME,
+  markers,
+  nf,
+  pct,
+  polygonCodes,
+} from './builders'
 import { echarts } from './echarts'
-import { stableColor } from './stableColor'
-import { useECharts } from './useECharts'
+import { useECharts, type Opt } from './useECharts'
+import type { ChartTheme } from './theme'
 
 export { stableColor } from './stableColor'
 
@@ -13,31 +25,18 @@ type PieResponse = components['schemas']['PieResponse']
 type HeatmapResponse = components['schemas']['HeatmapResponse']
 type CountryResponse = components['schemas']['CountryResponse']
 
-const nf = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 })
-const yy = (y: number) => String(y).padStart(4, '0')
-const pct = (share: number) => `${nf.format(share * 100)}%`
-const TEXT = '#9aa0aa'
-const LINE = '#2c3038'
-
-function esc(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
-}
-
-/** Unique, isolating series/slice identity: real keys never collide with the synthetic Other. */
-const seriesId = (x: { key: string; is_other: boolean }) => `${x.is_other ? 'other' : 'key'}:${x.key}`
-
-type Opt = Parameters<ReturnType<typeof echarts.init>['setOption']>[0]
-
 function Frame(props: {
   label: string
   summary: string
   height: number
-  option: Opt
+  build: (t: ChartTheme) => Opt
   note?: ReactNode
+  legend?: ReactNode
   table: ReactNode
   register?: () => void
+  onClick?: (p: { componentType?: string; name?: string; data?: unknown }) => void
 }) {
-  const ref = useECharts(props.option, { register: props.register })
+  const ref = useECharts(props.build, { register: props.register, onClick: props.onClick })
   return (
     <figure className="chart" style={{ margin: 0, minWidth: 0 }}>
       <div
@@ -46,6 +45,7 @@ function Frame(props: {
         aria-label={`${props.label}. ${props.summary}`}
         style={{ width: '100%', height: props.height, maxWidth: '100%' }}
       />
+      {props.legend}
       {props.note ? <p className="chart-note">{props.note}</p> : null}
       <figcaption>
         <p className="chart-summary">{props.summary}</p>
@@ -62,77 +62,15 @@ function Frame(props: {
 export function EvolutionChart({ data }: { data: EvolutionResponse }) {
   const { buckets, series, bucket_unit: unit, dimension } = data
   const partialIdx = buckets.findIndex((b) => b.partial)
-  const label = (i: number) => {
-    const b = buckets[i]
-    return unit === 'month' ? b.start.slice(0, 7) : b.start
-  }
-  const labelOf = new Map(series.map((s) => [seriesId(s), s.label]))
-  const option = useMemo<Opt>(
-    () => ({
-      animation: false,
-      color: series.map((s) => stableColor(s.key, s.is_other)),
-      grid: { left: 8, right: 16, top: 16, bottom: 56, containLabel: true },
-      legend: { type: 'scroll', bottom: 0, textStyle: { color: TEXT }, formatter: (n: string) => labelOf.get(n) ?? n },
-      tooltip: {
-        trigger: 'axis',
-        confine: true,
-        formatter: (params: unknown) => {
-          const ps = params as { dataIndex: number; marker: string; seriesName: string; value: number }[]
-          if (!ps.length) return ''
-          const i = ps[0].dataIndex
-          const b = buckets[i]
-          const head = `${esc(b.start)} → ${esc(b.end)} (excl.)${b.partial ? ' · partial bucket' : ''}`
-          const rows = [...ps]
-            .sort((a, c) => c.value - a.value)
-            .map((p) => `${p.marker}${esc(labelOf.get(p.seriesName) ?? p.seriesName)}: <b>${nf.format(p.value)}</b>`)
-          return [head, ...rows].join('<br/>')
-        },
-      },
-      xAxis: {
-        type: 'category',
-        boundaryGap: false,
-        data: buckets.map((_, i) => label(i)),
-        axisLabel: { color: TEXT, hideOverlap: true },
-        axisLine: { lineStyle: { color: LINE } },
-      },
-      yAxis: {
-        type: 'value',
-        name: 'Weighted listens',
-        nameTextStyle: { color: TEXT, align: 'left' },
-        axisLabel: { color: TEXT },
-        splitLine: { lineStyle: { color: LINE } },
-      },
-      series: series.map((s, si) => ({
-        name: seriesId(s),
-        type: 'line',
-        showSymbol: buckets.length <= 40,
-        symbolSize: 4,
-        lineStyle: { width: 1.25 },
-        emphasis: { focus: 'series', lineStyle: { width: 2.5 } },
-        data: s.values,
-        ...(si === 0 && partialIdx >= 0
-          ? {
-              markLine: {
-                silent: true,
-                symbol: 'none',
-                lineStyle: { type: 'dashed', color: TEXT, width: 1 },
-                label: { color: TEXT, show: true, formatter: 'incomplete', position: 'insideEndTop' },
-                data: [{ xAxis: partialIdx }],
-              },
-            }
-          : {}),
-      })),
-    }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data],
-  )
+  const label = (i: number) => (unit === 'month' ? buckets[i].start.slice(0, 7) : buckets[i].start)
+  const build = useMemo(() => (t: ChartTheme) => buildEvolutionOption(data, t), [data])
   const partial = partialIdx >= 0 ? buckets[partialIdx] : null
   return (
     <Frame
       label={`Evolution of ${dimension}, ${series.length} series per ${unit}`}
       summary={`${series.length} series over ${buckets.length} ${unit} buckets from ${data.range.from} to ${data.range.to} (${data.range.tz}). Not cumulative.`}
       height={360}
-      option={option}
+      build={build}
       note={
         partial
           ? `The final ${unit} bucket (${partial.start} → ${partial.end}) is incomplete, so its values may be lower than complete buckets; compare it with them cautiously.`
@@ -173,46 +111,13 @@ export function EvolutionChart({ data }: { data: EvolutionResponse }) {
 // ---------- Pie ----------
 export function PieChart({ data }: { data: PieResponse }) {
   const { slices, dimension } = data
-  const labelOf = new Map(slices.map((s) => [seriesId(s), s.label]))
-  const option = useMemo<Opt>(
-    () => ({
-      animation: false,
-      tooltip: {
-        trigger: 'item',
-        confine: true,
-        formatter: (p: unknown) => {
-          const x = p as { name: string; value: number; data: { share: number }; marker: string }
-          return `${x.marker}${esc(labelOf.get(x.name) ?? x.name)}<br/><b>${nf.format(x.value)}</b> listens · ${pct(x.data.share)}`
-        },
-      },
-      legend: { type: 'scroll', bottom: 0, textStyle: { color: TEXT }, formatter: (n: string) => labelOf.get(n) ?? n },
-      series: [
-        {
-          type: 'pie',
-          radius: ['35%', '68%'],
-          center: ['50%', '45%'],
-          minAngle: 2,
-          label: { show: false },
-          itemStyle: { borderColor: '#14161a', borderWidth: 1 },
-          emphasis: { scale: true, scaleSize: 6 },
-          data: slices.map((s) => ({
-            name: seriesId(s),
-            value: s.listens,
-            share: s.share,
-            itemStyle: { color: stableColor(s.key, s.is_other) },
-          })),
-        },
-      ],
-    }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data],
-  )
+  const build = useMemo(() => (t: ChartTheme) => buildPieOption(data, t), [data])
   return (
     <Frame
       label={`Share of ${dimension}`}
       summary={`${slices.length} slices${slices[0] ? `; largest: ${slices[0].label} (${pct(slices[0].share)})` : ''}.`}
       height={340}
-      option={option}
+      build={build}
       table={
         <table>
           <caption className="sr-only">Share of {dimension}</caption>
@@ -238,191 +143,51 @@ export function PieChart({ data }: { data: PieResponse }) {
   )
 }
 
-// ---------- Heatmap ----------
-const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const DAY_MS = 86400000
-
-// Pure UTC civil-date arithmetic: no local-time parsing, safe for any browser TZ and years 0001..0099.
-function epochDay(iso: string): number {
-  return Math.round((Date.parse(`${iso}T12:00:00Z`) - 12 * 3600000) / DAY_MS)
-}
-function isoOf(day: number): string {
-  return new Date(day * DAY_MS).toISOString().slice(0, 10)
-}
-/** Monday=0 .. Sunday=6 (1970-01-01 was a Thursday). */
-function weekdayOf(day: number): number {
-  return (((day + 3) % 7) + 7) % 7
-}
-
-export function buildYearGrid(
-  cells: { day: string; listens: number }[],
-  year: number,
-  rangeFrom: string,
-  rangeTo: string,
-) {
-  const y = yy(year)
-  const startIso = rangeFrom > `${y}-01-01` ? rangeFrom : `${y}-01-01`
-  const endIso = rangeTo < `${y}-12-31` ? rangeTo : `${y}-12-31`
-  const points: [number, number, number, string][] = []
-  const monthLabels: string[] = []
-  if (startIso > endIso) return { points, monthLabels }
-  const values = new Map(cells.map((c) => [c.day, c.listens]))
-  const start = epochDay(startIso)
-  const end = epochDay(endIso)
-  const firstWeek = start - weekdayOf(start)
-  let lastMonth = -1
-  for (let d = start; d <= end; d++) {
-    const col = (d - weekdayOf(d) - firstWeek) / 7
-    const row = weekdayOf(d)
-    const iso = isoOf(d)
-    points.push([col, row, values.get(iso) ?? 0, iso])
-    if (monthLabels[col] === undefined) {
-      const m = Number(iso.slice(5, 7)) - 1
-      monthLabels[col] = m !== lastMonth ? MONTHS[m] : ''
-      lastMonth = m
-    }
-  }
-  return { points, monthLabels }
-}
-
+// ---------- Heatmap (rolling window, no year logic) ----------
 export function HeatmapChart({ data }: { data: HeatmapResponse }) {
-  const years = useMemo(() => {
-    // Extreme dates are API all-history bounds, not useful empty calendar years.
-    const firstDay = data.range.from === '0001-01-01' && data.cells.length ? data.cells[0].day : data.range.from
-    const lastDay = data.range.to === '9999-12-31' && data.cells.length ? data.cells[data.cells.length - 1].day : data.range.to
-    const first = Number(firstDay.slice(0, 4))
-    const last = Number(lastDay.slice(0, 4))
-    // Include quiet years between listens, not just years with nonzero cells.
-    return Array.from({ length: last - first + 1 }, (_, i) => first + i)
-  }, [data.cells, data.range.from, data.range.to])
-  const latestWithCells = useMemo(
-    () => data.cells.reduce((m, c) => Math.max(m, Number(c.day.slice(0, 4))), 0) || years[years.length - 1],
-    [data.cells, years],
-  )
-  const [picked, setPicked] = useState<number | null>(null)
-  const year = picked !== null && years.includes(picked) ? picked : latestWithCells
   const max = useMemo(() => data.cells.reduce((m, c) => Math.max(m, c.listens), 0), [data.cells])
   const total = useMemo(() => data.cells.reduce((s, c) => s + c.listens, 0), [data.cells])
-  const yearTotal = useMemo(
-    () => data.cells.filter((c) => c.day.startsWith(`${yy(year)}-`)).reduce((s, c) => s + c.listens, 0),
-    [data.cells, year],
-  )
-  const yearCells = useMemo(
-    () => data.cells.filter((c) => c.day.startsWith(`${yy(year)}-`)),
-    [data.cells, year],
-  )
-  const selectId = useId()
-
-  const grid = useMemo(
-    () => buildYearGrid(data.cells, year, data.range.from, data.range.to),
-    [data.cells, year, data.range.from, data.range.to],
-  )
-
-  const option = useMemo<Opt>(() => {
-    return {
-      animation: false,
-      tooltip: {
-        confine: true,
-        formatter: (p: unknown) => {
-          const v = (p as { value: [number, number, number, string] }).value
-          return `${esc(v[3])}<br/><b>${nf.format(v[2])}</b> listens`
-        },
-      },
-      visualMap: {
-        min: 0,
-        max: Math.max(max, 1),
-        dimension: 2,
-        type: 'piecewise',
-        orient: 'horizontal',
-        left: 'center',
-        bottom: 0,
-        itemWidth: 12,
-        itemHeight: 12,
-        splitNumber: 4,
-        textStyle: { color: TEXT },
-        inRange: { color: ['#1d2a22', '#0e4429', '#006d32', '#26a641', '#39d353'] },
-      },
-      grid: { top: 24, left: 36, right: 8, height: 7 * 16 },
-      xAxis: {
-        type: 'category',
-        position: 'top',
-        data: grid.monthLabels.map((_, i) => String(i)),
-        axisLine: { show: false },
-        axisTick: { show: false },
-        splitLine: { show: false },
-        axisLabel: {
-          color: TEXT,
-          interval: 0,
-          formatter: (v: string) => grid.monthLabels[Number(v)] ?? '',
-        },
-      },
-      yAxis: {
-        type: 'category',
-        inverse: true, // Monday on top
-        data: WEEKDAYS,
-        axisLine: { show: false },
-        axisTick: { show: false },
-        axisLabel: { color: TEXT, interval: 0 },
-      },
-      series: [
-        {
-          type: 'heatmap',
-          data: grid.points,
-          itemStyle: { borderWidth: 2, borderColor: '#14161a' },
-          emphasis: { itemStyle: { borderColor: '#f0b429' } },
-        },
-      ],
-    }
-  }, [grid, max])
-
+  const active = useMemo(() => data.cells.filter((c) => c.listens > 0), [data.cells])
+  const build = useMemo(() => (t: ChartTheme) => buildHeatmapOption(data, t), [data])
   return (
-    <div style={{ minWidth: 0 }}>
-      <div className="chart-controls">
-        <label htmlFor={selectId}>Year </label>
-        <select id={selectId} value={year} onChange={(e) => setPicked(Number(e.target.value))}>
-          {[...years].reverse().map((y) => (
-            <option key={y} value={y}>
-              {yy(y)}
-            </option>
+    <Frame
+      label="Daily listening heatmap, weeks start Monday"
+      summary={`${nf.format(total)} listens across ${active.length} active days from ${data.range.from} to ${data.range.to} (${data.range.tz}); busiest day ${nf.format(max)} listens.`}
+      height={7 * 16 + 28}
+      build={build}
+      legend={
+        <div className="heat-legend" aria-hidden="true">
+          <span>Less</span>
+          {HEAT_LEVELS.map((share, i) => (
+            <i key={i} style={{ background: `color-mix(in srgb, var(--accent) ${share * 100}%, var(--surface-2))` }} />
           ))}
-        </select>
-        <p className="chart-note">
-          Selected range {data.range.from} to {data.range.to} ({nf.format(total)} listens in total). The calendar
-          and data table show one year at a time: {nf.format(yearTotal)} listens in {yy(year)}.
-        </p>
-      </div>
-      <Frame
-        label={`Daily listening heatmap for ${year}, weeks start Monday`}
-        summary={`${nf.format(total)} listens across ${data.cells.filter((c) => c.listens > 0).length} active days from ${data.range.from} to ${data.range.to} (${data.range.tz}); busiest day ${nf.format(max)} listens. Showing ${year}.`}
-        height={7 * 16 + 24 + 48}
-        option={option}
-        table={
-          <table>
-            <caption className="sr-only">Listens per day in {yy(year)}</caption>
-            <thead>
-              <tr>
-                <th scope="col">Day</th>
-                <th scope="col">Listens</th>
+          <span>More</span>
+        </div>
+      }
+      table={
+        <table>
+          <caption className="sr-only">Listens per day</caption>
+          <thead>
+            <tr>
+              <th scope="col">Day</th>
+              <th scope="col">Listens</th>
+            </tr>
+          </thead>
+          <tbody>
+            {active.map((c) => (
+              <tr key={c.day}>
+                <th scope="row">{c.day}</th>
+                <td>{nf.format(c.listens)}</td>
               </tr>
-            </thead>
-            <tbody>
-              {yearCells.map((c) => (
-                <tr key={c.day}>
-                  <th scope="row">{c.day}</th>
-                  <td>{nf.format(c.listens)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        }
-      />
-    </div>
+            ))}
+          </tbody>
+        </table>
+      }
+    />
   )
 }
 
 // ---------- Country ----------
-const MAP_NAME = 'natural-earth-countries'
 let mapRegistered = false
 function registerWorldMap() {
   if (mapRegistered) return
@@ -430,126 +195,71 @@ function registerWorldMap() {
   mapRegistered = true
 }
 
-const polygonCodes = new Set(
-  (worldGeoJson as unknown as { features: { properties: { code: string } }[] }).features.map(
-    (f) => f.properties.code,
-  ),
-)
-const markers = markerJson as unknown as Record<string, [number, number, string]>
-
-function regionName(code: string): string {
-  try {
-    return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code
-  } catch {
-    return code
-  }
+export type CountryChartProps = {
+  data: CountryResponse
+  /** ISO alpha-2 of the highlighted country; null/undefined clears the highlight. */
+  selectedCountry?: string | null
+  /**
+   * Fired with the code when a country WITH listens is clicked (or chosen from the keyboard
+   * list); fired with null when the already-selected country is clicked again (toggle off).
+   * Countries without listens are not selectable.
+   */
+  onCountrySelect?: (code: string | null) => void
 }
 
-const countryNames = new Map(
-  (worldGeoJson as unknown as { features: { properties: { code: string; name: string } }[] }).features.map(
-    (f) => [f.properties.code, f.properties.name],
-  ),
-)
-
-export function CountryChart({ data }: { data: CountryResponse }) {
+export function CountryChart({ data, selectedCountry = null, onCountrySelect }: CountryChartProps) {
   const countries = data.countries
   const max = countries.reduce((m, c) => Math.max(m, c.listens), 0)
-  const markerPoints = useMemo(
-    () =>
-      countries
-        .filter((c) => !polygonCodes.has(c.code.toUpperCase()) && markers[c.code.toUpperCase()])
-        .map((c) => {
-          const m = markers[c.code.toUpperCase()]
-          return {
-            name: countryNames.get(c.code.toUpperCase()) ?? regionName(c.code.toUpperCase()),
-            value: [m[0], m[1], c.listens],
-            share: c.share,
-          }
-        }),
-    [countries],
+  const sel = selectedCountry?.toUpperCase() ?? null
+  const withListens = useMemo(() => new Set(countries.map((c) => c.code.toUpperCase())), [countries])
+  const build = useMemo(
+    () => (t: ChartTheme) => {
+      registerWorldMap()
+      return buildCountryOption(data, t, sel)
+    },
+    [data, sel],
   )
-  const markerCodes = useMemo(() => new Set(markerPoints.map((m) => m.name)), [markerPoints])
-  const option = useMemo<Opt>(() => {
-    registerWorldMap()
-    return {
-      animation: false,
-      tooltip: {
-        trigger: 'item',
-        confine: true,
-        formatter: (p: unknown) => {
-          const x = p as { name: string; value?: number | number[]; data?: { value: number | number[]; share: number } }
-          if (!x.data) return `${esc(x.name)}<br/>No listens`
-          const v = Array.isArray(x.data.value) ? x.data.value[2] : x.data.value
-          return `${esc(x.name)}<br/><b>${nf.format(v)}</b> listens · ${pct(x.data.share)}`
-        },
-      },
-      visualMap: {
-        min: 0,
-        max: Math.max(max, 1),
-        calculable: true,
-        orient: 'horizontal',
-        left: 'center',
-        bottom: 0,
-        seriesIndex: [0, 1],
-        textStyle: { color: TEXT },
-        inRange: { color: ['#1f3a4d', '#2f7ea8', '#7fd0f0'] },
-      },
-      geo: {
-        map: MAP_NAME,
-        nameProperty: 'code',
-        roam: false,
-        layoutCenter: ['50%', '46%'],
-        layoutSize: '100%',
-        itemStyle: { areaColor: '#1b1e24', borderColor: '#3a3f49', borderWidth: 0.5 },
-        emphasis: { label: { show: false }, itemStyle: { areaColor: '#f0b429' } },
-        select: { disabled: true },
-      },
-      series: [
-        {
-          type: 'map',
-          geoIndex: 0,
-          data: countries.map((c) => ({
-            name: c.code.toUpperCase(),
-            value: c.listens,
-            share: c.share,
-          })),
-        },
-        {
-          type: 'scatter',
-          coordinateSystem: 'geo',
-          geoIndex: 0,
-          symbol: 'circle',
-          symbolSize: 11,
-          itemStyle: { borderColor: '#ffffff', borderWidth: 1.5 },
-          emphasis: { scale: 1.4 },
-          z: 5,
-          data: markerPoints,
-        },
-      ],
-    }
-  }, [countries, max, markerPoints])
-  const nameOf = (code: string) => countryNames.get(code.toUpperCase()) ?? regionName(code.toUpperCase())
-  // Tooltip shows ISO code as name when nameProperty is code: map to readable name.
-  const readable = useMemo<Opt>(() => {
-    const o = option as { tooltip: { formatter: (p: unknown) => string } }
-    return {
-      ...option,
-      tooltip: {
-        ...o.tooltip,
-        formatter: (p: unknown) => {
-          const x = p as { name: string }
-          return o.tooltip.formatter({ ...x, name: markerCodes.has(x.name) ? x.name : nameOf(x.name) })
-        },
-      },
-    } as Opt
-  }, [option, markerCodes])
+  const markerCount = countries.filter((c) => !polygonCodes.has(c.code.toUpperCase()) && markers[c.code.toUpperCase()]).length
+  const select = (code: string) => onCountrySelect?.(code.toUpperCase() === sel ? null : code.toUpperCase())
+  const onClick = useCallback(
+    (p: { data?: unknown; name?: string }) => {
+      const d = p.data as { code?: string } | undefined
+      const code = (d?.code ?? p.name ?? '').toUpperCase()
+      if (!code || !withListens.has(code)) return
+      select(code)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [withListens, sel, onCountrySelect],
+  )
   return (
     <Frame
       label="Listens by artist country"
-      summary={`${countries.length} countries${markerPoints.length ? ` (${markerPoints.length} shown as markers because they have no polygon)` : ''}${countries[0] ? `; top: ${nameOf(countries[0].code)} (${pct(countries[0].share)})` : ''}. ${data.partial_credit_note}`}
+      summary={`${countries.length} countries${markerCount ? ` (${markerCount} shown as markers because they have no polygon)` : ''}${countries[0] ? `; top: ${countryName(countries[0].code)} (${pct(countries[0].share)})` : ''}. ${data.partial_credit_note}`}
       height={380}
-      option={readable}
+      build={build}
+      onClick={onClick}
       register={registerWorldMap}
+      legend={
+        <>
+          <div className="map-legend" aria-hidden="true">
+            <span>0</span>
+            <i />
+            <span>{nf.format(max)}</span>
+          </div>
+          {onCountrySelect ? (
+            <div className="map-picker" role="group" aria-label="Select a country">
+              {countries.map((c) => {
+                const code = c.code.toUpperCase()
+                return (
+                  <button type="button" key={code} aria-pressed={code === sel} onClick={() => select(code)}>
+                    {countryName(code)}
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
+        </>
+      }
       table={
         <table>
           <caption className="sr-only">Weighted listens by country</caption>
@@ -564,7 +274,7 @@ export function CountryChart({ data }: { data: CountryResponse }) {
             {countries.map((c) => (
               <tr key={c.code}>
                 <th scope="row">
-                  {nameOf(c.code)} ({c.code.toUpperCase()})
+                  {countryName(c.code)} ({c.code.toUpperCase()})
                   {!polygonCodes.has(c.code.toUpperCase()) && markers[c.code.toUpperCase()]
                     ? ' — shown as marker on map'
                     : ''}

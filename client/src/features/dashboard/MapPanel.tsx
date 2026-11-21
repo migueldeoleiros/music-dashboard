@@ -4,14 +4,16 @@ import { EmptyState } from './ChartSection'
 
 export type MapPanelProps = {
   data: components['schemas']['CountryResponse']
-  /** ISO alpha-2 code of the selected country, if any (C2 renders it, Phase 2 wires it). */
+  /** ISO alpha-2 code of the selected country, if any; null clears the highlight. */
   selectedCountry?: string | null
-  /** Called with an ISO alpha-2 code when the user selects a country (C2 emits it). */
-  onCountrySelect?: (code: string) => void
+  /**
+   * Called with an ISO alpha-2 code when the user selects a country that has listens, and with
+   * null when the selected country is clicked again (toggle off).
+   */
+  onCountrySelect?: (code: string | null) => void
 }
 
-// Extension point (C2 map / C3 country panel). selectedCountry/onCountrySelect are accepted but
-// not forwarded yet: CountryChart gains matching props in C2 and this component wires them then.
-export function MapPanel({ data }: MapPanelProps) {
-  return data.countries.length ? <CountryChart data={data} /> : <EmptyState />
+// Extension point (C2 map / C3 country panel): forwards selection props to CountryChart.
+export function MapPanel({ data, selectedCountry, onCountrySelect }: MapPanelProps) {
+  return data.countries.length ? <CountryChart data={data} selectedCountry={selectedCountry} onCountrySelect={onCountrySelect} /> : <EmptyState />
 }
