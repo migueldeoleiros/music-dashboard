@@ -1,3 +1,4 @@
+from .artwork import Artwork
 from .base import Base
 from .ingestion import QuarantinedListen, RawListen, SyncRun, SyncState
 from .listening import Listen, ListenArtist
@@ -12,6 +13,7 @@ from .metadata import (
 from .reference import Timezone
 
 __all__ = [
+    "Artwork",
     "ArtistCountry",
     "Base",
     "DataGeneration",
