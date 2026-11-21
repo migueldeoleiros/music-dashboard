@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/countries/{code}/artists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Country Artists */
+        get: operations["countries_artists"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/evolution/artists": {
         parameters: {
             query?: never;
@@ -453,6 +470,12 @@ export interface components {
         /** RankedEntity */
         RankedEntity: {
             /**
+             * Image Url
+             * @description Artwork URL; null until artwork enrichment (placeholder)
+             * @default null
+             */
+            image_url: string | null;
+            /**
              * Key
              * @description Stable MBID or normalized namespaced fallback identity
              */
@@ -534,6 +557,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CountryResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    countries_artists: {
+        parameters: {
+            query: {
+                /** @description Inclusive local start date */
+                from: string;
+                /** @description Inclusive local end date */
+                to: string;
+                /** @description Supported IANA timezone, canonicalized */
+                tz: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Uppercase ISO 3166-1 alpha-2 country code */
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RankingResponse"];
                 };
             };
             /** @description Bad Request */

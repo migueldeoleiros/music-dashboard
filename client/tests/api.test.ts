@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { ApiError, fetchChart, fetchHealth } from '../src/api/client'
+import { ApiError, COUNTRY_ARTISTS_LIMIT, fetchChart, fetchCountryArtists, fetchHealth } from '../src/api/client'
 
 const filters = { from: '2026-01-05', to: '2026-01-05', tz: 'UTC' }
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs() })
@@ -41,5 +41,38 @@ it('standalone fixture mode never calls fetch, and every family resolves without
     expect(result.fixture).toBe(true)
   }
   expect((await fetchHealth()).mode).toBe('fixture')
+  expect(fetch).not.toHaveBeenCalled()
+})
+
+it('requests country artists on the path-param route with encoded code, filters and limit', async () => {
+  vi.stubEnv('VITE_MOCK_API', 'false')
+  const fetch = vi.fn(async (url: string, options?: RequestInit) => { void url; void options; return new Response('{}') })
+  vi.stubGlobal('fetch', fetch)
+  const signal = new AbortController().signal
+  await fetchCountryArtists('US', { ...filters, tz: 'Asia/Kathmandu' }, signal)
+  const url = new URL(String(fetch.mock.calls[0][0]), 'http://localhost')
+  expect(url.pathname).toBe('/api/countries/US/artists')
+  expect(url.searchParams.get('limit')).toBe(String(COUNTRY_ARTISTS_LIMIT))
+  expect(url.searchParams.get('tz')).toBe('Asia/Kathmandu'); expect(url.searchParams.get('from')).toBe(filters.from)
+  expect(fetch.mock.calls[0][1]?.signal).toBe(signal)
+  await fetchCountryArtists('a/b?', filters)
+  expect(new URL(String(fetch.mock.calls[1][0]), 'http://localhost').pathname).toBe('/api/countries/a%2Fb%3F/artists')
+})
+it('mock country artists make no network calls and reconcile with mock countries totals', async () => {
+  vi.stubEnv('VITE_MOCK_API', 'true')
+  const fetch = vi.fn(() => { throw new Error('Network forbidden') })
+  vi.stubGlobal('fetch', fetch)
+  const countries = await fetchChart('/api/countries', filters)
+  for (const country of countries.countries) {
+    const result = await fetchCountryArtists(country.code, filters)
+    expect(result.fixture).toBe(true); expect(result.dimension).toBe('artists')
+    expect(result.items.length).toBeGreaterThan(0)
+    expect(result.items.reduce((sum, item) => sum + item.listens, 0)).toBeCloseTo(country.listens)
+    expect(result.items.reduce((sum, item) => sum + item.share, 0)).toBeCloseTo(country.share)
+    expect(result.items.every(item => item.image_url === null)).toBe(true)
+  }
+  expect((await fetchCountryArtists('FR', filters)).items).toEqual([])
+  await expect(fetchCountryArtists('ZZ', filters)).rejects.toBeInstanceOf(ApiError)
+  await expect(fetchCountryArtists('us', filters)).rejects.toBeInstanceOf(ApiError)
   expect(fetch).not.toHaveBeenCalled()
 })
