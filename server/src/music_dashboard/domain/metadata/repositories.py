@@ -1,6 +1,14 @@
+from datetime import datetime
 from typing import Protocol
 
-from music_dashboard.domain.metadata.entities import EntityType, MetadataEntry
+from music_dashboard.domain.metadata.entities import (
+    CachedLookup,
+    EnrichmentWork,
+    EntityType,
+    MetadataEntry,
+    MetadataSource,
+)
+from music_dashboard.domain.metadata.policies import GenreVote
 
 
 class MetadataRepository(Protocol):
@@ -8,3 +16,23 @@ class MetadataRepository(Protocol):
     def save(self, entry: MetadataEntry) -> None: ...
     def enqueue(self, entity_type: EntityType, mbid: str, priority: int) -> None: ...
     def increment_generation(self) -> int: ...
+
+
+class EnrichmentRepository(Protocol):
+    def refresh_queue(self, now: datetime) -> None: ...
+    def ready(self, now: datetime, limit: int) -> list[EnrichmentWork]: ...
+    def cached(
+        self, entity_type: EntityType, mbid: str, source: MetadataSource
+    ) -> CachedLookup | None: ...
+    def save_lookup(self, lookup: CachedLookup) -> None: ...
+    def source_retry_at(self, source: MetadataSource) -> datetime | None: ...
+    def reject(self, work: EnrichmentWork, now: datetime) -> None: ...
+    def complete(
+        self,
+        work: EnrichmentWork,
+        votes: list[GenreVote],
+        country: str | None,
+        next_retry_at: datetime,
+        now: datetime,
+    ) -> None: ...
+    def retry(self, work: EnrichmentWork, next_retry_at: datetime, now: datetime) -> None: ...
