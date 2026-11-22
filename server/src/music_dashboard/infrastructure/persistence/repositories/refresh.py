@@ -104,6 +104,10 @@ class RefreshRepository:
     ) -> bool:
         statuses = ", ".join(f"'{s}'" for s in allowed)
         with self._engine.begin() as c:
+            # UPDATE predicates can be evaluated before waiting on a row lock. Lock
+            # first, then evaluate the database clock in subsequent statements, even
+            # when an admission transaction locked this row without changing it.
+            c.execute(text("SELECT singleton FROM refresh_state WHERE singleton FOR UPDATE"))
             # Read-side expiry is terminal too: a slow worker must not turn an already
             # expired UUID into success after the UI stopped waiting for it.
             c.execute(

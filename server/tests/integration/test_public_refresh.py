@@ -369,6 +369,53 @@ def test_expiry_crossed_between_claim_and_start_never_calls_upstream(
     assert got["request_id"] == req["request_id"] and got["status"] == "expired"
 
 
+@pytest.mark.parametrize("transition", ["running", "succeeded"])
+def test_transition_rechecks_expiry_after_waiting_for_unchanged_row_lock(api, writer, transition):
+    from concurrent.futures import ThreadPoolExecutor
+    from time import monotonic
+
+    req = admit(api)
+    with writer.begin() as c:
+        c.execute(text("UPDATE refresh_state SET expires_at = clock_timestamp() + interval '2 s'"))
+    repo = RefreshRepository(writer)
+    with ThreadPoolExecutor(max_workers=1) as pool, writer.connect() as holder, holder.begin():
+        holder.execute(text("SELECT singleton FROM refresh_state FOR UPDATE"))
+        action = (
+            repo.mark_running
+            if transition == "running"
+            else lambda rid: repo.finish(rid, transition)
+        )
+        future = pool.submit(action, req["request_id"])
+        # Confirm the second transaction really waits on our unchanged row. This is
+        # database synchronization, not an arbitrary delay to guess thread scheduling.
+        deadline = monotonic() + 5
+        while True:
+            holder.execute(text("SELECT pg_stat_clear_snapshot()"))
+            waiting = holder.execute(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM pg_stat_activity "
+                    "WHERE usename = current_user AND pid <> pg_backend_pid() "
+                    "AND wait_event_type = 'Lock' AND query LIKE '%refresh_state%')"
+                )
+            ).scalar_one()
+            if waiting:
+                break
+            assert monotonic() < deadline, "transition never waited for the row lock"
+        # Real PostgreSQL clock semantics require crossing a real deadline; derive
+        # the wait from that deadline rather than sleep a guessed number of seconds.
+        holder.execute(
+            text(
+                "SELECT pg_sleep(GREATEST(0, "
+                "EXTRACT(epoch FROM (expires_at - clock_timestamp()))) + 0.01) "
+                "FROM refresh_state"
+            )
+        )
+        holder.commit()  # no row changes: old UPDATE predicates would not be rechecked
+        assert future.result(timeout=5) is False
+    got = status(api)
+    assert got["status"] == "expired" and got["started_at"] is None
+
+
 def test_claim_uses_database_clock_not_old_scan_anchor(api, writer, worker):
     job, client = worker
     seed_checkpoint(writer, last_export_at=datetime.now(UTC))
