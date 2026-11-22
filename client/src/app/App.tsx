@@ -7,6 +7,7 @@ import { CountryArtistsPanel } from '../features/origin-map/CountryArtistsPanel'
 import { CountryRankingPanel } from '../features/origin-map/CountryRankingPanel'
 import { CoverageNote } from '../components/ui/CoverageNote'
 import { SyncStatus } from '../components/ui/SyncStatus'
+import { RefreshControl } from '../components/ui/RefreshControl'
 
 type State = { filters: Filters; period: Period }
 // The request timezone always comes from the browser; it is never read from or written to the URL.
@@ -67,6 +68,7 @@ export function App() {
     <Controls filters={filters} period={period} onChange={apply}>
       {!error && <PeriodCoverage filters={filters} />}
       <SyncStatus />
+      <RefreshControl />
     </Controls>
     {timezoneNotice && <p className="notice" role="status">{timezoneNotice}</p>}
     {import.meta.env.VITE_MOCK_API === 'true' && <p className="notice">Standalone synthetic preview — no API or music-service requests. <a href="?from=2026-01-05&to=2026-01-05&tz=UTC&fixture=partial">Load foundation sample</a> · <a href="?from=2026-01-05&to=2026-01-05&tz=UTC&fixture=full">100% coverage</a> · <a href="?from=2026-01-05&to=2026-01-05&tz=UTC&fixture=empty">Empty sample</a></p>}

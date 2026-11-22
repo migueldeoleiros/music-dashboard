@@ -18,8 +18,11 @@ def test_contract_is_frozen() -> None:
 
 
 def test_all_chart_families_and_get_only() -> None:
-    paths = app.openapi()["paths"]
+    all_paths = app.openapi()["paths"]
+    assert set(all_paths["/api/refresh"]) == {"get", "post"}
+    paths = {p: ops for p, ops in all_paths.items() if p != "/api/refresh"}
     assert len(paths) == 12
+    assert len(all_paths) == 13
     assert "/api/countries/{code}/artists" in paths
     for path, operations in paths.items():
         assert set(operations) == {"get"}

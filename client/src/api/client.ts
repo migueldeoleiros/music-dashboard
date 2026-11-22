@@ -4,7 +4,7 @@ import type { Filters } from '../features/dashboard/filters'
 type Schemas = components['schemas']
 export type CountryArtistsPath = '/api/countries/{code}/artists'
 // Code-free, query-only chart routes. The path-param route has its own typed fetcher.
-export type ChartPath = Exclude<keyof paths, '/api/health' | CountryArtistsPath>
+export type ChartPath = Exclude<keyof paths, '/api/health' | '/api/refresh' | CountryArtistsPath>
 export const COUNTRY_ARTISTS_LIMIT = 50
 export type ChartResponse<P extends ChartPath | CountryArtistsPath> = paths[P]['get']['responses'][200]['content']['application/json']
 export type ChartData = Schemas['RankingResponse'] | Schemas['HeatmapResponse'] | Schemas['CountryResponse'] | Schemas['EvolutionResponse'] | Schemas['PieResponse']

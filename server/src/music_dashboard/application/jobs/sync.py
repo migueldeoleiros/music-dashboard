@@ -15,7 +15,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from music_dashboard.application.reconcile_history import reconcile_history
-from music_dashboard.application.sync_listens import SyncBusy, sync_listens
+from music_dashboard.application.sync_listens import (
+    BoundaryAmbiguity,
+    SyncBusy,
+    failure_stats,
+    sync_listens,
+)
 
 DEFAULT_EXPORT_MAX_BYTES = 64 << 20
 MIN_EXPORT_MAX_BYTES = 1 << 20
@@ -62,11 +67,29 @@ class WorkerSyncSettings:
         return cls(fixture, user or "fixture-user", token, overlap, interval, reconcile, export_cap)
 
 
+def _build_client(config: WorkerSyncSettings) -> Any:
+    from music_dashboard.infrastructure.listenbrainz.fixtures import FixtureListenBrainzClient
+
+    if config.fixture_mode:
+        return FixtureListenBrainzClient()
+    from music_dashboard.infrastructure.listenbrainz.listens import ListenBrainzClient
+    from music_dashboard.infrastructure.listenbrainz.transport import (
+        ListenBrainzTransport,
+        UrllibHttpTransport,
+    )
+
+    return ListenBrainzClient(
+        ListenBrainzTransport(
+            UrllibHttpTransport(max_body_bytes=config.export_max_bytes), token=config.token
+        ),
+        max_zip_bytes=config.export_max_bytes,
+    )
+
+
 def run_sync(
     kind: str, *, allow_large_delete: bool = False, scheduled: bool = False
 ) -> dict[str, Any]:
     # Composition belongs at the registry edge, not in inward use cases.
-    from music_dashboard.infrastructure.listenbrainz.fixtures import FixtureListenBrainzClient
     from music_dashboard.infrastructure.persistence.database import create_db_engine
     from music_dashboard.infrastructure.persistence.repositories.listening_sync import (
         SyncRepository,
@@ -75,22 +98,7 @@ def run_sync(
     config = WorkerSyncSettings.from_env()
     if scheduled and config.fixture_mode:
         return {"status": "fixture-idle"}
-    client: Any
-    if config.fixture_mode:
-        client = FixtureListenBrainzClient()
-    else:
-        from music_dashboard.infrastructure.listenbrainz.listens import ListenBrainzClient
-        from music_dashboard.infrastructure.listenbrainz.transport import (
-            ListenBrainzTransport,
-            UrllibHttpTransport,
-        )
-
-        client = ListenBrainzClient(
-            ListenBrainzTransport(
-                UrllibHttpTransport(max_body_bytes=config.export_max_bytes), token=config.token
-            ),
-            max_zip_bytes=config.export_max_bytes,
-        )
+    client = _build_client(config)
     engine = create_db_engine()
     try:
         repository = SyncRepository(engine)
@@ -151,3 +159,91 @@ def run_sync(
 
 def tick() -> None:
     run_sync("incremental", scheduled=True)
+
+
+def public_refresh_enabled() -> bool:
+    """Worker opt-in, same variable as the API (default off); no other config is read."""
+    return os.environ.get("MUSIC_PUBLIC_REFRESH_ENABLED", "false").strip().lower() in {
+        "true",
+        "1",
+        "yes",
+    }
+
+
+def run_public_refresh(now: datetime | None = None) -> dict[str, Any]:
+    """Serve the durable public refresh request (incremental ONLY, never an export).
+
+    Same gates as the scheduled tick, evaluated under the per-user advisory lock: upstream
+    rate limit, per-kind retry deadline, `requires_reconcile` and the initial export
+    (`last_export_at`) prerequisite. A closed gate defers the request (retried every tick
+    until it expires); reconciliation is left to the normal schedule. A `running` row seen
+    while holding the lock is an orphan of a dead worker and is recovered to pending.
+    """
+    if not public_refresh_enabled():
+        # Opt-out is total: no config parsing, no database access, queued rows untouched.
+        return {"status": "disabled"}
+    from music_dashboard.infrastructure.persistence.database import create_db_engine
+    from music_dashboard.infrastructure.persistence.repositories.listening_sync import (
+        SyncRepository,
+    )
+    from music_dashboard.infrastructure.persistence.repositories.refresh import (
+        RefreshRepository,
+    )
+
+    config = WorkerSyncSettings.from_env()
+    engine = create_db_engine()
+    try:
+        refresh = RefreshRepository(engine)
+        repository = SyncRepository(engine)
+        now = now or datetime.now(UTC)
+        if not refresh.has_active():
+            return {"status": "idle"}
+        with repository.locked(config.user) as acquired:
+            if not acquired:
+                return {"status": "busy"}  # scheduled sync owns the lock; retry next tick
+            request = refresh.claim(now)
+            if request is None:
+                return {"status": "idle"}
+            rid = request.request_id
+            if config.fixture_mode:
+                refresh.finish(rid, "failed", "fixture_mode")
+                return {"status": "failed"}
+            rate = repository.rate_limit_until(config.user)
+            retry = repository.next_retry(config.user, "incremental")
+            state = repository.load_checkpoint(config.user)
+            if rate is not None and rate > now:
+                refresh.mark_deferred(rid, "rate_limited", rate)
+                return {"status": "deferred"}
+            if retry is not None and retry > now:
+                refresh.mark_deferred(rid, "retry_scheduled", retry)
+                return {"status": "deferred"}
+            if state.get("requires_reconcile"):
+                refresh.mark_deferred(rid, "requires_reconcile")
+                return {"status": "deferred"}
+            if state.get("last_export_at") is None:
+                refresh.mark_deferred(rid, "awaiting_initial_export")
+                return {"status": "deferred"}
+            if not refresh.mark_running(rid, now):
+                return {"status": "superseded"}
+            try:
+                result = sync_listens(
+                    _build_client(config),
+                    repository,
+                    config.user,
+                    now=now,
+                    overlap=timedelta(hours=config.overlap_hours),
+                )
+            except SyncBusy:
+                refresh.mark_deferred(rid, "retry_scheduled")
+                return {"status": "deferred"}
+            except BoundaryAmbiguity:
+                refresh.mark_deferred(rid, "requires_reconcile")
+                return {"status": "deferred"}
+            except Exception as exc:
+                retry_at = failure_stats(exc, now=now)["next_retry_at"]
+                refresh.finish(rid, "failed", "sync_failed", datetime.fromisoformat(retry_at))
+                return {"status": "failed"}
+            refresh.finish(rid, "succeeded")
+            return {"status": "succeeded", **result}
+    finally:
+        engine.dispose()
