@@ -81,7 +81,7 @@ All in `client/src/components/ui/` (barrel `index.ts`).
 | `EntityList` | The `<ol>` wrapper for rows. |
 | `Icon` | Inline SVG Material icon, `name: 'home' \| 'history' \| 'add'`, `size` (24). Add new icons to its path map. |
 | `IconButton` | Round 44px icon-only control. Props: `icon, label` (required name + tooltip), `href?` (renders `<a>`) or `onClick`. |
-| `FloatingNav` | Top-left vertical stack (absolute, scrolls with page; its height is reserved above content via `.floating-nav--N`) of IconButtons, Home first. `items`: dashboard `['history']`, History `['home']`, artist `['home','history']`. No bottom-left bubble, no text nav links. |
+| `FloatingNav` | Top-left vertical stack (`position: fixed`, follows scroll; its height is reserved above content at scroll 0 via `.floating-nav--N`; safe-area insets respected) of IconButtons, Home first. `items`: dashboard `['history']`, History `['home']`, artist `['home','history']`. No bottom-left bubble, no text nav links. |
 | `HeatmapPanel`, `RankingList` (`features/dashboard`) | Reused as-is on the artist page (artist data, own range). |
 
 ### Rows and lists

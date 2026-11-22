@@ -87,8 +87,10 @@ export function ArtistPage({ artistKey }: { artistKey: string }) {
     {artist && <>
       <header className="artist-profile"><EntityImage src={artist.image_url} label={artist.label} size="hero" decorative /><div><h1>{artist.label}</h1><p className="artist-total">{number.format(artist.total_listens)} <span>listens</span></p>{artist.genres.length > 0 && <p className="entity-secondary">{artist.genres.join(' · ')}</p>}{artist.byline && <p className="artist-byline">{artist.byline}</p>}</div></header>
       <Heatmap key={artistKey} artistKey={artistKey} />
-      <Rankings key={`albums-${artistKey}`} artistKey={artistKey} dimension="albums" />
-      <Rankings key={`tracks-${artistKey}`} artistKey={artistKey} dimension="tracks" />
+      <div className="grid-2">
+        <Rankings key={`albums-${artistKey}`} artistKey={artistKey} dimension="albums" />
+        <Rankings key={`tracks-${artistKey}`} artistKey={artistKey} dimension="tracks" />
+      </div>
       <Recent key={artistKey} artistKey={artistKey} />
     </>}
   </main>

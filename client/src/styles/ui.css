@@ -2,10 +2,11 @@
 .icon { display: block; flex: none; }
 .icon-button { display: inline-flex; align-items: center; justify-content: center; width: var(--tap-size); height: var(--tap-size); padding: 0; border: 1px solid var(--border); border-radius: 50%; background: var(--surface-2); color: var(--text); text-decoration: none; cursor: pointer; }
 .icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-@media (hover: hover) { .icon-button:hover { color: var(--accent); } }
-.floating-nav { position: absolute; z-index: 30; top: max(.75rem, env(safe-area-inset-top)); left: max(.75rem, env(safe-area-inset-left)); display: flex; flex-direction: column; gap: .5rem; }
+/* Icon color only; restate border/background to beat the global button:hover, a:hover rule. */
+@media (hover: hover) { .icon-button:hover { color: var(--accent); border-color: var(--border); background: var(--surface-2); } }
+.floating-nav { position: fixed; z-index: 30; top: max(.75rem, env(safe-area-inset-top)); left: max(.75rem, env(safe-area-inset-left)); display: flex; flex-direction: column; gap: .5rem; }
 
-/* The stack scrolls with the page and its height is reserved above the content, so it never covers it. */
+/* Fixed stack: its height is reserved above the content at scroll 0, so it covers nothing initially; while scrolling, content passes beneath the opaque buttons. */
 body:has(.floating-nav--1) .app { padding-top: calc(max(.75rem, env(safe-area-inset-top)) + var(--tap-size) + .75rem); }
 body:has(.floating-nav--2) .app { padding-top: calc(max(.75rem, env(safe-area-inset-top)) + 2 * var(--tap-size) + .5rem + .75rem); }
 
