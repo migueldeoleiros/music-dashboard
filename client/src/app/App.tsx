@@ -7,6 +7,8 @@ import { CountryArtistsPanel } from '../features/origin-map/CountryArtistsPanel'
 import { CountryRankingPanel } from '../features/origin-map/CountryRankingPanel'
 import { CoverageNote } from '../components/ui/CoverageNote'
 import { SyncStatus } from '../components/ui/SyncStatus'
+import { ArtistPage } from '../features/artist-history/ArtistPage'
+import { HistoryPage } from '../features/artist-history/HistoryPage'
 
 type State = { filters: Filters; period: Period }
 // The request timezone always comes from the browser; it is never read from or written to the URL.
@@ -23,6 +25,26 @@ function PeriodCoverage({ filters }: { filters: Filters }) {
 }
 
 export function App() {
+  const [pathname, setPathname] = useState(window.location.pathname)
+  useEffect(() => {
+    const update = () => setPathname(window.location.pathname)
+    window.addEventListener('popstate', update)
+    return () => window.removeEventListener('popstate', update)
+  }, [])
+  if (pathname === '/history') return <HistoryPage />
+  const match = /^\/artists\/([^/]+)\/?$/.exec(pathname)
+  if (match) {
+    try {
+      return <ArtistPage artistKey={decodeURIComponent(match[1])} />
+    } catch {
+      return <main className="app"><h1>Artist not found</h1><a href="/">Dashboard</a></main>
+    }
+  }
+  if (pathname !== '/') return <main className="app"><h1>Page not found</h1><a href="/">Dashboard</a></main>
+  return <><Dashboard /><a className="history-entry" href="/history" aria-label="Listening history">History</a></>
+}
+
+function Dashboard() {
   const [{ filters, period }, setState] = useState(() => readState())
   const zone = useRef(browserTimezone())
   const [timezoneNotice, setTimezoneNotice] = useState('')

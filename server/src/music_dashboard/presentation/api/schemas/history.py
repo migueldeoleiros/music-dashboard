@@ -1,6 +1,5 @@
 """Additive public artist/history DTOs. Never inherit aggregate freshness fields."""
 
-from datetime import date
 from typing import Literal
 
 from pydantic import Field
@@ -11,6 +10,10 @@ from music_dashboard.presentation.api.schemas.statistics import ContractModel, H
 class ArtistCredit(ContractModel):
     key: str | None
     label: str
+
+
+class ArtistCredits(ContractModel):
+    artists: list[ArtistCredit]
 
 
 class PublicSong(ContractModel):

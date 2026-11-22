@@ -4,6 +4,91 @@
  */
 
 export interface paths {
+    "/api/artist-credits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Artist Credits */
+        get: operations["artist_credits_api_artist_credits_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/artists/{artist_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Artist Summary */
+        get: operations["artist_summary_api_artists__artist_key__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/artists/{artist_key}/heatmap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Artist Heatmap */
+        get: operations["artist_heatmap_api_artists__artist_key__heatmap_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/artists/{artist_key}/rankings/{dimension}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Artist Rankings */
+        get: operations["artist_rankings_api_artists__artist_key__rankings__dimension__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/artists/{artist_key}/recent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Artist Recent */
+        get: operations["artist_recent_api_artists__artist_key__recent_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/countries": {
         parameters: {
             query?: never;
@@ -98,6 +183,23 @@ export interface paths {
         };
         /** Get */
         get: operations["heatmap"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public History */
+        get: operations["public_history_api_history_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -230,6 +332,84 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ArtistCredit */
+        ArtistCredit: {
+            /** Key */
+            key: string | null;
+            /** Label */
+            label: string;
+        };
+        /** ArtistCredits */
+        ArtistCredits: {
+            /** Artists */
+            artists: components["schemas"]["ArtistCredit"][];
+        };
+        /** ArtistHeatmap */
+        ArtistHeatmap: {
+            /** Cells */
+            cells: components["schemas"]["HeatmapCell"][];
+            /** Timezone */
+            timezone: string;
+            /**
+             * Week Starts On
+             * @default monday
+             * @constant
+             */
+            week_starts_on: "monday";
+            /** Year */
+            year: number;
+            /** Years */
+            years: number[];
+        };
+        /** ArtistRankedItem */
+        ArtistRankedItem: {
+            /** Image Url */
+            image_url?: string | null;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Listens */
+            listens: number;
+        };
+        /** ArtistRankingPage */
+        ArtistRankingPage: {
+            /**
+             * Dimension
+             * @enum {string}
+             */
+            dimension: "albums" | "tracks";
+            /** Generation */
+            generation: string;
+            /** Items */
+            items: components["schemas"]["ArtistRankedItem"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /** ArtistRecentPage */
+        ArtistRecentPage: {
+            /** Generation */
+            generation: string;
+            /** Items */
+            items: components["schemas"]["PublicSong"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /** ArtistSummary */
+        ArtistSummary: {
+            /** Byline */
+            byline: string;
+            /** Genres */
+            genres: string[];
+            /** Image Url */
+            image_url?: string | null;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Total Listens */
+            total_listens: number;
+        };
         /** Bucket */
         Bucket: {
             /**
@@ -445,6 +625,30 @@ export interface components {
              */
             week_starts_on: "monday";
         };
+        /** HistoryItem */
+        HistoryItem: {
+            /** Album */
+            album?: string | null;
+            /** Artists */
+            artists: components["schemas"]["ArtistCredit"][];
+            /** Group */
+            group: string;
+            /** Image Url */
+            image_url?: string | null;
+            /** Title */
+            title: string;
+        };
+        /** HistoryPage */
+        HistoryPage: {
+            /** Generation */
+            generation: string;
+            /** Items */
+            items: components["schemas"]["HistoryItem"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Timezone */
+            timezone: string;
+        };
         /** PieResponse */
         PieResponse: {
             coverage: components["schemas"]["DimensionCoverage"];
@@ -484,6 +688,17 @@ export interface components {
             listens: number;
             /** Share */
             share: number;
+        };
+        /** PublicSong */
+        PublicSong: {
+            /** Album */
+            album?: string | null;
+            /** Artists */
+            artists: components["schemas"]["ArtistCredit"][];
+            /** Image Url */
+            image_url?: string | null;
+            /** Title */
+            title: string;
         };
         /** RankedEntity */
         RankedEntity: {
@@ -592,6 +807,307 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    artist_credits_api_artist_credits_get: {
+        parameters: {
+            query: {
+                dimension: "albums" | "tracks";
+                key: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtistCredits"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    artist_summary_api_artists__artist_key__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artist_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtistSummary"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    artist_heatmap_api_artists__artist_key__heatmap_get: {
+        parameters: {
+            query?: {
+                year?: number | null;
+                tz?: string;
+            };
+            header?: never;
+            path: {
+                artist_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtistHeatmap"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    artist_rankings_api_artists__artist_key__rankings__dimension__get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                artist_key: string;
+                dimension: "albums" | "tracks";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtistRankingPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    artist_recent_api_artists__artist_key__recent_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                artist_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtistRecentPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     countries: {
         parameters: {
             query: {
@@ -791,6 +1307,66 @@ export interface operations {
             };
             /** @description Bad Request */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    public_history_api_history_get: {
+        parameters: {
+            query?: {
+                tz?: string;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

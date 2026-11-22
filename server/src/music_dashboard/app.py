@@ -42,6 +42,16 @@ async def http_error(request: Request, exc: HTTPException) -> JSONResponse:
     )
 
 
+@app.middleware("http")
+async def private_event_cache_policy(request: Request, call_next: Any) -> Any:
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/api/history" or path == "/api/artist-credits" or path.startswith("/api/artists/"):
+        # Includes validation, disabled, not-found and restart responses.
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 _original_openapi = app.openapi
 
 
