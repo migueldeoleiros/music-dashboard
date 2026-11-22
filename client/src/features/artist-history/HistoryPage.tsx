@@ -1,4 +1,5 @@
 import type { HistoryItem } from '../../api/history'
+import { Panel } from '../../components/ui/Panel'
 import { browserTimezone } from '../dashboard/filters'
 import { FloatingNav } from '../../components/ui'
 import { SongRow } from '../../components/ui/SongRow'
@@ -24,9 +25,7 @@ export function HistoryPage() {
     <FloatingNav items={['home']} />
     <header><h1>Listening history</h1></header>
     {feed.restarted && <p role="status" className="notice">Listening data changed or the page expired. History reloaded.</p>}
-    {groups.map((group, index) => <section key={index} aria-label={group.label}>
-      <h2>{group.label}</h2><ol className="entity-list">{group.items.map((song, index) => <SongRow key={index} song={song} />)}</ol>
-    </section>)}
+    {groups.map((group, index) => <Panel key={index} title={group.label}><ol className="entity-list">{group.items.map((song, index) => <SongRow key={index} song={song} />)}</ol></Panel>)}
     {!feed.loading && !feed.error && !groups.length && <p className="entity-empty">No listening history yet.</p>}
     <FeedError error={feed.error} retry={feed.retry} />
     <LoadMore {...feed} onLoad={feed.loadMore} automatic />

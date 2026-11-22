@@ -1,6 +1,5 @@
 .artist-page, .history-page { max-width: 1100px; padding-bottom: max(6rem, env(safe-area-inset-bottom)); }
 .artist-page h1, .history-page h1 { margin: 0; font-size: clamp(1.6rem, 4vw, 2.6rem); overflow-wrap: anywhere; }
-.artist-page h2, .history-page h2 { margin: 0 0 1rem; font-size: 1.05rem; }
 .artist-profile { display: flex; align-items: center; gap: 1.5rem; min-width: 0; }
 .artist-profile > div { min-width: 0; }
 .artist-total { margin: .5rem 0; font-size: 1.5rem; font-variant-numeric: tabular-nums; }

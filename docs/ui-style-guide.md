@@ -78,6 +78,7 @@ All in `client/src/components/ui/` (barrel `index.ts`).
 | `EntityImage` | The only way to render cover art/photos. Size by role: `sm` 32 (dense), `md` 48 (rows), `lg` 96, `hero` (page header, #1 card). Placeholder tile when no/failed image. |
 | `CompactRow` | Image, title, count. Dashboard top lists and artist top albums/tracks. Props: `label, href?, src?, secondary?, count?, rank?, showImage?, shape?`. `EntityRow` is legacy; migrate to `CompactRow`. |
 | `SongRow` | Image + full-width columns title \| artist \| album (stacked on mobile). Only History and artist recent songs. Props: `song: PublicSong`. Links itself to the primary artist. |
+| `Panel` | Section title + card frame (see Section titles). Props: `title, variant? 'default'\|'heatmap'\|'ranking', busy?`. |
 | `EntityList` | The `<ol>` wrapper for rows. |
 | `Icon` | Inline SVG Material icon, `name: 'home' \| 'history' \| 'add'`, `size` (24). Add new icons to its path map. |
 | `IconButton` | Round 44px icon-only control. Props: `icon, label` (required name + tooltip), `href?` (renders `<a>`) or `onClick`. |
@@ -100,8 +101,11 @@ All in `client/src/components/ui/` (barrel `index.ts`).
 - Page title `h1` (`clamp(1.6rem, 4vw, 2.6rem)`), small muted line(s) under it only when informative. No explanatory subtext about sorting, grouping or privacy. Navigation is the FloatingNav, not inline links.
 - Artist page order: header (name, play total, small genre line), heatmap, top albums, top tracks, recent songs.
 
+### Section titles
+- Every section title is the `Panel` component (`components/ui/Panel.tsx`): an `h2.card-title` above the `.card` (uppercase, `.75rem`, 600, `--text-muted`, `.5rem` gap), named via `aria-labelledby`. Dashboard `ChartSection`, artist page and History date groups all use it; never hand-roll `.card-title` markup or restyle `h2` per page. No counts or subtitles in the title; page-level `h1` is separate.
+
 ### Panels
-- Panel titles sit **outside** the card, above it, like the dashboard (`ChartPanel`). The card holds only content.
+- Panel titles sit **outside** the card, above it (via `Panel`). The card holds only content.
 
 ### Cover art
 - Every cover goes through `EntityImage` with the size for its role. Never use a bare `<img>`.

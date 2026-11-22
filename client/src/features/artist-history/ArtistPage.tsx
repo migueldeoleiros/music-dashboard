@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import type { components } from '../../api/schema'
 import { artistApi, fetchHistoryJson, HistoryApiError, type ArtistHeatmap, type ArtistRankingPage, type ArtistSummary, type PublicSong } from '../../api/history'
-import { EntityImage, FloatingNav } from '../../components/ui'
+import { EntityImage, FloatingNav, Panel } from '../../components/ui'
 import { SongRow } from '../../components/ui/SongRow'
 import { HeatmapPanel } from '../dashboard/HeatmapPanel'
 import { RankingList } from '../dashboard/RankingList'
@@ -12,17 +12,13 @@ import '../../styles/artist-history.css'
 
 const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 })
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
-  return <div className="card-group"><h2 className="card-title">{title}</h2><section className="card" aria-label={title}>{children}</section></div>
-}
-
 const NO_COVERAGE = { included_listens: 0, excluded_listens: 0, total_listens: 0 }
 
 function Rankings({ artistKey, dimension }: { artistKey: string; dimension: 'albums' | 'tracks' }) {
   const feed = usePagedFeed<ArtistRankingPage['items'][number]>(`${artistApi(artistKey)}/rankings/${dimension}?limit=10`)
   const items = feed.pages.flatMap(page => page.items)
   const data = { dimension, items: items.map(item => ({ ...item, mbid: null, metadata_state: item.label ? 'resolved' : 'missing' })) } as unknown as components['schemas']['RankingResponse']
-  return <Panel title={`Top ${dimension}`}>
+  return <Panel title={`Top ${dimension}`} variant="ranking">
     {feed.restarted && <p role="status">Listening data changed. Rankings reloaded.</p>}
     {!feed.loading && !feed.error && <RankingList data={data} />}
     {feed.loading && <p role="status">Loading…</p>}
@@ -69,7 +65,7 @@ function Heatmap({ artistKey }: { artistKey: string }) {
     },
     retry: false,
   })
-  return <Panel title="Daily listening">
+  return <Panel title="Daily listening" variant="heatmap">
     {query.isPending && <p role="status">Loading daily listening…</p>}
     <FeedError error={query.error} retry={() => void query.refetch()} />
     {query.data && <HeatmapPanel data={query.data} />}
