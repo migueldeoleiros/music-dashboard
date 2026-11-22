@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import secrets
 import unicodedata
 from collections import OrderedDict
@@ -87,6 +88,17 @@ def _limit(value: int) -> None:
 
 
 MAX_CREDIT_KEYS = 100
+
+
+def _name_pair(key: str) -> tuple[str, str] | None:
+    """Parse `name:[folded artist, folded title]`; None for artist keys or malformed JSON."""
+    try:
+        value = json.loads(key[5:])
+    except ValueError:
+        return None
+    if isinstance(value, list) and len(value) == 2 and all(isinstance(x, str) and x for x in value):
+        return value[0], value[1]
+    return None
 
 
 class ArtistHistory:
@@ -297,7 +309,7 @@ class ArtistHistory:
     def credits(self, dimension: str, key: str) -> dict[str, Any]:
         """Reliable credits for a ranked album/track key; empty unless all listens agree.
 
-        Only MBID keys resolve (name: keys embed no individually credited identity)."""
+        MBID keys and name:[artist, title] keys resolve (the latter via the ranking's bucket)."""
         return {"artists": self.credits_batch(dimension, [key])["credits"][key]}
 
     def credits_batch(self, dimension: str, keys: list[str]) -> dict[str, Any]:
@@ -308,17 +320,24 @@ class ArtistHistory:
             raise HTTPException(400, "Too many keys")
         out: dict[str, list[dict[str, Any]]] = {}
         mbids: dict[str, str] = {}
+        names: dict[str, tuple[str, str]] = {}
         for key in dict.fromkeys(keys):
             try:
                 mbids[key] = str(UUID(key))
             except (ValueError, AttributeError):
                 if key.startswith("name:") and len(key) <= 2000:
                     out[key] = []
+                    pair = _name_pair(key)
+                    if pair is not None:
+                        names[key] = pair
                 else:
                     raise HTTPException(400, "Invalid key") from None
-        if mbids:
+        if mbids or names:
             with self._snapshot() as (c, _, _reference):
                 for key, mbid in mbids.items():
                     sets = queries.credit_sets(c, dimension, mbid)
+                    out[key] = sets[0] if len(sets) == 1 else []
+                for key, (artist, title) in names.items():
+                    sets = queries.name_credit_sets(c, dimension, artist, title)
                     out[key] = sets[0] if len(sets) == 1 else []
         return {"credits": {key: out[key] for key in dict.fromkeys(keys)}}

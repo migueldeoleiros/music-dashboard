@@ -197,3 +197,62 @@ def credit_sets(c: Connection, dimension: str, mbid: str) -> list[list[dict[str,
             return []
         out.append(sorted(credits, key=lambda x: (x["label"], x["key"])))
     return out
+
+
+def name_credit_sets(
+    c: Connection, dimension: str, artist: str, title: str
+) -> list[list[dict[str, Any]]]:
+    """Like credit_sets for a `name:[folded artist, folded title]` ranking bucket.
+
+    The bucket is the ID-less listens whose folded artist_name and album/track name equal the
+    key, i.e. the same grouping the rankings use. Only distinct names are folded."""
+    ids, title_col = (
+        ("l.recording_mbid IS NULL", "l.track_name")
+        if dimension == "tracks"
+        else ("l.release_group_mbid IS NULL AND l.release_mbid IS NULL", "l.release_name")
+    )
+    rows = c.execute(
+        text(
+            f"""
+ WITH idless AS MATERIALIZED (
+  SELECT l.id, l.artist_name, {title_col} AS title FROM listens l
+  WHERE {ids} AND l.artist_name IS NOT NULL AND {title_col} IS NOT NULL
+ ), folded AS MATERIALIZED (
+  SELECT name, {FOLD} AS folded
+  FROM (SELECT artist_name AS name FROM idless UNION SELECT title FROM idless) d
+ ), sel AS MATERIALIZED (
+  SELECT s.id, s.artist_name FROM idless s
+  JOIN folded fa ON fa.name=s.artist_name AND fa.folded=:artist
+  JOIN folded ft ON ft.name=s.title AND ft.folded=:title
+ ),
+ raw AS (
+  SELECT s.id, a.position, a.artist_name AS name, a.artist_mbid::text AS mbid
+  FROM sel s JOIN listen_artists a ON a.listen_id=s.id
+  UNION ALL SELECT s.id, 0, s.artist_name, NULL FROM sel s
+  WHERE NOT EXISTS (SELECT 1 FROM listen_artists a WHERE a.listen_id=s.id)
+ ), cfolded AS (
+  SELECT name, {FOLD} AS folded FROM (SELECT DISTINCT name FROM raw) d
+ ), per AS (
+  SELECT r.id, jsonb_agg(jsonb_build_object(
+    'key', CASE WHEN coalesce(f.folded,'')='' THEN NULL
+                ELSE coalesce(r.mbid,'name:'||f.folded) END,
+    'label', coalesce(nullif(btrim(r.name,:whitespace),''),'[Missing artist]'))
+    ORDER BY r.position, r.name) AS credits
+  FROM raw r LEFT JOIN cfolded f ON f.name=r.name GROUP BY r.id
+ ) SELECT DISTINCT credits FROM per LIMIT 50
+ """
+        ),
+        {
+            "artist": artist,
+            "title": title,
+            "casefold": CASEFOLD,
+            "whitespace": WHITESPACE,
+        },
+    ).scalars()
+    # Spelling-only differences (reScene vs Rescene) are the same credits: agree on keys.
+    by_keys: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+    for credits in rows:
+        if any(x["key"] is None for x in credits):
+            return []
+        by_keys.setdefault(tuple(x["key"] for x in credits), credits)
+    return list(by_keys.values())

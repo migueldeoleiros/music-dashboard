@@ -124,3 +124,34 @@ def test_credits_batch_one_snapshot_and_bounds(hist):
     assert e.value.status_code == 400
     with pytest.raises(HTTPException):
         hist.credits_batch("tracks", ["not-a-key"])
+
+
+def test_credits_name_keys_resolve_like_rankings(hist, migrated_db):
+    multi = [("Kevin Penkin", None), ("The Woodgies", A), ("Hannah and Meghan", None)]
+    with migrated_db.begin() as c:
+        add(c, "2026-02-01T10:00:00Z", "PULSE", [("reScene", None)], album="Pulse")
+        add(c, "2026-02-01T11:00:00Z", "Pulse", [("Rescene", None)], album="PULSE")
+        add(c, "2026-02-02T10:00:00Z", "Theme", multi, album="OST")
+        add(c, "2026-02-02T11:00:00Z", "Theme", multi, album="OST")
+        add(c, "2026-02-03T10:00:00Z", "Same", [("Ann & Bob", None)], album="Conf")
+        add(c, "2026-02-03T11:00:00Z", "Same", [("Ann", None), ("Bob", None)], album="Conf")
+        add(c, "2026-02-04T11:00:00Z", "Blank", [(" ", None)], album="Blank")
+    single = 'name:["rescene", "pulse"]'
+    many = 'name:["kevin penkin & the woodgies & hannah and meghan", "theme"]'
+    mixed = 'name:["ann & bob", "same"]'
+    ost = 'name:["kevin penkin & the woodgies & hannah and meghan", "ost"]'
+    conf = 'name:["ann & bob", "conf"]'
+    keys = [single, many, mixed, 'name:["nobody", "x"]', "name:plain", "name:[1]", ost, conf]
+    tracks = hist.credits_batch("tracks", keys)["credits"]
+    albums = hist.credits_batch("albums", keys)["credits"]
+    assert [a["key"] for a in tracks[single]] == ["name:rescene"]
+    assert [a["key"] for a in albums[single]] == ["name:rescene"]
+    # Multi-credit: individual credits in listen_artists order, mbid when present.
+    expected = ["name:kevin penkin", A, "name:hannah and meghan"]
+    assert [a["key"] for a in tracks[many]] == expected
+    assert [a["label"] for a in tracks[many]][0] == "Kevin Penkin"
+    assert [a["key"] for a in albums[ost]] == expected
+    # Listens in the bucket disagree on credits -> never guess.
+    assert tracks[mixed] == [] and albums[conf] == []
+    for k in ("name:plain", "name:[1]", 'name:["nobody", "x"]'):
+        assert tracks[k] == [] and albums[k] == []
