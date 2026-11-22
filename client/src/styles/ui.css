@@ -3,7 +3,11 @@
 .icon-button { display: inline-flex; align-items: center; justify-content: center; width: var(--tap-size); height: var(--tap-size); padding: 0; border: 1px solid var(--border); border-radius: 50%; background: var(--surface-2); color: var(--text); text-decoration: none; cursor: pointer; }
 .icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 @media (hover: hover) { .icon-button:hover { color: var(--accent); } }
-.floating-nav { position: fixed; z-index: 30; top: max(1rem, env(safe-area-inset-top)); left: max(1rem, env(safe-area-inset-left)); display: flex; flex-direction: column; gap: .5rem; }
+.floating-nav { position: absolute; z-index: 30; top: max(.75rem, env(safe-area-inset-top)); left: max(.75rem, env(safe-area-inset-left)); display: flex; flex-direction: column; gap: .5rem; }
+
+/* The stack scrolls with the page and its height is reserved above the content, so it never covers it. */
+body:has(.floating-nav--1) .app { padding-top: calc(max(.75rem, env(safe-area-inset-top)) + var(--tap-size) + .75rem); }
+body:has(.floating-nav--2) .app { padding-top: calc(max(.75rem, env(safe-area-inset-top)) + 2 * var(--tap-size) + .5rem + .75rem); }
 
 /* Full-row link: the title anchor is stretched over the whole <li>. Hover changes text color only. */
 .row--link { position: relative; }
@@ -12,6 +16,8 @@
 .row-link:focus-visible { outline: none; }
 .row--link:has(.row-link:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
 .row-inline-link { position: relative; z-index: 1; }
+/* a.x:hover beats the global a:hover color rule */
+@media (hover: hover) { a.row-link:hover, a.artist-link:hover { color: var(--accent); border-color: transparent; } }
 @media (hover: hover) { .row--link:hover .entity-label, .row--link:hover .song-title, .row--link:hover .entity-hero-name { color: var(--accent); } }
 
 .song-row .song-cols { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: .15rem 1rem; align-items: center; font-size: .8rem; }
