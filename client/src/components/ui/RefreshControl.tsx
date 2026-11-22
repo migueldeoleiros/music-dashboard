@@ -40,10 +40,15 @@ export function RefreshControl() {
   })
   const admission = useMutation({
     mutationFn: () => fetchRefresh('POST'),
-    onSuccess: data => {
+    onMutate: () => client.cancelQueries({ queryKey: ['refresh'] }),
+    onSuccess: async data => {
+      // A pre-admission GET (including a polling read during POST) must never replace
+      // the admitted UUID with an older snapshot and stop its polling.
+      await client.cancelQueries({ queryKey: ['refresh'] })
       rememberRequest(data.request_id ?? null)
       setRequestId(data.request_id ?? null)
       client.setQueryData(['refresh'], data)
+      await client.invalidateQueries({ queryKey: ['refresh'] })
     },
     onError: () => { void status.refetch() },
   })

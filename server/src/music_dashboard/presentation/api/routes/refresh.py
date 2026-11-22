@@ -78,7 +78,10 @@ def same_origin(request: Request) -> bool:
         return False
     if request.headers.get("sec-fetch-site", "same-origin") not in {"same-origin"}:
         return False
-    parts = urlsplit(origin)
+    try:
+        parts = urlsplit(origin)
+    except ValueError:
+        return False
     if parts.scheme not in _DEFAULT_PORTS or parts.path not in {"", "/"}:
         return False
     if parts.query or parts.fragment:

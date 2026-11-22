@@ -344,6 +344,42 @@ def test_worker_disabled_does_not_claim_queued_request(api, writer, worker, monk
     assert client.calls == 0
 
 
+def test_expiry_crossed_between_claim_and_start_never_calls_upstream(
+    api, writer, worker, monkeypatch
+):
+    job, client = worker
+    seed_checkpoint(writer, last_export_at=datetime.now(UTC))
+    req = admit(api)
+    original = RefreshRepository.mark_running
+
+    def cross_deadline(self, rid):
+        # Simulate crossing expiry after claim, without sleeps or process clock skew.
+        with writer.begin() as c:
+            c.execute(
+                text("UPDATE refresh_state SET expires_at = clock_timestamp() - interval '1 s'")
+            )
+        return original(self, rid)
+
+    monkeypatch.setattr(RefreshRepository, "mark_running", cross_deadline)
+    assert job.run_public_refresh(now=datetime.now(UTC) - timedelta(hours=1)) == {
+        "status": "superseded"
+    }
+    assert client.calls == 0
+    got = status(api)
+    assert got["request_id"] == req["request_id"] and got["status"] == "expired"
+
+
+def test_claim_uses_database_clock_not_old_scan_anchor(api, writer, worker):
+    job, client = worker
+    seed_checkpoint(writer, last_export_at=datetime.now(UTC))
+    admit(api)
+    with writer.begin() as c:
+        c.execute(text("UPDATE refresh_state SET expires_at = clock_timestamp() - interval '1 s'"))
+    assert job.run_public_refresh(now=datetime.now(UTC) - timedelta(hours=1)) == {"status": "idle"}
+    assert client.calls == 0
+    assert status(api)["status"] == "expired"
+
+
 @pytest.mark.parametrize("transition", ["running", "deferred", "succeeded", "failed"])
 def test_expiry_is_terminal_even_when_stale_worker_finishes(api, writer, transition):
     req = admit(api)

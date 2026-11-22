@@ -119,6 +119,8 @@ def test_enabled_but_fixture_mode_stays_disabled(monkeypatch):
         "https://music.test:8080",  # scheme differs
         "http://music.test:8080/path",
         "http://user@music.test:8080",
+        "http://[invalid",  # urlsplit raises ValueError for malformed IPv6 authorities
+        "http://[not-an-ipv6-address]",
     ],
 )
 def test_cross_origin_rejected_before_database(enabled, monkeypatch, origin):

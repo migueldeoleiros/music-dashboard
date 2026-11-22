@@ -52,30 +52,31 @@ class RefreshRepository:
                 ).first()
             )
 
-    def claim(self, now: datetime | None = None) -> RefreshRequest | None:
+    def claim(self) -> RefreshRequest | None:
         """Expire stale work, recover an orphaned `running` request, return the active one.
 
         Caller holds the sync lock, so no other worker can be running it: a `running` row
         means the previous worker died mid-run and the request goes back to `pending`
         (incremental sync is idempotent) unless it already expired.
         """
-        now = now or datetime.now(UTC)
         with self._engine.begin() as c:
             row = (
                 c.execute(
                     text(
-                        f"SELECT {_COLUMNS}, expires_at <= :now AS stale FROM refresh_state "
+                        f"SELECT {_COLUMNS} FROM refresh_state "
                         "WHERE singleton AND status IN ('pending','running','deferred') "
                         "FOR UPDATE"
                     ),
-                    {"now": now},
                 )
                 .mappings()
                 .first()
             )
             if row is None:
                 return None
-            if row["stale"]:
+            # Evaluate after the row lock, not at the tick's scan anchor (or before
+            # waiting for another transaction). Expiry follows the database clock.
+            now = c.execute(text("SELECT clock_timestamp()")).scalar_one()
+            if row["expires_at"] <= now:
                 c.execute(
                     text(
                         "UPDATE refresh_state SET status='expired', finished_at=:now, "
@@ -109,29 +110,30 @@ class RefreshRepository:
                 text(
                     "UPDATE refresh_state SET status='expired', finished_at=expires_at, "
                     "detail='expired' WHERE singleton AND request_id=:rid "
-                    "AND status IN ('pending','running','deferred') AND expires_at <= :now"
+                    "AND status IN ('pending','running','deferred') "
+                    "AND expires_at <= clock_timestamp()"
                 ),
-                {"rid": request_id, "now": params.get("now") or datetime.now(UTC)},
+                {"rid": request_id},
             )
             return (
                 c.execute(
                     text(
                         f"UPDATE refresh_state SET {sets} WHERE singleton "
-                        f"AND request_id = :rid AND status IN ({statuses})"
+                        f"AND request_id = :rid AND status IN ({statuses}) "
+                        "AND expires_at > clock_timestamp()"
                     ),
                     {"rid": request_id, **params},
                 ).rowcount
                 == 1
             )
 
-    def mark_running(self, request_id: uuid.UUID, now: datetime | None = None) -> bool:
-        now = now or datetime.now(UTC)
+    def mark_running(self, request_id: uuid.UUID) -> bool:
         return self._transition(
             request_id,
-            "status='running', started_at=:now, retry_at=NULL, detail=NULL, "
-            "expires_at = LEAST(expires_at, :now + make_interval(secs => :ttl))",
+            "status='running', started_at=clock_timestamp(), retry_at=NULL, detail=NULL, "
+            "expires_at = LEAST(expires_at, clock_timestamp() + make_interval(secs => :ttl))",
             ("pending", "deferred"),
-            {"now": now, "ttl": RUNNING_TTL.total_seconds()},
+            {"ttl": RUNNING_TTL.total_seconds()},
         )
 
     def mark_deferred(

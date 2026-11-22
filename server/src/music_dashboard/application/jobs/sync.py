@@ -201,7 +201,7 @@ def run_public_refresh(now: datetime | None = None) -> dict[str, Any]:
         with repository.locked(config.user) as acquired:
             if not acquired:
                 return {"status": "busy"}  # scheduled sync owns the lock; retry next tick
-            request = refresh.claim(now)
+            request = refresh.claim()
             if request is None:
                 return {"status": "idle"}
             rid = request.request_id
@@ -223,7 +223,7 @@ def run_public_refresh(now: datetime | None = None) -> dict[str, Any]:
             if state.get("last_export_at") is None:
                 refresh.mark_deferred(rid, "awaiting_initial_export")
                 return {"status": "deferred"}
-            if not refresh.mark_running(rid, now):
+            if not refresh.mark_running(rid):
                 return {"status": "superseded"}
             try:
                 result = sync_listens(
