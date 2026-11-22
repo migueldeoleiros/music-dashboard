@@ -290,9 +290,12 @@ Evolution uses its own whole-range membership, ordered by total desc then key wi
 zero-fills daily/weekly/monthly buckets, noncumulative, marks partial final bucket.
 
 Visitor timezone is always the browser Intl zone (never in the URL), with a visible UTC fallback
-when the API rejects it. The URL carries `from`/`to` only for custom ranges; presets are bare and
-a bare page defaults to 7 days. Legacy `tz`/`preset` parameters are stripped; a supported legacy preset without dates is used on initial load, but a legacy timezone is ignored. Links are not
-immutable snapshots. Controlled timezone alias metadata is bundled
+when the API rejects it. Live presets persist as `?preset=name` and recalculate on load/navigation;
+a bare page defaults to 7 days (`7d` may remain bare). Valid explicit `from`/`to` pairs remain fixed
+Custom dates, including legacy mixed preset/date links, even when they match a preset. Invalid or
+incomplete date pairs fall back to 7 days; legacy `tz` is ignored. Filter writes preserve unrelated
+query parameters and the hash. Custom uses a native modal dialog; Cancel/Escape never navigate.
+Fixed calendar dates survive UTC fallback. Controlled timezone alias metadata is bundled
 from tzdata 2025b (PyPI 2025.2), shared by request validation and database seed. PostgreSQL is
 sole authority for date boundaries and buckets: inclusive local from through day after local
 to becomes half-open UTC range, DST-aware; no Python boundary math. Day is finest bucket;

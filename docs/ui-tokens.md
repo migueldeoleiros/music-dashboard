@@ -57,7 +57,7 @@ CSS custom properties cannot be used in media queries, so the breakpoints are li
 | hover | `(hover: hover)` | hover-only decoration is wrapped in this query; nothing depends on hover |
 | reduced motion | `(prefers-reduced-motion: reduce)` | CSS animations/transitions near-zero; ECharts `animation: false` |
 
-Behavior at the mobile breakpoint: period chips become one horizontally scrollable row; custom range is a single column; charts use `--chart-h-narrow`; the heatmap scrolls sideways inside its own region, parked at the latest weeks; the country panel becomes a modal bottom sheet (`role=dialog`, backdrop, page scroll lock, focus trap, Escape, tap outside, swipe-down on the handle, safe-area insets).
+Behavior at the mobile breakpoint: period chips become one horizontally scrollable row; the native Custom timeframe dialog stacks date inputs in a single column (desktop: two columns), stays within the viewport and scrolls internally; charts use `--chart-h-narrow`; the heatmap scrolls sideways inside its own region, parked at the latest weeks; the country panel becomes a modal bottom sheet (`role=dialog`, backdrop, page scroll lock, focus trap, Escape, tap outside, swipe-down on the handle, safe-area insets).
 
 ## Map selection
 

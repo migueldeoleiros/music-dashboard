@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChartPanel } from '../features/dashboard/ChartPanel'
 import { useChartQuery } from '../features/dashboard/ChartSection'
 import { Controls } from '../features/dashboard/Controls'
-import { browserTimezone, clampToToday, presetRange, readFilters, readPeriod, rollingYearRange, utcFallback, validateFilters, writeFilters, type Filters, type Period } from '../features/dashboard/filters'
+import { browserTimezone, presetRange, readFilters, readPeriod, rollingYearRange, utcFallback, validateFilters, writeFilters, type Filters, type Period } from '../features/dashboard/filters'
 import { CountryArtistsPanel } from '../features/origin-map/CountryArtistsPanel'
 import { CountryRankingPanel } from '../features/origin-map/CountryRankingPanel'
 import { CoverageNote } from '../components/ui/CoverageNote'
@@ -31,9 +31,8 @@ export function App() {
   const originsRef = useRef<HTMLElement>(null)
   const closeCountry = useCallback(() => setSelectedCountry(null), [])
   const apply = useCallback((next: Filters, nextPeriod: Period) => {
-    const clamped = clampToToday(next)
-    window.history.pushState(null, '', writeFilters(clamped, window.location.search, nextPeriod))
-    setState({ filters: clamped, period: nextPeriod })
+    window.history.pushState(null, '', writeFilters(next, window.location.search, nextPeriod))
+    setState({ filters: next, period: nextPeriod })
     setTimezoneNotice('')
   }, [])
   const fallbackTimezone = useCallback(() => {
@@ -48,7 +47,12 @@ export function App() {
   }, [])
   useEffect(() => {
     window.history.replaceState(null, '', writeFilters(filters, window.location.search, period))
-    const onPopState = () => { setState(readState(zone.current)); setTimezoneNotice('') }
+    const onPopState = () => {
+      const next = readState(zone.current)
+      window.history.replaceState(null, '', writeFilters(next.filters, window.location.search, next.period))
+      setState(next)
+      setTimezoneNotice('')
+    }
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
     // Initial normalization only; subsequent navigation uses apply / popstate.
@@ -60,7 +64,7 @@ export function App() {
   const heatmap = { filters: rollingYearRange(filters.tz), onTimezoneRejected: fallbackTimezone }
   return <main className="app">
     <ChartPanel path="/api/heatmap" label="Daily listening" variant="heatmap" {...heatmap} />
-    <Controls key={`${filters.from}/${filters.to}/${filters.tz}/${period}`} filters={filters} period={period} onChange={apply}>
+    <Controls filters={filters} period={period} onChange={apply}>
       {!error && <PeriodCoverage filters={filters} />}
       <SyncStatus />
     </Controls>

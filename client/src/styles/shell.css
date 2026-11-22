@@ -14,9 +14,17 @@
 .controls-meta { display: flex; align-items: center; gap: .9rem; color: var(--text-muted); font-size: .72rem; min-width: 0; }
 .sync-status { margin: 0; color: var(--text-muted); font-size: .72rem; overflow-wrap: anywhere; }
 .sync-status.error { background: none; border: 0; padding: 0; color: var(--text-muted); }
-.custom-range { display: grid; grid-template-columns: repeat(2, minmax(0, 12rem)) auto; gap: .7rem; align-items: end; }
-.custom-range label { display: flex; flex-direction: column; gap: .3rem; font-size: .7rem; color: var(--text-muted); min-width: 0; }
-.custom-range label input { font-size: .85rem; color: var(--text); }
+.custom-dialog { width: min(30rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; padding: clamp(1rem, 3vw, 1.5rem); color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.custom-dialog::backdrop { background: var(--scrim); }
+html:has(.custom-dialog[open]) { overflow: hidden; }
+.custom-range { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+.custom-range h2 { margin: 0; font-size: 1.1rem; }
+.custom-range p { margin: 0; font-size: .85rem; }
+.custom-dates { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .4rem 1rem; }
+.custom-dates label { grid-row: 1; font-size: .8rem; color: var(--text-muted); }
+.custom-dates input { min-width: 0; width: 100%; font-size: 1rem; color: var(--text); }
+.custom-actions { display: flex; justify-content: flex-end; gap: .75rem; }
+.custom-actions button { min-height: var(--tap-size); }
 
 /* Coverage indicator: one muted badge, details in a popover on hover/focus */
 .coverage { position: relative; display: inline-flex; }
@@ -60,7 +68,6 @@
 /* Touch (narrow or coarse pointer): 44px targets, 16px inputs. */
 @media (max-width: 720px), (pointer: coarse) {
   .pill { min-height: var(--tap-size); padding-inline: 1.1rem; }
-  .custom-range label input { font-size: 16px; }
   .coverage-badge { min-height: var(--tap-size); min-width: var(--tap-size); }
 }
 /* Breakpoints: 1100px tablet, 720px mobile (docs/ui-tokens.md). */
@@ -75,10 +82,9 @@
   .preset-row { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; margin-inline: calc(-1 * clamp(.75rem, 3vw, 2.5rem)); padding-inline: clamp(.75rem, 3vw, 2.5rem); padding-block: 2px; scroll-padding-inline: clamp(.75rem, 3vw, 2.5rem); }
   .preset-row::-webkit-scrollbar { display: none; }
   .controls-meta { justify-content: space-between; }
-  .custom-range { grid-template-columns: minmax(0, 1fr); gap: .6rem; }
-  .custom-range label { font-size: .8rem; }
-  .custom-range label input { width: 100%; }
-  .custom-range button { width: 100%; }
+  .custom-dates { grid-template-columns: minmax(0, 1fr); }
+  .custom-dates label { grid-row: auto; }
+  .custom-actions button { flex: 1; }
   .coverage-pop { right: auto; left: 0; }
   .card { padding: .75rem; }
 }
