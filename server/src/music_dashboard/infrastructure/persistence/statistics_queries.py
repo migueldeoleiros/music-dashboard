@@ -145,9 +145,12 @@ WITH bounds AS (
         coalesce(release_group_mbid,release_mbid)::text AS kid
  FROM listens WHERE coalesce(release_group_mbid,release_mbid) IS NOT NULL
  AND artist_name IS NOT NULL AND release_name IS NOT NULL
- -- Skip the history scan entirely when the window has no unmapped named album.
- AND EXISTS (SELECT 1 FROM selected s WHERE s.release_group_mbid IS NULL
-             AND s.release_mbid IS NULL AND s.release_name IS NOT NULL)
+ -- Skip the history scan unless an ID-less listen has a USABLE (NFKC+Unicode-trimmed) album
+ -- AND artist name: blank/whitespace-only names can never match canonical_albums.
+ AND EXISTS (SELECT 1 FROM selected s JOIN normalized n ON n.name=s.release_name
+             JOIN normalized a ON a.name=s.artist_name
+             WHERE s.release_group_mbid IS NULL AND s.release_mbid IS NULL
+             AND n.folded<>'' AND a.folded<>'')
 ), album_history_names AS (
  SELECT artist_name AS name FROM album_history UNION SELECT release_name FROM album_history
 ), album_history_normalized AS MATERIALIZED (
@@ -192,6 +195,120 @@ WITH bounds AS (
  LEFT JOIN normalized a ON a.name=l.artist_name
 )
 """
+
+# Rankings-only label recovery. Appended to COMMON for rankings/albums and rankings/tracks ONLY;
+# pies/evolution/coverage/countries keep album_values/track_values untouched. Keys, weights,
+# counts and totals never change: only the label (and the badge state derived from it).
+# FOLD mirrors `normalized`: NFKC + trim + Unicode casefold, so two spellings that fold equal
+# are "consistent"; the displayed spelling is deterministic (min of the trimmed raw names).
+FOLD = """coalesce((SELECT string_agg(coalesce(CAST(:casefold AS jsonb)->>ch, ch), ''
+   ORDER BY ord) FROM regexp_split_to_table(btrim(normalize(name, NFKC), :whitespace), '')
+   WITH ORDINALITY AS chars(ch, ord)), '')"""
+
+
+def _evidence(p: str, column: str, buckets: str, kind: str | None = None) -> str:
+    """Stage CTEs: one indexed probe per distinct id over ALL history (never a listens scan),
+    stored history winning per identity and the positive cache only filling the rest."""
+    kind = kind or p
+    return f"""{p}_ids AS MATERIALIZED (SELECT DISTINCT id FROM {buckets}),
+{p}_raw AS MATERIALIZED (
+ SELECT i.id, h.name, 'history' AS src FROM {p}_ids i
+ CROSS JOIN LATERAL (SELECT DISTINCT l.release_name AS name FROM listens l
+   WHERE l.{column}=i.id AND l.release_name IS NOT NULL) h
+ UNION ALL
+ SELECT i.id, c.title, 'cache' FROM {p}_ids i
+ JOIN release_title_cache c ON c.entity_type='{kind}' AND c.entity_mbid=i.id
+), {p}_folded AS MATERIALIZED (
+ SELECT e.id, e.name, e.src, f.folded FROM {p}_raw e
+ JOIN (SELECT name, {FOLD} AS folded FROM (SELECT DISTINCT name FROM {p}_raw) d) f
+   ON f.name=e.name WHERE f.folded<>''
+), {p}_evidence AS (
+ SELECT * FROM {p}_folded e WHERE e.src='history' OR NOT EXISTS (
+   SELECT 1 FROM {p}_folded h WHERE h.id=e.id AND h.src='history')
+), {p}_bucket_evidence AS MATERIALIZED (
+ SELECT r.key, e.folded, btrim(e.name, :whitespace) AS title
+ FROM {buckets} r JOIN {p}_evidence e ON e.id=r.id
+)"""
+
+
+ALBUM_RANKING = f"""
+, album_base AS MATERIALIZED (SELECT * FROM album_values),
+album_buckets AS (
+ -- Bucket = ranking key. Buckets with any explicit label keep it (min, as before).
+ SELECT key, bool_or(state<>'missing') AS named,
+        min(label) FILTER (WHERE state<>'missing') AS explicit_label
+ FROM album_base WHERE mbid IS NOT NULL GROUP BY key
+), bucket_releases AS MATERIALIZED (
+ -- Only fully unnamed MBID buckets look anything up; ids are deduplicated.
+ SELECT DISTINCT v.key, l.release_mbid AS id FROM album_buckets b
+ JOIN album_base v ON v.key=b.key JOIN selected l ON l.id=v.id
+ WHERE NOT b.named AND l.release_mbid IS NOT NULL
+), {_evidence("release", "release_mbid", "bucket_releases")}
+, bucket_groups AS MATERIALIZED (
+ -- Stage 2: release-group ids are probed ONLY for buckets with no usable exact release
+ -- evidence (neither a hit nor a conflict), so a hot group never delays an exact hit.
+ SELECT DISTINCT v.key, l.release_group_mbid AS id FROM album_buckets b
+ JOIN album_base v ON v.key=b.key JOIN selected l ON l.id=v.id
+ WHERE NOT b.named AND l.release_group_mbid IS NOT NULL
+ AND NOT EXISTS (SELECT 1 FROM release_bucket_evidence e WHERE e.key=b.key)
+), {_evidence("group", "release_group_mbid", "bucket_groups", "release_group")}
+, recovered_albums AS (
+ -- Exact release evidence (history+cache) decides; group evidence exists only for buckets
+ -- without any. Two or more folded titles drop the bucket (never bridged or fallen through).
+ SELECT key, min(title) AS title FROM (
+   SELECT key, folded, title FROM release_bucket_evidence
+   UNION ALL SELECT key, folded, title FROM group_bucket_evidence) e
+ GROUP BY key HAVING count(DISTINCT folded)=1
+), album_ranking_values AS (
+ -- Unresolved albums are dropped HERE, i.e. before rank, LIMIT, Other and the share base.
+ SELECT v.id, v.day, v.key,
+   CASE WHEN v.state<>'missing' THEN v.label
+        ELSE coalesce(b.explicit_label, r.title) END AS label,
+   v.mbid,
+   CASE WHEN v.state<>'missing' THEN v.state ELSE 'resolved' END AS state, v.weight
+ FROM album_base v JOIN album_buckets b ON b.key=v.key
+ LEFT JOIN recovered_albums r ON r.key=v.key
+ WHERE b.named OR r.title IS NOT NULL
+ UNION ALL
+ SELECT v.id, v.day, v.key, v.label, v.mbid, v.state, v.weight FROM album_base v
+ WHERE v.state<>'missing' AND v.mbid IS NULL  -- named, name-keyed albums
+)
+"""
+
+TRACK_RANKING = f"""
+, track_buckets AS (
+ SELECT key, bool_or(state<>'missing') AS named,
+        min(label) FILTER (WHERE state<>'missing') AS explicit_label
+ FROM track_values WHERE mbid IS NOT NULL GROUP BY key
+), track_blank AS MATERIALIZED (
+ SELECT key, CAST(key AS uuid) AS id FROM track_buckets WHERE NOT named
+), track_raw AS MATERIALIZED (
+ SELECT t.key, h.name FROM track_blank t CROSS JOIN LATERAL (
+   SELECT DISTINCT l.track_name AS name FROM listens l
+   WHERE l.recording_mbid=t.id AND l.track_name IS NOT NULL) h
+), track_folded AS (
+ SELECT r.key, btrim(r.name, :whitespace) AS title, f.folded FROM track_raw r
+ JOIN (SELECT name, {FOLD} AS folded FROM (SELECT DISTINCT name FROM track_raw) d) f
+   ON f.name=r.name WHERE f.folded<>''
+), recovered_tracks AS (
+ SELECT key, min(title) AS title FROM track_folded GROUP BY key
+ HAVING count(DISTINCT folded)=1
+), track_ranking_values AS (
+ SELECT v.id, v.day, v.key,
+   CASE WHEN v.state<>'missing' THEN v.label
+        ELSE coalesce(b.explicit_label, r.title, v.label) END AS label,
+   v.mbid,
+   CASE WHEN v.state<>'missing' OR (b.explicit_label IS NULL AND r.title IS NULL)
+        THEN v.state ELSE 'resolved' END AS state, v.weight
+ FROM track_values v LEFT JOIN track_buckets b ON b.key=v.key
+ LEFT JOIN recovered_tracks r ON r.key=v.key
+)
+"""
+RECOVERY_FAMILIES = ("rankings/albums", "rankings/tracks")
+RANKING_RECOVERY = {
+    "albums": ("album_ranking_values", ALBUM_RANKING),
+    "tracks": ("track_ranking_values", TRACK_RANKING),
+}
 
 COVERAGE = """
 SELECT count(*) AS total,
@@ -373,6 +490,11 @@ class SQLStatisticsQueries:
         params = self._params(filters)
         with self._connection() as c:
             snapshot = self._snapshot(c)
+            if family in RECOVERY_FAMILIES:
+                # Recovery CTEs push these statements over JIT cost thresholds, where compile
+                # time (>1s) dominated. Transaction-local and limited to the two families
+                # whose SQL changed; every other chart keeps the server's JIT setting.
+                c.execute(text("SELECT set_config('jit', 'off', true)"))
             key = (
                 family,
                 params["from_date"],
@@ -457,10 +579,15 @@ class SQLStatisticsQueries:
                 source = (
                     "genre_ranking_values" if kind == "rankings" and dimension == "genres" else None
                 )
-                if source:
+                common = COMMON
+                if kind == "rankings" and dimension in RANKING_RECOVERY:
+                    # Label recovery (and unnamed-album filtering) for rankings only.
+                    source, extra = RANKING_RECOVERY[dimension]
+                    common = COMMON + extra
+                if source and dimension == "genres":
                     # Shares use total appearances (sum to 1); coverage unchanged.
                     included = c.execute(
-                        text(COMMON + f"SELECT count(*) FROM {source}"), params
+                        text(common + f"SELECT count(*) FROM {source}"), params
                     ).scalar_one()
                 if kind == "evolution":
                     result.update(self._evolution(c, dimension, {**params, "included": included}))
@@ -498,7 +625,7 @@ class SQLStatisticsQueries:
                     rows = (
                         c.execute(
                             text(
-                                COMMON
+                                common
                                 + ", totals AS ("
                                 + totals_sql(dimension, source)
                                 + """),
@@ -511,13 +638,15 @@ class SQLStatisticsQueries:
                                     if art_type
                                     else "NULL::text"
                                 )
-                                + """ AS image_url
+                                + """ AS image_url,
+                             (SELECT sum(listens) FROM totals)::float8 AS ranked_total
                       FROM ranked r"""
                                 + art_join
                                 + """
                       WHERE r.rank<=:limit
                       UNION ALL
-                      SELECT 'other','Other',NULL,'resolved',sum(listens),true,NULL::text
+                      SELECT 'other','Other',NULL,'resolved',sum(listens),true,NULL::text,
+                             (SELECT sum(listens) FROM totals)::float8
                       FROM ranked
                       WHERE rank>:limit HAVING count(*)>0
                       ORDER BY is_other, listens DESC, key
@@ -528,6 +657,9 @@ class SQLStatisticsQueries:
                         .mappings()
                         .all()
                     )
+                    if kind == "rankings" and dimension == "albums":
+                        # Shares: named albums before LIMIT (one pass; coverage stays overall).
+                        included = int(rows[0]["ranked_total"]) if rows else 0
                     if kind == "rankings":
                         result["items"] = [
                             {

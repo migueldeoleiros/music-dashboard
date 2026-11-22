@@ -571,10 +571,12 @@ def test_unicode_identity_and_missing_states(stats):
         "name:strasse": 3,
         "name:band feat. guest & duo": 1,
     }
-    for dimension in ("tracks", "albums"):
-        response = q.query(f"rankings/{dimension}", filters())
-        assert all(r["metadata_state"] == "missing" for r in response["items"])
-        assert sum(r["listens"] for r in response["items"]) == 4
+    tracks = q.query("rankings/tracks", filters())
+    assert all(r["metadata_state"] == "missing" for r in tracks["items"])
+    assert sum(r["listens"] for r in tracks["items"]) == 4
+    # Unnamed albums are hidden from rankings (before rank/limit); coverage still counts them.
+    albums = q.query("rankings/albums", filters())
+    assert albums["items"] == [] and albums["coverage"]["albums"]["total_listens"] == 4
 
 
 RG = "7a29cb18-db62-4598-9b85-9d3d9eb9638b"

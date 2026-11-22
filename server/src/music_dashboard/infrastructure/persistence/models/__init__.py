@@ -11,6 +11,7 @@ from .metadata import (
     MetadataCache,
 )
 from .reference import Timezone
+from .titles import ReleaseTitleCache, ReleaseTitleLookup
 
 __all__ = [
     "Artwork",
@@ -22,6 +23,8 @@ __all__ = [
     "EntityGenre",
     "Genre",
     "Listen",
+    "ReleaseTitleCache",
+    "ReleaseTitleLookup",
     "ListenArtist",
     "MetadataCache",
     "QuarantinedListen",

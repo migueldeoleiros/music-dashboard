@@ -23,3 +23,7 @@ class MetadataPermanentError(MetadataSourceError):
 
 
 TransientMetadataError = MetadataTransientError  # alias
+
+
+class TitleDeadlineError(Exception):
+    """Run deadline cannot cover limiter wait + request; nothing was requested."""

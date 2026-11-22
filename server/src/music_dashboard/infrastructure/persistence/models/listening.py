@@ -38,6 +38,11 @@ class Listen(Base):
             "release_group_mbid",
             postgresql_where=text("release_group_mbid IS NOT NULL"),
         ),
+        Index(
+            "ix_listens_release_mbid",
+            "release_mbid",
+            postgresql_where=text("release_mbid IS NOT NULL"),
+        ),
     )
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     user_name: Mapped[str] = mapped_column(Text)
