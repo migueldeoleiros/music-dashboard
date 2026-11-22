@@ -5,6 +5,7 @@ import { Controls } from '../features/dashboard/Controls'
 import { browserTimezone, presetRange, readFilters, readPeriod, rollingYearRange, utcFallback, validateFilters, writeFilters, type Filters, type Period } from '../features/dashboard/filters'
 import { CountryArtistsPanel } from '../features/origin-map/CountryArtistsPanel'
 import { CountryRankingPanel } from '../features/origin-map/CountryRankingPanel'
+import { FloatingNav } from '../components/ui/FloatingNav'
 import { CoverageNote } from '../components/ui/CoverageNote'
 import { SyncStatus } from '../components/ui/SyncStatus'
 import { ArtistPage } from '../features/artist-history/ArtistPage'
@@ -47,7 +48,7 @@ export function App() {
     return <ArtistPage artistKey={key} />
   }
   if (pathname !== '/') return <main className="app"><h1>Page not found</h1><a href="/">Dashboard</a></main>
-  return <><Dashboard /><a className="history-entry" href="/history" aria-label="Listening history">History</a></>
+  return <><Dashboard /><FloatingNav items={['history']} /></>
 }
 
 function Dashboard() {

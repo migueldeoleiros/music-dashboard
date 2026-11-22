@@ -12,7 +12,7 @@
 .row-link:focus-visible { outline: none; }
 .row--link:has(.row-link:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
 .row-inline-link { position: relative; z-index: 1; }
-@media (hover: hover) { .row--link:hover .entity-label, .row--link:hover .song-title { color: var(--accent); } }
+@media (hover: hover) { .row--link:hover .entity-label, .row--link:hover .song-title, .row--link:hover .entity-hero-name { color: var(--accent); } }
 
 .song-row .song-cols { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: .15rem 1rem; align-items: center; font-size: .8rem; }
 .song-title { color: var(--text); overflow-wrap: anywhere; }
