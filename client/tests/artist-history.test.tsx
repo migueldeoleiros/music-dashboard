@@ -55,7 +55,7 @@ it('artist page: not-found state and new layout', async () => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (url.includes('/heatmap')) return json({ year: 2025, years: [2025, 2024], timezone: 'UTC', week_starts_on: 'monday', cells: [{ day: '2025-01-02', listens: 3 }] })
     if (url.includes('/rankings/') || url.includes('/recent')) return json({ items: [], next_cursor: null, generation: 'g', dimension: 'albums' })
-    return json({ key: 'name:x', label: 'Blue', image_url: null, genres: ['rock'], byline: 'Band', total_listens: 12 })
+    return json({ key: 'name:x', label: 'Blue', image_url: null, genres: ['rock'], total_listens: 12 })
   }))
   wrap(<ArtistPage artistKey="name:x" />)
   expect(await screen.findByRole('heading', { name: 'Blue' })).toBeTruthy()

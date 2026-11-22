@@ -172,7 +172,6 @@ class ArtistHistory:
                 total_listens=found["total"],
                 genres=genres,
                 image_url=resolve_artwork(c, "artist", [key], p).get(key),
-                byline="From your listening history · all-time plays",
             )
 
     def rankings(

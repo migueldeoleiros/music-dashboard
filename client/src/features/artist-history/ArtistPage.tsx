@@ -81,7 +81,7 @@ export function ArtistPage({ artistKey }: { artistKey: string }) {
     {query.isPending && <p role="status">Loading artist…</p>}
     {missing ? <section><h1>Artist not found</h1><p>This artist link is no longer available. Return to the dashboard to find an artist.</p></section> : <FeedError error={query.error} retry={() => void query.refetch()} />}
     {artist && <>
-      <header className="artist-profile"><EntityImage src={artist.image_url} label={artist.label} size="hero" decorative /><div><h1>{artist.label}</h1><p className="artist-total">{number.format(artist.total_listens)} <span>listens</span></p>{artist.genres.length > 0 && <p className="entity-secondary">{artist.genres.join(' · ')}</p>}{artist.byline && <p className="artist-byline">{artist.byline}</p>}</div></header>
+      <header className="artist-profile"><EntityImage src={artist.image_url} label={artist.label} size="hero" decorative /><div><h1>{artist.label}</h1><p className="artist-total">{number.format(artist.total_listens)} <span>listens</span></p>{artist.genres.length > 0 && <p className="entity-secondary">{artist.genres.join(' · ')}</p>}</div></header>
       <Heatmap key={artistKey} artistKey={artistKey} />
       <div className="grid-2">
         <Rankings key={`albums-${artistKey}`} artistKey={artistKey} dimension="albums" />

@@ -212,10 +212,6 @@
       "ArtistSummary": {
         "additionalProperties": false,
         "properties": {
-          "byline": {
-            "title": "Byline",
-            "type": "string"
-          },
           "genres": {
             "items": {
               "type": "string"
@@ -252,7 +248,6 @@
           "key",
           "label",
           "genres",
-          "byline",
           "total_listens"
         ],
         "title": "ArtistSummary",

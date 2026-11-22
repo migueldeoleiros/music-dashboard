@@ -43,7 +43,6 @@ class ArtistSummary(ContractModel):
     label: str
     image_url: str | None = None
     genres: list[str]
-    byline: str
     total_listens: int = Field(ge=0)
 
 

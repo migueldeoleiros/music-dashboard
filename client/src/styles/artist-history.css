@@ -3,8 +3,7 @@
 .artist-profile { display: flex; align-items: center; gap: 1.5rem; min-width: 0; }
 .artist-profile > div { min-width: 0; }
 .artist-total { margin: .5rem 0; font-size: 1.5rem; font-variant-numeric: tabular-nums; }
-.artist-total span, .artist-byline { font-size: .8rem; color: var(--text-muted); }
-.artist-byline { overflow-wrap: anywhere; }
+.artist-total span { font-size: .8rem; color: var(--text-muted); }
 .feed-paging { display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; padding-top: 1rem; font-size: .8rem; }
 .artist-link { color: inherit; text-decoration: none; border: 0; border-radius: 2px; }
 .artist-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }

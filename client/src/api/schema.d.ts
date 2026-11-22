@@ -404,8 +404,6 @@ export interface components {
         };
         /** ArtistSummary */
         ArtistSummary: {
-            /** Byline */
-            byline: string;
             /** Genres */
             genres: string[];
             /** Image Url */
