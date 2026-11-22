@@ -9,6 +9,11 @@ from fastapi import HTTPException
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
+from music_dashboard.infrastructure.persistence.artwork_resolver import (
+    resolve_song_artwork,
+    song_keys,
+)
+from music_dashboard.infrastructure.persistence.statistics_queries import CASEFOLD, WHITESPACE
 from music_dashboard.presentation.api.schemas.history import ArtistCredit, HistoryItem
 
 GENERATION_SQL = """
@@ -19,7 +24,8 @@ FROM data_generation WHERE id = 1
 # LIMIT is applied to listens BEFORE loading credits. Repeated plays remain separate rows.
 PAGE_SQL = """
 WITH page AS MATERIALIZED (
- SELECT id, listened_at, track_name, artist_name, release_name
+ SELECT id, listened_at, track_name, artist_name, release_name,
+        recording_mbid, release_group_mbid, release_mbid
  FROM listens
  WHERE listened_at <= CAST(:reference AS timestamptz)
  {boundary}
@@ -31,6 +37,7 @@ WITH page AS MATERIALIZED (
  FROM page
 )
 SELECT id, listened_at, track_name, artist_name, release_name,
+ recording_mbid, release_group_mbid, release_mbid,
  CASE WHEN day = today THEN 'Today'
       WHEN day = today - 1 THEN 'Yesterday'
       WHEN day >= monday THEN 'This Week'
@@ -102,8 +109,28 @@ class SQLPublicHistory:
                         bucket = credits.setdefault(artist["listen_id"], [])
                         if item not in bucket:
                             bucket.append(item)
+                covers = resolve_song_artwork(
+                    conn,
+                    [
+                        song_keys(
+                            recording_mbid=row["recording_mbid"],
+                            release_group_mbid=row["release_group_mbid"],
+                            release_mbid=row["release_mbid"],
+                            artist_name=row["artist_name"],
+                            track_name=row["track_name"],
+                            release_name=row["release_name"],
+                            primary_artist_key=(
+                                credits[row["id"]][0].key if credits.get(row["id"]) else None
+                            ),
+                            whitespace=WHITESPACE,
+                        )
+                        for row in visible
+                    ],
+                    {"casefold": CASEFOLD, "whitespace": WHITESPACE},
+                )
                 items = [
                     HistoryItem(
+                        image_url=url,
                         title=(row["track_name"] or "").strip() or "[Missing title]",
                         album=(row["release_name"] or "").strip() or None,
                         artists=credits.get(row["id"]) or [ArtistCredit(
@@ -112,7 +139,7 @@ class SQLPublicHistory:
                         )],
                         group=row["heading"],
                     )
-                    for row in visible
+                    for row, url in zip(visible, covers, strict=True)
                 ]
                 next_boundary = (
                     (visible[-1]["listened_at"], visible[-1]["id"])

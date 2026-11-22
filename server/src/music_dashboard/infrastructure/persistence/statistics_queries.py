@@ -39,9 +39,7 @@ from music_dashboard.domain.statistics.policies import (
     validate_filters,
 )
 from music_dashboard.infrastructure.artwork.urls import validate_image_url
-from music_dashboard.infrastructure.persistence.artist_cover_fallback import (
-    artist_cover_fallbacks,
-)
+from music_dashboard.infrastructure.persistence.artwork_resolver import resolve_artwork
 from music_dashboard.infrastructure.persistence.timezones import load_timezones
 
 # Preserve full Unicode casefold (ß, sigma, ligatures, etc.), not locale lower().
@@ -323,13 +321,11 @@ COUNTRY_ARTISTS = """
 , credit_weights AS (
  SELECT id, mbid, code, 1.0 / count(*) OVER (PARTITION BY id) AS weight FROM country_credits
 )
-SELECT w.mbid AS key, min(u.label) AS label, w.mbid AS mbid, max(art.image_url) AS image_url,
+SELECT w.mbid AS key, min(u.label) AS label, w.mbid AS mbid, NULL::text AS image_url,
        CASE WHEN bool_or(u.state='missing') THEN 'missing'
             WHEN bool_or(u.state='resolved') THEN 'resolved' ELSE 'unmapped' END AS state,
        sum(w.weight)::float8 AS listens
 FROM credit_weights w JOIN unique_credits u ON u.id=w.id AND u.mbid=w.mbid
-LEFT JOIN artwork art ON art.entity_type='artist' AND art.status='resolved'
- AND art.entity_mbid=CAST(w.mbid AS uuid)  -- PK (entity_type, entity_mbid): at most one row
 WHERE w.code=:country GROUP BY w.mbid ORDER BY listens DESC, key LIMIT :limit
 """
 # Artwork is keyed by exact MBID (albums by release group, tracks by recording, artists by MBID)
@@ -338,7 +334,6 @@ WHERE w.code=:country GROUP BY w.mbid ORDER BY listens DESC, key LIMIT :limit
 # only reads image_url: keys, labels, totals and ordering never depend on artwork. Genres have
 # no artwork.
 ARTWORK_TYPES = {"artists": "artist", "albums": "album", "tracks": "track"}
-UUID_KEY = "'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'"
 # Evolution shows every entity with a STRICTLY greater than 2% share of the included listens of
 # the selected range (no Top-N truncation first); the rest is one combined Other.
 # listens/included > 1/50  <=>  listens*50 > included. Rounding to 9 decimals absorbs float noise
@@ -551,7 +546,7 @@ class SQLStatisticsQueries:
                     }
                     for r in c.execute(text(COMMON + COUNTRY_ARTISTS), params).mappings()
                 ]
-                self._apply_artist_fallback(c, result["items"], params)
+                self._apply_artwork(c, result["items"], "artist", params)
             elif family == "countries":
                 included = result["coverage"]["countries"]["included_listens"]
                 result["countries"] = [
@@ -610,18 +605,6 @@ class SQLStatisticsQueries:
                 else:
                     # LIMIT N+1 cannot give Other's exact sum, so SQL returns top N + sum(tail).
                     art_type = ARTWORK_TYPES.get(dimension)
-                    # PK (entity_type, entity_mbid) makes the join at most one row per item.
-                    art_join = (
-                        " LEFT JOIN artwork art ON art.entity_type=:art_type AND "
-                        "art.status='resolved' AND art.entity_mbid="
-                        f"(CASE WHEN r.key ~ {UUID_KEY} THEN CAST(r.key AS uuid) END)"
-                        # Name-only keys: the stable `name:` ranking key itself (PK again).
-                        " LEFT JOIN artwork_name aname ON aname.entity_type=:art_type AND "
-                        "aname.status='resolved' AND aname.name_key="
-                        "(CASE WHEN left(r.key,5)='name:' THEN r.key END)"
-                        if art_type
-                        else ""
-                    )
                     rows = (
                         c.execute(
                             text(
@@ -632,17 +615,9 @@ class SQLStatisticsQueries:
                       ranked AS (SELECT *, row_number() OVER (ORDER BY listens DESC,key) AS rank
                                  FROM totals)
                       SELECT r.key,r.label,r.mbid,r.state,r.listens,false AS is_other,
-                             """
-                                + (
-                                    "coalesce(art.image_url, aname.image_url)"
-                                    if art_type
-                                    else "NULL::text"
-                                )
-                                + """ AS image_url,
+                             NULL::text AS image_url,
                              (SELECT sum(listens) FROM totals)::float8 AS ranked_total
-                      FROM ranked r"""
-                                + art_join
-                                + """
+                      FROM ranked r
                       WHERE r.rank<=:limit
                       UNION ALL
                       SELECT 'other','Other',NULL,'resolved',sum(listens),true,NULL::text,
@@ -652,7 +627,7 @@ class SQLStatisticsQueries:
                       ORDER BY is_other, listens DESC, key
                     """
                             ),
-                            {**params, "art_type": art_type} if art_type else params,
+                            params,
                         )
                         .mappings()
                         .all()
@@ -674,8 +649,8 @@ class SQLStatisticsQueries:
                             for r in rows
                             if not r["is_other"]
                         ]
-                        if dimension == "artists":
-                            self._apply_artist_fallback(c, result["items"], params)
+                        if art_type:
+                            self._apply_artwork(c, result["items"], art_type, params)
                     else:
                         result["slices"] = [
                             {
@@ -691,19 +666,14 @@ class SQLStatisticsQueries:
             return result
 
     @staticmethod
-    def _apply_artist_fallback(
-        c: Connection, items: list[dict[str, Any]], params: dict[str, Any]
+    def _apply_artwork(
+        c: Connection, items: list[dict[str, Any]], kind: str, params: dict[str, Any]
     ) -> None:
-        """Photo first (already in `image_url`); else an existing album cover of the artist.
-
-        Display-only: keys, labels, totals and order are untouched, nothing is stored."""
-        missing = [i["key"] for i in items if i["image_url"] is None]
-        if not missing:
-            return
-        covers = artist_cover_fallbacks(c, missing, params)
+        """Covers come from the shared resolver. Display-only: keys, labels, totals and order
+        are untouched, nothing is stored."""
+        covers = resolve_artwork(c, kind, (i["key"] for i in items), params)
         for item in items:
-            if item["image_url"] is None:
-                item["image_url"] = covers.get(item["key"])
+            item["image_url"] = covers.get(item["key"])
 
     @staticmethod
     def _share(value: float, included: int) -> float:

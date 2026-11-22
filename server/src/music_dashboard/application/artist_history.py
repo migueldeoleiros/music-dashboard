@@ -20,6 +20,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from music_dashboard.config import settings
 from music_dashboard.infrastructure.persistence import artist_queries as queries
+from music_dashboard.infrastructure.persistence.artwork_resolver import (
+    resolve_artwork,
+    resolve_song_artwork,
+    song_keys,
+)
 from music_dashboard.infrastructure.persistence.database import create_db_engine
 from music_dashboard.infrastructure.persistence.timezones import load_timezones
 from music_dashboard.presentation.api.schemas.history import (
@@ -151,7 +156,7 @@ class ArtistHistory:
                 label=found["label"],
                 total_listens=found["total"],
                 genres=genres,
-                image_url=queries.artwork(c, key, "artist"),
+                image_url=resolve_artwork(c, "artist", [key], p).get(key),
                 byline="From your listening history · all-time plays",
             )
 
@@ -175,10 +180,11 @@ class ArtistHistory:
             rows = queries.rankings(c, p, dimension, limit, state["after"])
             more = len(rows) > limit
             rows = rows[:limit]
+            covers = resolve_artwork(
+                c, "album" if dimension == "albums" else "track", (r["key"] for r in rows), p
+            )
             for row in rows:
-                row["image_url"] = queries.artwork(
-                    c, row["key"], "album" if dimension == "albums" else "track"
-                )
+                row["image_url"] = covers.get(row["key"])
             next_cursor = None
             if more:
                 state["after"] = (rows[-1]["listens"], rows[-1]["key"])
@@ -257,10 +263,29 @@ class ArtistHistory:
                 state["after"] = (rows[-1]["listened_at"].isoformat(), rows[-1]["id"])
                 next_cursor = cursor_store.issue(state)
             # Explicit allowlist: private ordering values never cross the DTO boundary.
+            covers = resolve_song_artwork(
+                c,
+                [
+                    song_keys(
+                        recording_mbid=r["recording_mbid"],
+                        release_group_mbid=r["release_group_mbid"],
+                        release_mbid=r["release_mbid"],
+                        artist_name=r["raw_artist"],
+                        track_name=r["raw_track"],
+                        release_name=r["raw_album"],
+                        primary_artist_key=(r["artists"][0]["key"] if r["artists"] else None),
+                        whitespace=p["whitespace"],
+                    )
+                    for r in rows
+                ],
+                p,
+            )
             return ArtistRecentPage(
                 items=[
-                    PublicSong(title=r["title"], album=r["album"], artists=r["artists"])
-                    for r in rows
+                    PublicSong(
+                        title=r["title"], album=r["album"], artists=r["artists"], image_url=url
+                    )
+                    for r, url in zip(rows, covers, strict=True)
                 ],
                 generation=generation,
                 next_cursor=next_cursor,

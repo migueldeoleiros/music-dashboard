@@ -6,7 +6,6 @@ from typing import Any
 
 from sqlalchemy import Connection, text
 
-from music_dashboard.infrastructure.artwork.urls import validate_image_url
 from music_dashboard.infrastructure.persistence.statistics_queries import (
     ALBUM_RANKING,
     CASEFOLD,
@@ -75,16 +74,6 @@ def identity(c: Connection, p: dict[str, Any]) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def artwork(c: Connection, key: str, kind: str) -> str | None:
-    if key.startswith("name:"):
-        sql = """SELECT image_url FROM artwork_name WHERE entity_type=:kind
-                 AND name_key=:key AND status='resolved'"""
-    else:
-        sql = """SELECT image_url FROM artwork WHERE entity_type=:kind
-                 AND entity_mbid=CAST(:key AS uuid) AND status='resolved'"""
-    return validate_image_url(c.execute(text(sql), {"key": key, "kind": kind}).scalar())
-
-
 def rankings(
     c: Connection,
     p: dict[str, Any],
@@ -145,7 +134,8 @@ def recent(
  ), credit_folded AS (
  SELECT name, {FOLD} AS folded FROM credit_names
  )
- SELECT l.id, l.listened_at,
+ SELECT l.id, l.listened_at, l.recording_mbid, l.release_group_mbid, l.release_mbid,
+ l.artist_name AS raw_artist, l.track_name AS raw_track, l.release_name AS raw_album,
  coalesce(nullif(btrim(l.track_name,:whitespace),''),'[Missing title]') AS title,
  nullif(btrim(l.release_name,:whitespace),'') AS album,
  coalesce((SELECT jsonb_agg(jsonb_build_object(
