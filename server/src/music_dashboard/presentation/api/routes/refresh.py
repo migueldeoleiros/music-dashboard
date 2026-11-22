@@ -12,6 +12,7 @@ malformed setting rejects everything, and X-Forwarded-* headers are never consul
 from __future__ import annotations
 
 import math
+import re
 from datetime import datetime
 from functools import lru_cache
 from typing import Any, Literal
@@ -71,37 +72,51 @@ def _origin_tuple(scheme: str, netloc: str) -> tuple[str, str, int | None] | Non
     return scheme.lower(), host.lower(), port or _DEFAULT_PORTS.get(scheme.lower())
 
 
-def _configured_origin(raw: str) -> tuple[str, str, int | None] | None:
-    """Parse MUSIC_PUBLIC_ORIGIN: bare https origin only; anything else is None (fail closed)."""
-    try:
-        parts = urlsplit(raw)
-        parts.port  # noqa: B018 - validates the port
-    except ValueError:
+_AUTHORITY = re.compile(
+    r"(?P<host>[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*)"
+    r"(?::(?P<port>[1-9][0-9]{0,4}))?"
+)
+
+
+def _authority(value: str) -> tuple[str, int] | None:
+    """Whole-string host[:port] (no userinfo, empty/zero/leading-zero/oversized port)."""
+    match = _AUTHORITY.fullmatch(value)
+    if match is None or len(value) > 255:
         return None
-    if raw != raw.strip() or parts.scheme != "https" or parts.path or parts.query:
+    port = int(match["port"]) if match["port"] else 443
+    if port > 65535:
         return None
-    if parts.fragment or "#" in raw or "?" in raw or raw.endswith("/"):
+    return match["host"].lower(), port
+
+
+def _configured_origin(raw: str) -> str | None:
+    """Canonical literal origin or None. Raw value must already be canonical (fail closed)."""
+    if not raw.startswith("https://"):
         return None
-    return _origin_tuple("https", parts.netloc)
+    parsed = _authority(raw[len("https://") :])
+    if parsed is None:
+        return None
+    host, port = parsed
+    canonical = f"https://{host}" + ("" if port == 443 else f":{port}")
+    return canonical if raw == canonical else None  # rejects uppercase, explicit :443
 
 
 def _same_configured_origin(request: Request, raw: str) -> bool:
-    configured = _configured_origin(raw)
+    canonical = _configured_origin(raw)
     origin = request.headers.get("origin")
     host = request.headers.get("host")
-    if configured is None or not origin or not host or origin == "null":
+    if canonical is None or not origin or not host:
         return False
     if request.headers.get("sec-fetch-site", "same-origin") != "same-origin":
         return False
-    try:
-        parts = urlsplit(origin)
-    except ValueError:
-        return False
-    if parts.scheme != "https" or parts.path or parts.query or parts.fragment:
-        return False
+    host_authority = _authority(host)
     return (
-        _origin_tuple("https", parts.netloc) == configured
-        and _origin_tuple("https", host) == configured
+        origin == canonical  # literal: no normalization, slash or case folding
+        and host_authority is not None
+        and f"https://{host_authority[0]}"
+        + ("" if host_authority[1] == 443 else f":{host_authority[1]}")
+        == canonical
     )
 
 

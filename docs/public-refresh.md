@@ -13,7 +13,8 @@ No public route triggers an export or a rebuild.
 2. Confirm normal scheduled reconciliation has completed for the worker's account. A public request
    waits if the checkpoint requires reconciliation or has no successful initial export. Only the
    normal schedule can perform that prerequisite; do not clear the checkpoint by hand.
-3. Set `MUSIC_PUBLIC_REFRESH_ENABLED=true` for **both API and worker** and recreate those services.
+3. Set `MUSIC_PUBLIC_ORIGIN` (**required** for any public deployment; exact canonical HTTPS origin, API only) and
+   `MUSIC_PUBLIC_REFRESH_ENABLED=true` for **both API and worker**, then recreate those services.
    Both fixture flags must retain their intended values. Worker fixture mode must never be disabled
    merely to test the button. The upstream token remains worker-only.
 4. Confirm `/api/refresh` reports enabled, same-origin admission works through the public proxy,
@@ -22,12 +23,21 @@ No public route triggers an export or a rebuild.
 
 ### Public origin (fail-closed)
 
-Set `MUSIC_PUBLIC_ORIGIN=https://music.miguel.md` on the **API** (compose wires it). When set,
-POST admission requires `Origin` to equal that exact HTTPS origin **and** `Host` to be its canonical
-host (default port 443 implied). There is no fallback to Host-plus-scheme, `X-Forwarded-*` is never
-read, and a malformed value (non-https, path, trailing slash, userinfo, bad port) rejects every POST
-with 403. The host TLS proxy must send `proxy_set_header Host $host;` (as in `docs/deployment.md`),
-and the container nginx preserves it. Empty keeps the local http behavior.
+Set `MUSIC_PUBLIC_ORIGIN=https://music.miguel.md` on the **API** (compose wires it). The value must
+already be canonical: lowercase `https://host[:port]`, no trailing slash/path/query/fragment/userinfo,
+no explicit `:443`, port 1-65535 without leading zeros. Anything else (including empty userinfo,
+port `0`, uppercase, normalizable forms) is malformed and rejects **every** POST with 403.
+
+When set, POST admission requires: `Origin` **literally equal** to the configured string (no case
+folding or slash tolerance); the whole `Host` authority to validate as `host[:port]` (no userinfo, lists,
+paths, empty/zero port) and canonicalize to the same origin; and `Sec-Fetch-Site: same-origin` if present.
+There is no fallback to Host-plus-scheme and `X-Forwarded-*`/`Forwarded` are never read. Empty
+`MUSIC_PUBLIC_ORIGIN` keeps the local http behavior and is not acceptable for public exposure.
+
+Port forwarding: for the default 443 origin the host proxy may send `Host $host` (port omitted is
+treated as 443). For a non-default port in the origin, the proxy must forward the port, e.g.
+`proxy_set_header Host $http_host;` (`$host` drops it and POSTs will be rejected). The container
+nginx already preserves `$http_host`.
 
 ## Behavior
 

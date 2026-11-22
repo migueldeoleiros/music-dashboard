@@ -266,6 +266,15 @@ def test_public_origin_sec_fetch_site_still_enforced(public, monkeypatch):
         "https://music.miguel.md:bad",
         "https://[invalid",
         "*",
+        "https://@music.miguel.md",  # empty userinfo
+        "https://music.miguel.md:0",
+        "https://music.miguel.md:",
+        "https://music.miguel.md:443",  # explicit default port is not canonical
+        "https://music.miguel.md:0443",
+        "https://music.miguel.md:65536",
+        "https://MUSIC.miguel.md",
+        "https://music.miguel.md.",
+        "https://music..miguel.md",
     ],
 )
 def test_malformed_public_origin_fails_closed(enabled, monkeypatch, bad):
@@ -273,3 +282,38 @@ def test_malformed_public_origin_fails_closed(enabled, monkeypatch, bad):
     monkeypatch.setattr(route, "refresh_engine", boom)
     c = TestClient(app, base_url="https://music.miguel.md")
     assert c.post("/api/refresh", headers={"Origin": PUBLIC}).status_code == 403
+
+
+@pytest.mark.parametrize(
+    ("origin", "host"),
+    [
+        ("HTTPS://music.miguel.md", "music.miguel.md"),
+        ("https://MUSIC.miguel.md", "music.miguel.md"),  # literal Origin equality
+        ("https://music.miguel.md:443", "music.miguel.md"),
+        (PUBLIC, "user@music.miguel.md"),
+        (PUBLIC, "@music.miguel.md"),
+        (PUBLIC, "music.miguel.md:"),
+        (PUBLIC, "music.miguel.md:0"),
+        (PUBLIC, "music.miguel.md:00443"),
+        (PUBLIC, "music.miguel.md:443x"),
+        (PUBLIC, "music.miguel.md, evil.test"),
+        (PUBLIC, "music.miguel.md/x"),
+        (PUBLIC, "music.miguel.md evil"),
+        (PUBLIC, "[::1]"),
+    ],
+)
+def test_public_origin_strict_literal_and_host_authority(public, monkeypatch, origin, host):
+    monkeypatch.setattr(route, "refresh_engine", boom)
+    assert public.post("/api/refresh", headers={"Origin": origin, "Host": host}).status_code == 403
+
+
+def test_public_origin_nondefault_port_exact(enabled, monkeypatch):
+    monkeypatch.setattr(settings, "public_origin", "https://music.miguel.md:8443")
+    install(monkeypatch, row=row())
+    c = TestClient(app, base_url="http://music.miguel.md:8443")
+    assert (
+        c.post("/api/refresh", headers={"Origin": "https://music.miguel.md:8443"}).status_code
+        == 202
+    )
+    bad = {"Origin": "https://music.miguel.md:8443", "Host": "music.miguel.md"}
+    assert c.post("/api/refresh", headers=bad).status_code == 403
