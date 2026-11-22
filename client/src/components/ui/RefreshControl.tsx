@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchRefresh, type RefreshStatus } from '../../api/refresh'
-import './refresh.css'
 
 const storageKey = 'music-refresh-request'
 const active = (status: RefreshStatus['status']) => ['pending', 'running', 'deferred'].includes(status)
@@ -26,7 +25,8 @@ function statusText(data: RefreshStatus) {
   }
 }
 
-export function RefreshControl() {
+/** Refresh state for the "Updated" timestamp; `enabled` is false until status loads or when disabled server-side. */
+export function useRefresh() {
   const client = useQueryClient()
   const [requestId, setRequestId] = useState(rememberedRequest)
   const reloaded = useRef<string | null>(null)
@@ -61,28 +61,23 @@ export function RefreshControl() {
     return () => window.clearTimeout(timer)
   }, [data?.cooldown_until])
   const superseded = !!requestId && !!data?.request_id && requestId !== data.request_id
-  const reload = () => client.invalidateQueries({ predicate: query => query.queryKey[0] !== 'refresh' })
   useEffect(() => {
     if (data?.status === 'succeeded' && data.request_id && data.request_id === requestId && reloaded.current !== requestId) {
       reloaded.current = requestId
       void client.invalidateQueries({ predicate: query => query.queryKey[0] !== 'refresh' })
     }
   }, [client, data, requestId])
-  if (status.isPending || (data && !data.enabled)) return null
-  if (!data) return <span className="refresh-control"><span role="status">Refresh status unavailable.</span><button type="button" onClick={() => { void status.refetch() }}>Retry status</button></span>
+  if (status.isPending || status.isError && !data || !data?.enabled) return { enabled: false as const }
   const busy = active(data.status)
   const cooling = !!data.cooldown_until && Date.parse(data.cooldown_until) > now
-  return <span className="refresh-control">
-    <button type="button" disabled={admission.isPending || busy || cooling || status.isError} onClick={() => admission.mutate()}>
-      {admission.isPending ? 'Requesting…' : 'Refresh listens'}
-    </button>
-    <span role="status" aria-live="polite">
-      {superseded ? 'A newer shared request replaced your refresh. Showing its status. ' : ''}
-      {status.isError ? 'Refresh status unavailable. Retry status before requesting again.' : statusText(data)}
-      {!busy && cooling && ' Shared cooldown active.'}
-    </span>
-    {admission.isError && <span role="alert">{admission.error.message}</span>}
-    {status.isError && <button type="button" onClick={() => { void status.refetch() }}>Retry status</button>}
-    {data.status === 'succeeded' && <button type="button" onClick={() => { void reload() }}>Reload charts</button>}
-  </span>
+  const feedback = admission.isError ? admission.error.message : [
+    superseded ? 'A newer shared request replaced your refresh. Showing its status.' : '',
+    status.isError ? 'Refresh status unavailable.' : statusText(data),
+    !busy && cooling ? 'Shared cooldown active.' : '',
+  ].filter(Boolean).join(' ')
+  return {
+    enabled: true as const, feedback,
+    disabled: admission.isPending || busy || cooling || status.isError,
+    refresh: () => admission.mutate(),
+  }
 }

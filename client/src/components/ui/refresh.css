@@ -1,4 +1,0 @@
-.refresh-control { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .4rem .6rem; min-width: 0; font-size: .72rem; color: var(--text-muted); overflow-wrap: anywhere; }
-.refresh-control button { min-height: 36px; padding: .3rem .65rem; font-size: inherit; }
-@media (max-width: 720px), (pointer: coarse) { .refresh-control button { min-height: var(--tap-size); } }
-.controls-meta:has(.refresh-control) { flex-wrap: wrap; }

@@ -7,7 +7,6 @@ import { mockChart } from '../src/api/mock'
 import type { ChartPath } from '../src/api/client'
 
 vi.mock('../src/components/ui/SyncStatus', () => ({ SyncStatus: () => <p>Sync status</p> }))
-vi.mock('../src/components/ui/RefreshControl', () => ({ RefreshControl: () => null }))
 vi.mock('../src/components/charts', () => ({
   stableColor: () => '#88ccaa',
   HeatmapChart: () => <p>Daily chart</p>, CountryChart: () => <p>Country chart</p>,

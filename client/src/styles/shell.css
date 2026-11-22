@@ -88,3 +88,6 @@ html:has(.custom-dialog[open]) { overflow: hidden; }
   .coverage-pop { right: auto; left: 0; }
   .card { padding: .75rem; }
 }
+.sync-refresh { all: unset; cursor: pointer; text-decoration: underline dotted; text-underline-offset: .2em; }
+.sync-refresh:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.sync-refresh:disabled { cursor: default; text-decoration: none; }
