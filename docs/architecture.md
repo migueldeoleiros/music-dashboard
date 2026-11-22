@@ -315,7 +315,7 @@ there is no privacy guarantee.
 | L-ART server artwork + deploy | server artwork migration/jobs/adapters, artwork LEFT JOINs in ranking and country-artist queries, `deploy/proxy.conf` (CSP) |
 
 `features/dashboard/ChartSection.tsx` (generic frame) and `ChartPanel.tsx` (thin dispatcher) are
-shared; change them only in the integration phase. Token names: see `docs/ui-tokens.md`.
+shared; change them only in the integration phase. Token names: see `docs/ui-style-guide.md`.
 
 ## Ownership after foundation merge
 

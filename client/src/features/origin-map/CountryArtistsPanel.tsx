@@ -14,7 +14,7 @@ export type CountryArtistsPanelProps = {
   restoreFocusRef?: RefObject<HTMLElement | null>
 }
 
-/** Mobile breakpoint: keep in sync with `@media (max-width: 720px)` in entity-list.css (docs/ui-tokens.md). */
+/** Mobile breakpoint: keep in sync with `@media (max-width: 720px)` in entity-list.css (docs/ui-style-guide.md). */
 export const SHEET_QUERY = '(max-width: 720px)'
 const SWIPE_CLOSE_PX = 64
 // A tap on the map opens the sheet on touchend; the browser's compatibility click for that same tap then lands on the

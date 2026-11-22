@@ -1,4 +1,4 @@
-/* C1 shell: page frame, period bar, section layout, cards. Tokens only (docs/ui-tokens.md). */
+/* C1 shell: page frame, period bar, section layout, cards. Tokens only (docs/ui-style-guide.md). */
 .app { max-width: 1500px; margin: 0 auto; padding: clamp(.75rem, 3vw, 2.5rem); padding-left: max(clamp(.75rem, 3vw, 2.5rem), env(safe-area-inset-left)); padding-right: max(clamp(.75rem, 3vw, 2.5rem), env(safe-area-inset-right)); padding-bottom: max(clamp(.75rem, 3vw, 2.5rem), env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 1.25rem; }
 .app > * { min-width: 0; }
 
@@ -70,7 +70,7 @@ html:has(.custom-dialog[open]) { overflow: hidden; }
   .pill { min-height: var(--tap-size); padding-inline: 1.1rem; }
   .coverage-badge { min-height: var(--tap-size); min-width: var(--tap-size); }
 }
-/* Breakpoints: 1100px tablet, 720px mobile (docs/ui-tokens.md). */
+/* Breakpoints: 1100px tablet, 720px mobile (docs/ui-style-guide.md). */
 /* Pies keep their legend beside the donut, which needs ~500px of card width: stack them on tablets. */
 @media (max-width: 1100px) { .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } #shares .grid-2 { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 720px) {

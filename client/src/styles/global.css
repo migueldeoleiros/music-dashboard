@@ -2,7 +2,7 @@
   font-family: 'Inter Variable'; font-style: normal; font-display: swap; font-weight: 100 900;
   src: url('../assets/fonts/inter-latin-wght-normal.woff2') format('woff2-variations');
 }
-/* Token names are a contract: see docs/ui-tokens.md. Lanes may change values, never names. */
+/* Token names are a contract: see docs/ui-style-guide.md. Lanes may change values, never names. */
 :root {
   color-scheme: dark;
   --bg: #000000; --surface: #0a0a0a; --surface-2: #171717; --border: #2a2a2a;
@@ -42,7 +42,7 @@ table { border-collapse: collapse; width: 100%; font-size: .7rem; margin-top: .7
 th, td { text-align: left; padding: .45rem; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 th { font-weight: 500; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-/* Mobile / touch: 44px targets, 16px inputs (no iOS focus zoom). Breakpoint 720px: see docs/ui-tokens.md. */
+/* Mobile / touch: 44px targets, 16px inputs (no iOS focus zoom). Breakpoint 720px: see docs/ui-style-guide.md. */
 @media (max-width: 720px), (pointer: coarse) {
   button, input, select, summary { min-height: var(--tap-size); }
   input, select { font-size: 16px; }

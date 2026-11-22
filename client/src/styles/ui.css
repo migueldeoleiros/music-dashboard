@@ -1,0 +1,23 @@
+/* Shared UI: icons, icon buttons, floating nav, full-row links, SongRow. Rules: docs/ui-style-guide.md. Tokens only. */
+.icon { display: block; flex: none; }
+.icon-button { display: inline-flex; align-items: center; justify-content: center; width: var(--tap-size); height: var(--tap-size); padding: 0; border: 1px solid var(--border); border-radius: 50%; background: var(--surface-2); color: var(--text); text-decoration: none; cursor: pointer; }
+.icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (hover: hover) { .icon-button:hover { color: var(--accent); } }
+.floating-nav { position: fixed; z-index: 30; top: max(1rem, env(safe-area-inset-top)); left: max(1rem, env(safe-area-inset-left)); display: flex; flex-direction: column; gap: .5rem; }
+
+/* Full-row link: the title anchor is stretched over the whole <li>. Hover changes text color only. */
+.row--link { position: relative; }
+.row-link { color: inherit; text-decoration: none; }
+.row-link::after { content: ''; position: absolute; inset: 0; }
+.row-link:focus-visible { outline: none; }
+.row--link:has(.row-link:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+.row-inline-link { position: relative; z-index: 1; }
+@media (hover: hover) { .row--link:hover .entity-label, .row--link:hover .song-title { color: var(--accent); } }
+
+.song-row .song-cols { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: .15rem 1rem; align-items: center; font-size: .8rem; }
+.song-title { color: var(--text); overflow-wrap: anywhere; }
+.song-artist, .song-album { color: var(--text-muted); overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+  .song-row .song-cols { grid-template-columns: minmax(0, 1fr); font-size: .85rem; }
+  .song-artist, .song-album { font-size: .72rem; }
+}

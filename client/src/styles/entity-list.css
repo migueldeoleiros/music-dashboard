@@ -47,7 +47,7 @@
 @media (hover: hover) { .country-panel .entity-empty button:hover { border-color: var(--text-muted); } }
 .country-panel-close:focus-visible, .country-panel .entity-empty button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* Mobile (720px, docs/ui-tokens.md): hero/rows tighten; country panel becomes a modal bottom sheet. */
+/* Mobile (720px, docs/ui-style-guide.md): hero/rows tighten; country panel becomes a modal bottom sheet. */
 @media (max-width: 720px) {
   /* Ranking beside the map becomes a normal card under it; only the artists panel is a bottom sheet. */
   .country-panel-slot { grid-column: auto; grid-row: auto; }

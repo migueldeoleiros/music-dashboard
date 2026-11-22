@@ -1,4 +1,4 @@
-/* C2 chart polish. Colors come from the token contract (docs/ui-tokens.md) only. */
+/* C2 chart polish. Colors come from the token contract (docs/ui-style-guide.md) only. */
 .chart canvas { max-width: 100%; }
 .chart-stage { position: relative; min-width: 0; }
 .chart-canvas { width: 100%; max-width: 100%; height: var(--chart-h); }

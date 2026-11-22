@@ -7,6 +7,7 @@ import './styles/shell.css'
 import './styles/charts.css'
 import './styles/entity-list.css'
 import './styles/artist-history.css'
+import './styles/ui.css'
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 60_000, refetchOnWindowFocus: false } } })
 

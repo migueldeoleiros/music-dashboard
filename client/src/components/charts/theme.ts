@@ -1,4 +1,4 @@
-// Shared chart theme: reads the CSS token contract (docs/ui-tokens.md) at runtime so canvas
+// Shared chart theme: reads the CSS token contract (docs/ui-style-guide.md) at runtime so canvas
 // charts follow whatever values the theme lane sets. Fallbacks only apply when a token is missing.
 
 export type ChartTheme = {
@@ -18,7 +18,7 @@ export type ChartTheme = {
   shadow: string
   /** Primary pointer is touch: tooltips open on tap, map pans/pinches, bigger marks. */
   coarse: boolean
-  /** Viewport at or below the mobile breakpoint (keep in sync with `--bp-mobile` in docs/ui-tokens.md). */
+  /** Viewport at or below the mobile breakpoint (keep in sync with `--bp-mobile` in docs/ui-style-guide.md). */
   narrow: boolean
   reducedMotion: boolean
 }
