@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { ArtistLink } from '../src/features/artist-history/ArtistLinks'
 import { ArtistPage } from '../src/features/artist-history/ArtistPage'
@@ -47,7 +47,7 @@ it('history: error retry and empty state', async () => {
   expect(await screen.findByText('No listening history yet.')).toBeTruthy()
 })
 
-it('artist page: not-found state and heading/year label', async () => {
+it('artist page: not-found state and new layout', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => json({}, 404)))
   wrap(<ArtistPage artistKey="gone" />)
   expect(await screen.findByRole('heading', { name: 'Artist not found' })).toBeTruthy()
@@ -59,7 +59,11 @@ it('artist page: not-found state and heading/year label', async () => {
   }))
   wrap(<ArtistPage artistKey="name:x" />)
   expect(await screen.findByRole('heading', { name: 'Blue' })).toBeTruthy()
-  expect(await screen.findByRole('heading', { name: /Daily listening · 2025/ })).toBeTruthy()
-  await waitFor(() => expect(screen.getByLabelText('Year')).toBeTruthy())
-  expect(screen.getByText(/all-time listens/)).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Daily listening' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Top albums' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Recent songs' })).toBeTruthy()
+  expect(screen.queryByLabelText('Year')).toBeNull()
+  expect(screen.queryByText(/all-time/)).toBeNull()
+  expect(screen.getByRole('link', { name: 'Home' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Listening history' })).toBeTruthy()
 })

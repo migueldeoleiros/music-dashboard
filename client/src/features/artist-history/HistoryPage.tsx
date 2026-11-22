@@ -1,6 +1,8 @@
 import type { HistoryItem } from '../../api/history'
 import { browserTimezone } from '../dashboard/filters'
-import { FeedError, LoadMore, SongRow } from './FeedParts'
+import { FloatingNav } from '../../components/ui'
+import { SongRow } from '../../components/ui/SongRow'
+import { FeedError, LoadMore } from './FeedParts'
 import { usePagedFeed } from './usePagedFeed'
 import '../../styles/artist-history.css'
 
@@ -19,8 +21,8 @@ export function HistoryPage() {
   const feed = usePagedFeed<HistoryItem>(`/api/history?${new URLSearchParams({ tz: timezone, limit: '50' })}`)
   const groups = adjacentGroups(feed.pages.flatMap(page => page.items))
   return <main className="app history-page">
-    <nav aria-label="Page navigation"><a href="/">Dashboard</a></nav>
-    <header><h1>Listening history</h1><p className="entity-secondary">Newest first · Calendar groups in {timezone}. Exact listen times are private.</p></header>
+    <FloatingNav items={['home']} />
+    <header><h1>Listening history</h1></header>
     {feed.restarted && <p role="status" className="notice">Listening data changed or the page expired. History reloaded.</p>}
     {groups.map((group, index) => <section key={index} aria-label={group.label}>
       <h2>{group.label}</h2><ol className="entity-list">{group.items.map((song, index) => <SongRow key={index} song={song} />)}</ol>
