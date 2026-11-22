@@ -20,6 +20,15 @@ No public route triggers an export or a rebuild.
    cross-origin POST fails, and the request UUID matches its eventual status. Check HTTPS/Host forwarding
    with the actual TLS terminator before exposing it. Do not trust arbitrary client-supplied forwarded headers.
 
+### Public origin (fail-closed)
+
+Set `MUSIC_PUBLIC_ORIGIN=https://music.miguel.md` on the **API** (compose wires it). When set,
+POST admission requires `Origin` to equal that exact HTTPS origin **and** `Host` to be its canonical
+host (default port 443 implied). There is no fallback to Host-plus-scheme, `X-Forwarded-*` is never
+read, and a malformed value (non-https, path, trailing slash, userinfo, bad port) rejects every POST
+with 403. The host TLS proxy must send `proxy_set_header Host $host;` (as in `docs/deployment.md`),
+and the container nginx preserves it. Empty keeps the local http behavior.
+
 ## Behavior
 
 `GET /api/refresh` reads the shared current/last request. `POST /api/refresh` admits or coalesces a

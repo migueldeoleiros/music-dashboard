@@ -3,9 +3,10 @@
 State lives in one database row behind two SECURITY DEFINER functions; the API role has no
 table grants. Admission writes, so it runs in its own transaction beginning with
 SET TRANSACTION READ WRITE (the API role is read-only by default). Behind a proxy the
-Origin check compares against the Host header and the scheme Starlette sees; the proxy must
-forward the original Host (with port) and, for TLS termination, scheme must be restored by a
-trusted proxy-headers configuration (never trust X-Forwarded-Proto from arbitrary clients).
+Origin check has two modes. Unconfigured (MUSIC_PUBLIC_ORIGIN empty, local use): Origin is
+compared against the Host header and the scheme Starlette sees. Configured: Origin must equal
+the exact HTTPS origin and Host must match its canonical host/port; there is no fallback, a
+malformed setting rejects everything, and X-Forwarded-* headers are never consulted.
 """
 
 from __future__ import annotations
@@ -70,8 +71,44 @@ def _origin_tuple(scheme: str, netloc: str) -> tuple[str, str, int | None] | Non
     return scheme.lower(), host.lower(), port or _DEFAULT_PORTS.get(scheme.lower())
 
 
+def _configured_origin(raw: str) -> tuple[str, str, int | None] | None:
+    """Parse MUSIC_PUBLIC_ORIGIN: bare https origin only; anything else is None (fail closed)."""
+    try:
+        parts = urlsplit(raw)
+        parts.port  # noqa: B018 - validates the port
+    except ValueError:
+        return None
+    if raw != raw.strip() or parts.scheme != "https" or parts.path or parts.query:
+        return None
+    if parts.fragment or "#" in raw or "?" in raw or raw.endswith("/"):
+        return None
+    return _origin_tuple("https", parts.netloc)
+
+
+def _same_configured_origin(request: Request, raw: str) -> bool:
+    configured = _configured_origin(raw)
+    origin = request.headers.get("origin")
+    host = request.headers.get("host")
+    if configured is None or not origin or not host or origin == "null":
+        return False
+    if request.headers.get("sec-fetch-site", "same-origin") != "same-origin":
+        return False
+    try:
+        parts = urlsplit(origin)
+    except ValueError:
+        return False
+    if parts.scheme != "https" or parts.path or parts.query or parts.fragment:
+        return False
+    return (
+        _origin_tuple("https", parts.netloc) == configured
+        and _origin_tuple("https", host) == configured
+    )
+
+
 def same_origin(request: Request) -> bool:
     """Strict: Origin must be present and equal scheme/host/port of this request."""
+    if settings.public_origin:
+        return _same_configured_origin(request, settings.public_origin)
     origin = request.headers.get("origin")
     host = request.headers.get("host")
     if not origin or not host or origin == "null":

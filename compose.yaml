@@ -41,6 +41,7 @@ services:
       MUSIC_DATABASE_URL: postgresql+psycopg://music_api:${MUSIC_API_PASSWORD}@db/music_dashboard
       MUSIC_FIXTURE_MODE: ${MUSIC_FIXTURE_MODE:-true}
       MUSIC_PUBLIC_REFRESH_ENABLED: ${MUSIC_PUBLIC_REFRESH_ENABLED:-false}
+      MUSIC_PUBLIC_ORIGIN: ${MUSIC_PUBLIC_ORIGIN:-}
     depends_on:
       db: {condition: service_healthy}
     healthcheck:

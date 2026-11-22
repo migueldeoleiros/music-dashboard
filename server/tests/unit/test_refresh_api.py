@@ -192,3 +192,84 @@ def test_database_error_maps_to_503(enabled, monkeypatch):
         assert res.status_code == 503
         assert res.headers["cache-control"] == "no-store"
         assert "secret" not in res.text
+
+
+PUBLIC = "https://music.miguel.md"
+
+
+@pytest.fixture
+def public(enabled, monkeypatch):
+    monkeypatch.setattr(settings, "public_origin", PUBLIC)
+    return TestClient(app, base_url="http://music.miguel.md")  # proxy hop is plain http
+
+
+def test_public_origin_accepts_exact_origin_and_host(public, monkeypatch):
+    install(monkeypatch, row=row())
+    assert public.post("/api/refresh", headers={"Origin": PUBLIC}).status_code == 202
+    ok_port = {"Origin": PUBLIC, "Host": "music.miguel.md:443"}
+    assert public.post("/api/refresh", headers=ok_port).status_code == 202
+
+
+@pytest.mark.parametrize(
+    ("origin", "host"),
+    [
+        ("http://music.miguel.md", "music.miguel.md"),  # scheme
+        ("https://music.miguel.md:8443", "music.miguel.md"),
+        ("https://evil.test", "music.miguel.md"),
+        (PUBLIC, "evil.test"),  # Host mismatch
+        (PUBLIC, "music.miguel.md:8080"),
+        ("https://evil.test", "evil.test"),  # self-consistent but not configured: no fallback
+        (PUBLIC + "/", "music.miguel.md"),
+        ("null", "music.miguel.md"),
+        (None, "music.miguel.md"),
+    ],
+)
+def test_public_origin_mismatch_rejected(public, monkeypatch, origin, host):
+    monkeypatch.setattr(route, "refresh_engine", boom)
+    headers = {"Host": host} | ({"Origin": origin} if origin else {})
+    assert public.post("/api/refresh", headers=headers).status_code == 403
+
+
+def test_public_origin_ignores_spoofed_forwarding(public, monkeypatch):
+    monkeypatch.setattr(route, "refresh_engine", boom)
+    spoof = {
+        "Origin": "http://evil.test",
+        "Host": "evil.test",
+        "X-Forwarded-Proto": "https",
+        "X-Forwarded-Host": "music.miguel.md",
+        "Forwarded": "proto=https;host=music.miguel.md",
+    }
+    assert public.post("/api/refresh", headers=spoof).status_code == 403
+    # spoofed forwarding cannot rescue a Host mismatch with the right Origin either
+    both = {"Origin": PUBLIC, "Host": "evil.test", "X-Forwarded-Host": "music.miguel.md"}
+    assert public.post("/api/refresh", headers=both).status_code == 403
+
+
+def test_public_origin_sec_fetch_site_still_enforced(public, monkeypatch):
+    monkeypatch.setattr(route, "refresh_engine", boom)
+    headers = {"Origin": PUBLIC, "Sec-Fetch-Site": "same-site"}
+    assert public.post("/api/refresh", headers=headers).status_code == 403
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "http://music.miguel.md",
+        "music.miguel.md",
+        "https://",
+        PUBLIC + "/",
+        PUBLIC + "/x",
+        PUBLIC + "?a=1",
+        PUBLIC + "#f",
+        " " + PUBLIC,
+        "https://u@music.miguel.md",
+        "https://music.miguel.md:bad",
+        "https://[invalid",
+        "*",
+    ],
+)
+def test_malformed_public_origin_fails_closed(enabled, monkeypatch, bad):
+    monkeypatch.setattr(settings, "public_origin", bad)
+    monkeypatch.setattr(route, "refresh_engine", boom)
+    c = TestClient(app, base_url="https://music.miguel.md")
+    assert c.post("/api/refresh", headers={"Origin": PUBLIC}).status_code == 403
