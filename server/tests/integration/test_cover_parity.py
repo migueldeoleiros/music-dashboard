@@ -7,15 +7,16 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from music_dashboard.application import artist_history as ah
+from music_dashboard.domain.statistics.models import StatisticsFilter
 from music_dashboard.infrastructure.persistence.public_history_queries import SQLPublicHistory
 from music_dashboard.infrastructure.persistence.statistics_queries import SQLStatisticsQueries
-from music_dashboard.domain.statistics.models import StatisticsFilter
 
 pytestmark = pytest.mark.integration
 
 ARTIST, RG, REC = (str(uuid.uuid4()) for _ in range(3))
-ALBUM_URL = "https://coverartarchive.org/release-group/%s/front-250" % RG
-ARTIST_URL = "https://i.scdn.co/image/artist-photo"
+ALBUM_URL = f"https://coverartarchive.org/release-group/{RG}/front-250"
+NAME_URL = "https://cdn-images.dzcdn.net/images/cover/" + "e" * 32 + "/loose.jpg"
+ARTIST_URL = "https://cdn-images.dzcdn.net/images/artist/" + "d" * 32 + "/photo.jpg"
 
 
 def _listen(c, track, album, rg=None, rec=None, artist=("Ann", ARTIST)):
@@ -47,9 +48,11 @@ def test_cover_parity(migrated_db, api_url, monkeypatch):
             {"rg": RG, "a": ARTIST, "u": ALBUM_URL, "p": ARTIST_URL},
         )
         c.execute(
-            text("""INSERT INTO artwork_name(entity_type,name_key,source,image_url,status)
-                    VALUES ('album','name:["ann", "loose album"]','caa',:u,'resolved')"""),
-            {"u": ALBUM_URL + "-name"},
+            text("""INSERT INTO artwork_name(entity_type,name_key,source,image_url,status,
+                    match_kind,provider_ref)
+                    VALUES ('album','name:["ann", "loose album"]','deezer',:u,'resolved',
+                    'album_title_artist','1')"""),
+            {"u": NAME_URL},
         )
         c.execute(text("UPDATE data_generation SET ingestion_generation=ingestion_generation+1"))
     engine = create_engine(api_url)
@@ -65,12 +68,12 @@ def test_cover_parity(migrated_db, api_url, monkeypatch):
 
         feed = {i.title: i.image_url for i in SQLPublicHistory(engine).fetch("UTC", 10).items}
         page = ah.ArtistHistory(engine).recent(ARTIST, limit=10)
-        # Rankings, feed and artist recent agree; track has no cover so the album cover wins.
+        # Rankings, feed and artist recent agree; album cover wins.
         assert feed["Mapped"] == albums[RG]
         recent = {i.title: i.image_url for i in page.items}
         assert recent["Mapped"] == albums[RG]
-        assert recent["Loose"] == ALBUM_URL + "-name"
-        assert feed["Loose"] == ALBUM_URL + "-name"
+        assert recent["Loose"] == NAME_URL
+        assert feed["Loose"] == NAME_URL
         assert feed["Bare"] is None
         # Artist endpoints use the same resolver as the artist ranking.
         assert ah.ArtistHistory(engine).summary(ARTIST).image_url == artists[ARTIST]

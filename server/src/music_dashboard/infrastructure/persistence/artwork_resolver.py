@@ -31,24 +31,24 @@ _BY_NAME = """SELECT name_key, image_url FROM artwork_name
 
 
 def resolve_artwork(
-    c: Connection, kind: str, keys: Iterable[str], params: dict[str, Any]
+    c: Connection, entity_type: str, keys: Iterable[str], params: dict[str, Any]
 ) -> dict[str, str]:
     """Map ranking key -> validated cover URL for the keys that have one.
 
     `params` must carry the shared `casefold` / `whitespace` fold parameters (artist fallback)."""
-    if kind not in KINDS:
-        raise ValueError(f"Unsupported artwork kind: {kind}")
+    if entity_type not in KINDS:
+        raise ValueError(f"Unsupported artwork type: {entity_type}")
     wanted = sorted({k for k in keys if k})
     ids = [k for k in wanted if MBID.match(k)]
     names = [k for k in wanted if k.startswith("name:")]
     found: dict[str, str] = {}
     for sql, batch in ((_BY_MBID, ids), (_BY_NAME, names)):
         if batch:
-            for key, url in c.execute(text(sql), {"kind": kind, "keys": batch}):
+            for key, url in c.execute(text(sql), {"kind": entity_type, "keys": batch}):
                 valid = validate_image_url(url)
                 if valid:
                     found[key] = valid
-    if kind == "artist":
+    if entity_type == "artist":
         missing = [k for k in ids + names if k not in found]
         if missing:
             found.update(artist_cover_fallbacks(c, missing, params))
@@ -102,7 +102,7 @@ def song_keys(
 def resolve_song_artwork(
     c: Connection, songs: Sequence[SongKeys], params: dict[str, Any]
 ) -> list[str | None]:
-    """Cover per song: its track cover, else its album cover, else its primary artist's."""
+    """Cover per song: its album cover, else its track cover, else its primary artist's."""
     tracks = resolve_artwork(c, "track", (s.track for s in songs if s.track), params)
     albums = resolve_artwork(c, "album", (s.album for s in songs if s.album), params)
     pending = [
@@ -114,8 +114,8 @@ def resolve_song_artwork(
     ]
     artists = resolve_artwork(c, "artist", pending, params) if pending else {}
     return [
-        (s.track and tracks.get(s.track))
-        or (s.album and albums.get(s.album))
+        (s.album and albums.get(s.album))
+        or (s.track and tracks.get(s.track))
         or (s.artist and artists.get(s.artist))
         or None
         for s in songs
