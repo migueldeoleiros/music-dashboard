@@ -13,7 +13,10 @@ class ArtistCredit(ContractModel):
 
 
 class ArtistCredits(ContractModel):
+    # `artists`: credits of the first requested key (single-key compatibility).
+    # `credits`: every requested key -> its reliable credits (empty when unresolvable).
     artists: list[ArtistCredit]
+    credits: dict[str, list[ArtistCredit]]
 
 
 class PublicSong(ContractModel):

@@ -12,22 +12,23 @@ type Dimension = components['schemas']['RankingResponse']['dimension']
 
 // Whole row links to the primary (first credited) artist; artists link to themselves; unresolved: no link.
 // Other credited names link individually (above the row link) and are shown on the secondary line.
-function useLinks(dimension: Dimension, item: Item) {
-  const enabled = dimension === 'albums' || dimension === 'tracks'
-  const credits = useArtistCredits(dimension === 'tracks' ? 'tracks' : 'albums', item.key, enabled)
-  const primary = dimension === 'artists' ? { key: item.key, label: item.label } : enabled ? credits[0] : undefined
+// Credits for the whole list come from one batched request (see useArtistCredits).
+type Credits = ReturnType<typeof useArtistCredits>
+function linksFor(dimension: Dimension, item: Item, all: Credits) {
+  const credits = dimension === 'albums' || dimension === 'tracks' ? all[item.key] ?? [] : []
+  const primary = dimension === 'artists' ? { key: item.key, label: item.label } : credits[0]
   const href = primary && reliableArtistKey(primary.key) ? artistHref(primary.key) : undefined
-  return { href, others: enabled ? credits.slice(1) : [] }
+  return { href, others: credits.slice(1) }
 }
 
-function RankRow({ dimension, item, rank, text, note }: { dimension: Dimension; item: Item; rank: number; text: string; note?: string }) {
-  const { href, others } = useLinks(dimension, item)
+function RankRow({ dimension, item, rank, text, note, credits }: { dimension: Dimension; item: Item; rank: number; text: string; note?: string; credits: Credits }) {
+  const { href, others } = linksFor(dimension, item, credits)
   const secondary = others.length ? <>{note && `${note} · `}{others.map((a, i) => <span key={i}>{i > 0 && ', '}<ArtistLink artist={a} className="row-inline-link" /></span>)}</> : note
   return <CompactRow rank={rank} label={text} href={href} src={item.image_url} showImage={dimension !== 'genres'} secondary={secondary} count={number.format(item.listens)} />
 }
 
-function Hero({ dimension, item, text, note }: { dimension: Dimension; item: Item; text: string; note?: string }) {
-  const { href, others } = useLinks(dimension, item)
+function Hero({ dimension, item, text, note, credits }: { dimension: Dimension; item: Item; text: string; note?: string; credits: Credits }) {
+  const { href, others } = linksFor(dimension, item, credits)
   const secondary = others.length ? <>{note && `${note} · `}{others.map((a, i) => <span key={i}>{i > 0 && ', '}<ArtistLink artist={a} className="row-inline-link" /></span>)}</> : note
   return <li className={`entity-hero${href ? ' row--link' : ''}`}>
     {dimension !== 'genres' && <EntityImage src={item.image_url} label={text} size="hero" decorative />}
@@ -43,12 +44,13 @@ function Hero({ dimension, item, text, note }: { dimension: Dimension; item: Ite
 // Genre counts are tag appearances: one per distinct genre per listen (a Rock+Jazz listen adds 1 to each).
 // Genres have no artwork at all: no image and no initials tile, just the text.
 export function RankingList({ data }: { data: components['schemas']['RankingResponse'] }) {
+  const credits = useArtistCredits(data.dimension === 'tracks' ? 'tracks' : 'albums', data.items.map(item => item.key), data.dimension === 'albums' || data.dimension === 'tracks')
   if (!data.items.length) return <EmptyState />
   const name = (item: Item) => item.label || `Missing ${data.dimension === 'tracks' ? 'title' : 'metadata'}`
   const note = (item: Item) => item.metadata_state === 'missing' ? 'Missing metadata' : undefined
   const [first, ...rest] = data.items
   return <EntityList label={`Top ${data.dimension}`} className="ranking-entities">
-    <Hero dimension={data.dimension} item={first} text={name(first)} note={note(first)} />
-    {rest.map((item, index) => <RankRow key={item.key} dimension={data.dimension} item={item} rank={index + 2} text={name(item)} note={note(item)} />)}
+    <Hero dimension={data.dimension} item={first} text={name(first)} note={note(first)} credits={credits} />
+    {rest.map((item, index) => <RankRow key={item.key} dimension={data.dimension} item={item} rank={index + 2} text={name(item)} note={note(item)} credits={credits} />)}
   </EntityList>
 }

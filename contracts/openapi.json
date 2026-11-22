@@ -36,10 +36,21 @@
             },
             "title": "Artists",
             "type": "array"
+          },
+          "credits": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/ArtistCredit"
+              },
+              "type": "array"
+            },
+            "title": "Credits",
+            "type": "object"
           }
         },
         "required": [
-          "artists"
+          "artists",
+          "credits"
         ],
         "title": "ArtistCredits",
         "type": "object"
@@ -1246,6 +1257,7 @@
   "paths": {
     "/api/artist-credits": {
       "get": {
+        "description": "Batched lookup: repeat `key` (<=100) to resolve a whole ranking list in one request.",
         "operationId": "artist_credits_api_artist_credits_get",
         "parameters": [
           {
@@ -1266,8 +1278,13 @@
             "name": "key",
             "required": true,
             "schema": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "minItems": 1,
               "title": "Key",
-              "type": "string"
+              "type": "array"
             }
           }
         ],

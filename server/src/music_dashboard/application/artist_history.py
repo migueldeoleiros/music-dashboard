@@ -86,6 +86,9 @@ def _limit(value: int) -> None:
         raise HTTPException(400, "Invalid page limit")
 
 
+MAX_CREDIT_KEYS = 100
+
+
 class ArtistHistory:
     def __init__(self, engine: Engine | None = None) -> None:
         # Fixture mode has no artist-history fixture; fail safely, not against default DB.
@@ -295,16 +298,27 @@ class ArtistHistory:
         """Reliable credits for a ranked album/track key; empty unless all listens agree.
 
         Only MBID keys resolve (name: keys embed no individually credited identity)."""
+        return {"artists": self.credits_batch(dimension, [key])["credits"][key]}
+
+    def credits_batch(self, dimension: str, keys: list[str]) -> dict[str, Any]:
+        """Credits for many keys in one snapshot. `credits` maps every requested key to its list."""
         if dimension not in ("albums", "tracks"):
             raise HTTPException(400, "Invalid dimension")
-        try:
-            mbid = str(UUID(key))
-        except (ValueError, AttributeError):
-            if key.startswith("name:") and len(key) <= 2000:
-                return {"artists": []}
-            raise HTTPException(400, "Invalid key") from None
-        with self._snapshot() as (c, _, _reference):
-            sets = queries.credit_sets(c, dimension, mbid)
-        if len(sets) != 1:
-            return {"artists": []}
-        return {"artists": sets[0]}
+        if len(keys) > MAX_CREDIT_KEYS:
+            raise HTTPException(400, "Too many keys")
+        out: dict[str, list[dict[str, Any]]] = {}
+        mbids: dict[str, str] = {}
+        for key in dict.fromkeys(keys):
+            try:
+                mbids[key] = str(UUID(key))
+            except (ValueError, AttributeError):
+                if key.startswith("name:") and len(key) <= 2000:
+                    out[key] = []
+                else:
+                    raise HTTPException(400, "Invalid key") from None
+        if mbids:
+            with self._snapshot() as (c, _, _reference):
+                for key, mbid in mbids.items():
+                    sets = queries.credit_sets(c, dimension, mbid)
+                    out[key] = sets[0] if len(sets) == 1 else []
+        return {"credits": {key: out[key] for key in dict.fromkeys(keys)}}

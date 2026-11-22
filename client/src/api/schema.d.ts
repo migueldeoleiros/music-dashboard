@@ -11,7 +11,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Artist Credits */
+        /**
+         * Artist Credits
+         * @description Batched lookup: repeat `key` (<=100) to resolve a whole ranking list in one request.
+         */
         get: operations["artist_credits_api_artist_credits_get"];
         put?: never;
         post?: never;
@@ -343,6 +346,10 @@ export interface components {
         ArtistCredits: {
             /** Artists */
             artists: components["schemas"]["ArtistCredit"][];
+            /** Credits */
+            credits: {
+                [key: string]: components["schemas"]["ArtistCredit"][];
+            };
         };
         /** ArtistHeatmap */
         ArtistHeatmap: {
@@ -811,7 +818,7 @@ export interface operations {
         parameters: {
             query: {
                 dimension: "albums" | "tracks";
-                key: string;
+                key: string[];
             };
             header?: never;
             path?: never;

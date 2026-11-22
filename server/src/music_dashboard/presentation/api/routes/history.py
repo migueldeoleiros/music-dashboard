@@ -55,8 +55,13 @@ def artist_recent(artist_key: str, limit: Limit = 50, cursor: Cursor = None) -> 
 
 
 @router.get("/artist-credits", response_model=ArtistCredits)
-def artist_credits(dimension: Literal["albums", "tracks"], key: str) -> Any:
-    return artist_service().credits(dimension, key)
+def artist_credits(
+    dimension: Literal["albums", "tracks"],
+    key: Annotated[list[str], Query(min_length=1, max_length=100)],
+) -> Any:
+    """Batched lookup: repeat `key` (<=100) to resolve a whole ranking list in one request."""
+    credits = artist_service().credits_batch(dimension, key)["credits"]
+    return {"artists": credits[key[0]], "credits": credits}
 
 
 @router.get("/history", response_model=HistoryPage)

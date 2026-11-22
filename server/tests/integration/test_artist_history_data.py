@@ -111,3 +111,16 @@ def test_credits_resolver_only_reliable(hist):
     assert hist.credits("albums", RG)["artists"] == got
     assert hist.credits("tracks", str(uuid.uuid4()))["artists"] == []
     assert hist.credits("albums", "name:x")["artists"] == []
+
+
+def test_credits_batch_one_snapshot_and_bounds(hist):
+    single = hist.credits("tracks", REC)["artists"]
+    other = str(uuid.uuid4())
+    got = hist.credits_batch("tracks", [REC, other, "name:x", REC])["credits"]
+    assert list(got) == [REC, other, "name:x"]
+    assert got[REC] == single and got[other] == [] and got["name:x"] == []
+    with pytest.raises(HTTPException) as e:
+        hist.credits_batch("tracks", [str(uuid.uuid4()) for _ in range(101)])
+    assert e.value.status_code == 400
+    with pytest.raises(HTTPException):
+        hist.credits_batch("tracks", ["not-a-key"])
