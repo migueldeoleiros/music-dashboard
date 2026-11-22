@@ -91,3 +91,32 @@ class SyncState(Base):
     ambiguous_boundary_ts: Mapped[int | None] = mapped_column(BigInteger)
     requires_reconcile: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RefreshState(Base):
+    """One-row durable public-refresh request. API role: no grants (definer functions only)."""
+
+    __tablename__ = "refresh_state"
+    __table_args__ = (
+        CheckConstraint("singleton", name="singleton"),
+        CheckConstraint(
+            "status IN ('idle','pending','running','succeeded','failed','expired','deferred')",
+            name="status",
+        ),
+        CheckConstraint("detail ~ '^[a-z_]{1,64}$'", name="detail"),
+        CheckConstraint(
+            "status NOT IN ('pending','running','deferred') OR "
+            "(request_id IS NOT NULL AND expires_at IS NOT NULL)",
+            name="inflight",
+        ),
+    )
+    singleton: Mapped[bool] = mapped_column(Boolean, primary_key=True, server_default=text("true"))
+    request_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    status: Mapped[str] = mapped_column(Text, server_default=text("'idle'"))
+    requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cooldown_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    detail: Mapped[str | None] = mapped_column(Text)
