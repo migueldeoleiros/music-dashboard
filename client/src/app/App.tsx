@@ -24,6 +24,14 @@ function PeriodCoverage({ filters }: { filters: Filters }) {
   return query.data ? <CoverageNote coverage={query.data.coverage} /> : null
 }
 
+function safeDecode(value: string): string | null {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return null
+  }
+}
+
 export function App() {
   const [pathname, setPathname] = useState(window.location.pathname)
   useEffect(() => {
@@ -34,11 +42,9 @@ export function App() {
   if (pathname === '/history') return <HistoryPage />
   const match = /^\/artists\/([^/]+)\/?$/.exec(pathname)
   if (match) {
-    try {
-      return <ArtistPage artistKey={decodeURIComponent(match[1])} />
-    } catch {
-      return <main className="app"><h1>Artist not found</h1><a href="/">Dashboard</a></main>
-    }
+    const key = safeDecode(match[1])
+    if (key === null) return <main className="app"><h1>Artist not found</h1><a href="/">Dashboard</a></main>
+    return <ArtistPage artistKey={key} />
   }
   if (pathname !== '/') return <main className="app"><h1>Page not found</h1><a href="/">Dashboard</a></main>
   return <><Dashboard /><a className="history-entry" href="/history" aria-label="Listening history">History</a></>

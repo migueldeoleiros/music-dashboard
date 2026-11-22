@@ -20,9 +20,15 @@ def test_contract_is_frozen() -> None:
 def test_all_chart_families_and_get_only() -> None:
     all_paths = app.openapi()["paths"]
     assert set(all_paths["/api/refresh"]) == {"get", "post"}
-    paths = {p: ops for p, ops in all_paths.items() if p != "/api/refresh"}
+    additive = ("/api/artist", "/api/history")  # separate public event-feed contract
+    assert sum(p.startswith(additive) for p in all_paths) == 6
+    paths = {
+        p: ops
+        for p, ops in all_paths.items()
+        if p != "/api/refresh" and not p.startswith(additive)
+    }
     assert len(paths) == 12
-    assert len(all_paths) == 13
+    assert len(all_paths) == 19
     assert "/api/countries/{code}/artists" in paths
     for path, operations in paths.items():
         assert set(operations) == {"get"}
