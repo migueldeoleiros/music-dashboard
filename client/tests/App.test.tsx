@@ -30,7 +30,7 @@ afterEach(() => { cleanup(); queryClient.clear(); vi.unstubAllGlobals(); vi.rest
 function showApp() { return render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>) }
 
 const search = () => new URLSearchParams(window.location.search)
-const calls = () => vi.mocked(fetch).mock.calls.map(([url]) => new URL(String(url), 'http://localhost'))
+const calls = () => vi.mocked(fetch).mock.calls.map(([url]) => new URL(String(url), 'http://localhost')).filter(url => url.pathname !== '/api/artist-credits')
 const pressed = () => screen.getAllByRole('button', { pressed: true }).map(button => button.textContent)
 
 it('opens straight into content: heatmap first, concise card titles only, no hero, taglines, footers or read-only text', async () => {

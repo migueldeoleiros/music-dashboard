@@ -72,7 +72,7 @@ function ranking(dimension: 'artists' | 'genres', n = 3): components['schemas'][
 }
 
 it('RankingList: hero first, rows after, no percentages', () => {
-  const { container } = render(<RankingList data={ranking('artists')} />)
+  const { container } = renderPanel(<RankingList data={ranking('artists')} />)
   const lis = container.querySelectorAll('ol > li')
   expect(lis).toHaveLength(3)
   expect(lis[0].className).toContain('entity-hero')
@@ -85,7 +85,7 @@ it('RankingList: hero first, rows after, no percentages', () => {
 it('RankingList hero: no #1 badge, image inside hero as first child, rows keep their numbering', () => {
   const data = ranking('artists')
   data.items[0].image_url = 'https://example.com/a.png'
-  const { container } = render(<RankingList data={data} />)
+  const { container } = renderPanel(<RankingList data={data} />)
   const hero = container.querySelector('li.entity-hero')!
   expect(container.textContent).not.toContain('#1')
   expect(container.querySelector('.entity-ribbon')).toBeNull()
@@ -97,10 +97,10 @@ it('RankingList hero: no #1 badge, image inside hero as first child, rows keep t
 })
 
 it('RankingList genres render no image and no initials tile, and no percentages', () => {
-  const { container } = render(<RankingList data={ranking('genres')} />)
+  const { container } = renderPanel(<RankingList data={ranking('genres')} />)
   expect(container.querySelector('.entity-image, .entity-image--placeholder, img')).toBeNull()
   expect(container.querySelectorAll('.entity-row, .entity-hero').length).toBeGreaterThan(0)
-  const artists = render(<RankingList data={ranking('artists')} />)
+  const artists = renderPanel(<RankingList data={ranking('artists')} />)
   expect(artists.container.querySelector('.entity-image')).not.toBeNull() // other dimensions keep their image/initials
   expect(container.textContent).not.toContain('%')
   expect(container.querySelector('.entity-hero')?.firstElementChild?.className).toContain('entity-text')

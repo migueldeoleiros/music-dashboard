@@ -106,7 +106,7 @@ it('mobile: Tab and Shift+Tab stay inside the sheet', async () => {
   await openSheet()
   const dialog = screen.getByRole('dialog')
   const close = screen.getByRole('button', { name: /Close United States/ })
-  const buttons = Array.from(dialog.querySelectorAll<HTMLElement>('button, [tabindex="0"]'))
+  const buttons = Array.from(dialog.querySelectorAll<HTMLElement>('button, a[href], [tabindex="0"]'))
   const last = buttons[buttons.length - 1]
   last.focus()
   fireEvent.keyDown(document, { key: 'Tab' })

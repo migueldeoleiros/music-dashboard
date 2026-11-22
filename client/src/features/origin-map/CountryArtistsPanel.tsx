@@ -3,6 +3,7 @@ import { EntityList } from '../../components/ui/EntityList'
 import { EntityRow } from '../../components/ui/EntityRow'
 import { useMediaQuery } from '../../components/ui/useMediaQuery'
 import type { Filters } from '../dashboard/filters'
+import { ArtistLink } from '../artist-history/ArtistLinks'
 import { useCountryArtists } from './useCountryArtists'
 
 export type CountryArtistsPanelProps = {
@@ -114,7 +115,7 @@ function Panel({ code, filters, onClose, restoreFocusRef }: { code: string; filt
     {query.isPending && <p role="status" className="entity-empty">Loading artists…</p>}
     {query.isError && <div role="alert" className="entity-empty"><p>Could not load artists.</p><button type="button" onClick={() => void query.refetch()}>Retry</button></div>}
     {query.data && <EntityList label={`Artists from ${name}`} maxHeight="none" empty="No artists for this country in this range.">
-      {items.map((item, index) => <EntityRow key={item.key} rank={index + 1} label={item.label || 'Missing metadata'} src={item.image_url} value={number.format(item.listens)} />)}
+      {items.map((item, index) => <EntityRow key={item.key} rank={index + 1} label={item.label || 'Missing metadata'} labelContent={item.label ? <ArtistLink artist={{ key: item.key, label: item.label }} /> : undefined} src={item.image_url} value={number.format(item.listens)} />)}
     </EntityList>}
   </aside>
   return sheet ? <><div className="sheet-backdrop" aria-hidden="true" onClick={() => { if (performance.now() - openedAt.current > GHOST_CLICK_MS) onClose() }} />{panel}</> : <div className="country-panel-slot">{panel}</div>
