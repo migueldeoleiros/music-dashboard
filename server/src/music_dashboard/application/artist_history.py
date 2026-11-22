@@ -336,8 +336,8 @@ class ArtistHistory:
             with self._snapshot() as (c, _, _reference):
                 for key, mbid in mbids.items():
                     sets = queries.credit_sets(c, dimension, mbid)
-                    out[key] = sets[0] if len(sets) == 1 else []
+                    out[key] = queries.resolve_credits(sets)
                 for key, (artist, title) in names.items():
                     sets = queries.name_credit_sets(c, dimension, artist, title)
-                    out[key] = sets[0] if len(sets) == 1 else []
+                    out[key] = queries.resolve_credits(sets)
         return {"credits": {key: out[key] for key in dict.fromkeys(keys)}}

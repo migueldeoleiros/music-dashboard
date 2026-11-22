@@ -155,3 +155,40 @@ def test_credits_name_keys_resolve_like_rankings(hist, migrated_db):
     assert tracks[mixed] == [] and albums[conf] == []
     for k in ("name:plain", "name:[1]", 'name:["nobody", "x"]'):
         assert tracks[k] == [] and albums[k] == []
+
+
+def test_credits_agree_on_primary_across_differing_sets(hist, migrated_db):
+    rg, rg2, rg3 = (str(uuid.uuid4()) for _ in range(3))
+    poly, sophia, other = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+    with migrated_db.begin() as c:
+        # One release id, several titles: sets share primary Polyphia, extras differ.
+        add(c, "2026-03-01T10:00:00Z", "ABC", [("Polyphia", poly), ("Sophia Black", sophia)], rg=rg)
+        add(c, "2026-03-01T11:00:00Z", "Playing God", [("Polyphia", poly)], rg=rg)
+        # Primary conflict -> never guess.
+        add(c, "2026-03-02T10:00:00Z", "X", [("Polyphia", poly)], rg=rg2)
+        add(c, "2026-03-02T11:00:00Z", "Y", [("Other", other), ("Polyphia", poly)], rg=rg2)
+        # Same primary, extras identical in every set (even order of listens) -> all kept.
+        add(c, "2026-03-03T10:00:00Z", "P", [("Polyphia", poly), ("Sophia Black", sophia)], rg=rg3)
+        add(c, "2026-03-03T11:00:00Z", "Q", [("Polyphia", poly), ("Sophia Black", sophia)], rg=rg3)
+        # Strange Muse: one listen with the artist mbid, one name-only, same name.
+        add(
+            c,
+            "2026-03-04T10:00:00Z",
+            "Kerosene",
+            [("NMIXX", A)],
+            album="Strange Muse",
+            rec=str(uuid.uuid4()),
+        )
+        add(c, "2026-03-04T11:00:00Z", "Hot", [("NMIXX", None)], album="Strange Muse")
+        # Same name, two different mbids -> conflict.
+        add(c, "2026-03-05T10:00:00Z", "T1", [("Dup", A)], album="Dups")
+        add(c, "2026-03-05T11:00:00Z", "T2", [("Dup", B)], album="Dups")
+    got = hist.credits_batch("albums", [rg, rg2, rg3, 'name:["nmixx", "strange muse"]'])["credits"]
+    assert got[rg] == [{"key": poly, "label": "Polyphia"}]
+    assert got[rg2] == []
+    assert [a["key"] for a in got[rg3]] == [poly, sophia]
+    assert got['name:["nmixx", "strange muse"]'] == [{"key": A, "label": "NMIXX"}]
+    assert (
+        hist.credits_batch("albums", ['name:["dup", "dups"]'])["credits"]['name:["dup", "dups"]']
+        == []
+    )

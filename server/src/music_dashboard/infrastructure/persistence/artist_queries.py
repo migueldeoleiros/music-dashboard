@@ -162,7 +162,7 @@ def recent(
 
 
 def credit_sets(c: Connection, dimension: str, mbid: str) -> list[list[dict[str, Any]]]:
-    """Distinct ordered credit lists across listens of one album/track id (max 2 returned)."""
+    """Distinct ordered credit lists across listens of one album/track id (see resolve_credits)."""
     where = (
         "l.recording_mbid=CAST(:mbid AS uuid)"
         if dimension == "tracks"
@@ -180,12 +180,14 @@ def credit_sets(c: Connection, dimension: str, mbid: str) -> list[list[dict[str,
  ), folded AS (
   SELECT name, {FOLD} AS folded FROM (SELECT DISTINCT name FROM raw) d
  ), per AS (
-  SELECT r.id, jsonb_agg(DISTINCT jsonb_build_object(
+  SELECT r.id, jsonb_agg(jsonb_build_object(
     'key', CASE WHEN coalesce(f.folded,'')='' THEN NULL
                 ELSE coalesce(r.mbid,'name:'||f.folded) END,
-    'label', coalesce(nullif(btrim(r.name,:whitespace),''),'[Missing artist]'))) AS credits
+    'fold', f.folded,
+    'label', coalesce(nullif(btrim(r.name,:whitespace),''),'[Missing artist]'))
+    ORDER BY r.position, r.name) AS credits
   FROM raw r LEFT JOIN folded f ON f.name=r.name GROUP BY r.id
- ) SELECT DISTINCT credits FROM per LIMIT 2
+ ) SELECT DISTINCT credits FROM per LIMIT 50
  """.replace("{where}", where)
         ),
         {"mbid": mbid, "casefold": CASEFOLD, "whitespace": WHITESPACE},
@@ -195,8 +197,41 @@ def credit_sets(c: Connection, dimension: str, mbid: str) -> list[list[dict[str,
         # Unresolved (null key) credits make the whole set unreliable: never guess.
         if any(x["key"] is None for x in credits):
             return []
-        out.append(sorted(credits, key=lambda x: (x["label"], x["key"])))
+        out.append(credits)
     return out
+
+
+def resolve_credits(sets: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    """Reduce a bucket's per-listen credit lists to reliable credits; [] on any conflict.
+
+    Rows link to the PRIMARY (first) credit, so sets may differ as long as they agree on it.
+    Same artist is recognised by folded name; a name-only credit joins the single mbid credit
+    of that name. Extra credits are kept only if every set agrees on them, else just the primary."""
+    lists = []
+    for credits in sets:
+        unique: dict[str, dict[str, Any]] = {}
+        for x in credits:
+            unique.setdefault(x["key"], x)
+        lists.append(list(unique.values()))
+    if not lists or any(not credits for credits in lists):
+        return []
+
+    def merge(position: int) -> dict[str, Any] | None:
+        group = [credits[position] for credits in lists]
+        mbids = {x["key"] for x in group if not x["key"].startswith("name:")}
+        if len({x["fold"] for x in group}) != 1 or len(mbids) > 1:
+            return None
+        pick = next((x for x in group if x["key"] in mbids), group[0])
+        return {"key": pick["key"], "label": pick["label"]}
+
+    primary = merge(0)
+    if primary is None:
+        return []
+    if len({len(credits) for credits in lists}) == 1:
+        merged = [merge(i) for i in range(len(lists[0]))]
+        if None not in merged:
+            return merged  # type: ignore[return-value]
+    return [primary]
 
 
 def name_credit_sets(
@@ -236,6 +271,7 @@ def name_credit_sets(
   SELECT r.id, jsonb_agg(jsonb_build_object(
     'key', CASE WHEN coalesce(f.folded,'')='' THEN NULL
                 ELSE coalesce(r.mbid,'name:'||f.folded) END,
+    'fold', f.folded,
     'label', coalesce(nullif(btrim(r.name,:whitespace),''),'[Missing artist]'))
     ORDER BY r.position, r.name) AS credits
   FROM raw r LEFT JOIN cfolded f ON f.name=r.name GROUP BY r.id
@@ -249,10 +285,9 @@ def name_credit_sets(
             "whitespace": WHITESPACE,
         },
     ).scalars()
-    # Spelling-only differences (reScene vs Rescene) are the same credits: agree on keys.
-    by_keys: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+    out = []
     for credits in rows:
         if any(x["key"] is None for x in credits):
             return []
-        by_keys.setdefault(tuple(x["key"] for x in credits), credits)
-    return list(by_keys.values())
+        out.append(credits)
+    return out
