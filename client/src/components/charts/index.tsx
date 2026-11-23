@@ -14,7 +14,12 @@ import {
   nf,
   pct,
   evolutionNarrowHeight,
+  GAP_PREFIX,
+  bucketTotals,
+  gapBucketAt,
   seriesAtValue,
+  shareSteps,
+  smoothedSeries,
   pieNarrowHeight,
   polygonCodes,
 } from './builders'
@@ -88,17 +93,21 @@ export function EvolutionChart({ data }: { data: EvolutionResponse }) {
   const label = (i: number) => (unit === 'month' ? buckets[i].start.slice(0, 7) : buckets[i].start)
   // Series band under the pointer/finger (mouse move or tap), found from the stacked values: drives the single-series tooltip.
   const hover = useRef<string | null>(null)
+  const shares = useMemo(() => smoothedSeries(series, buckets.length), [series, buckets.length])
+  const totals = useMemo(() => bucketTotals(series, buckets.length), [series, buckets.length])
   const build = useMemo(() => (t: ChartTheme) => buildEvolutionOption(data, t, hover), [data])
   const onPointer = useMemo(() => (chart: EChartsType, pos: { x: number; y: number } | null) => {
     if (!pos || !chart.containPixel('grid', [pos.x, pos.y])) { hover.current = null; return }
     const [x, y] = chart.convertFromPixel('grid', [pos.x, pos.y]) as [number, number]
-    hover.current = seriesAtValue(data.series, x, y)
-  }, [data])
+    const hit = seriesAtValue(shares, x * shareSteps(buckets.length), y)
+    const gap = hit === null && y >= 0 && y <= 100 ? gapBucketAt(totals, x) : null
+    hover.current = hit ?? (gap === null ? null : `${GAP_PREFIX}${gap}`)
+  }, [shares, totals, buckets.length])
   const partial = partialIdx >= 0 ? buckets[partialIdx] : null
   return (
     <Frame
       label={`Evolution of ${dimension}, ${series.length} series per ${unit}`}
-      summary={`${series.length} series over ${buckets.length} ${unit} buckets from ${data.range.from} to ${data.range.to} (${data.range.tz}). Not cumulative.`}
+      summary={`${series.length} series over ${buckets.length} ${unit} buckets from ${data.range.from} to ${data.range.to} (${data.range.tz}). Shown as each series' share of the bucket total (100%), not absolute counts.`}
       height={360}
       narrowHeight={evolutionNarrowHeight(series.length)}
       build={build}
@@ -110,7 +119,7 @@ export function EvolutionChart({ data }: { data: EvolutionResponse }) {
       }
       table={
         <table>
-          <caption className="sr-only">Weighted listens per {unit}</caption>
+          <caption className="sr-only">Weighted listens per {unit} (share of bucket total)</caption>
           <thead>
             <tr>
               <th scope="col">Bucket start</th>
@@ -129,7 +138,7 @@ export function EvolutionChart({ data }: { data: EvolutionResponse }) {
                   {b.partial ? ' (partial)' : ''}
                 </th>
                 {series.map((s) => (
-                  <td key={s.key}>{nf.format(s.values[i] ?? 0)}</td>
+                  <td key={s.key}>{nf.format(s.values[i] ?? 0)} ({pct(totals[i] > 0 ? (s.values[i] ?? 0) / totals[i] : 0)})</td>
                 ))}
               </tr>
             ))}

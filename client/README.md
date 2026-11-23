@@ -16,7 +16,7 @@ Open http://localhost:18140/. Use `?fixture=full` or `?fixture=empty` to change 
 - The default range is 7 days. Live presets persist as `?preset=today` (or `week`, `7d`, `month`, `30d`, `year`, `all`) and recalculate in the browser timezone on load/back/forward; default `7d` may stay bare. Explicit valid `from`/`to` pairs stay fixed Custom, even alongside a legacy preset. Invalid or incomplete pairs fall back to 7 days. Legacy `tz` is ignored; rejected browser zones visibly fall back to UTC without changing fixed dates.
 - Custom opens a native modal dialog. Apply validates and updates the URL; Cancel/Escape discard edits without navigation. Unrelated query parameters and the hash are preserved.
 - The heatmap always shows the last 365 days, independent of the selected range.
-- Pies include named entries at or above 1%; only the top five named slices get labels. Evolution includes entries above 2%, and is hidden for one-day ranges. The API groups the rest under Other.
+- Pies include named entries at or above 1%; only the top five named slices get labels. Evolution includes entries above 2%, and is hidden for one-day ranges. It is a smooth 100% stacked area chart (each series' share of its bucket); buckets with no listens show as a hatched "No data" band instead of a fake share. The API groups the rest under Other.
 - Top Genres counts one appearance per distinct genre per listen. Genre pies and evolution still use weighted counts.
 - The map lists countries until you select one, then shows its artists. On phones the artist list opens in a bottom sheet.
 

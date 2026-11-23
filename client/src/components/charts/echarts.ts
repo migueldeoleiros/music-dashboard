@@ -5,6 +5,7 @@ import {
   GeoComponent,
   GridComponent,
   LegendComponent,
+  MarkAreaComponent,
   MarkLineComponent,
   TooltipComponent,
 } from 'echarts/components'
@@ -22,6 +23,7 @@ echarts.use([
   GeoComponent,
   GridComponent,
   LegendComponent,
+  MarkAreaComponent,
   MarkLineComponent,
   TooltipComponent,
 ])

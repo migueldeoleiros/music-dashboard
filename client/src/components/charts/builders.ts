@@ -83,11 +83,141 @@ export function seriesAtValue(series: EvolutionResponse['series'], x: number, y:
   const f = at - lo
   let floor = 0
   for (const s of series) {
+    if (!Number.isFinite(s.values[lo]) || !Number.isFinite(s.values[hi])) return null // gap
     const top = floor + s.values[lo] * (1 - f) + s.values[hi] * f
     if (y >= floor && y < top) return seriesId(s)
     floor = top
   }
   return null
+}
+
+/** Weighted listens per bucket. A zero total means a day (or week/month) with no music recorded. */
+export const bucketTotals = (series: EvolutionResponse['series'], buckets: number): number[] =>
+  Array.from({ length: buckets }, (_, i) => series.reduce((sum, s) => sum + Math.max(0, s.values[i] ?? 0), 0))
+
+/** Each bucket as shares of its own total, 0..100. A bucket without listens stays all zeros (a gap, never a fake 100%). */
+export function normalizeShares(series: EvolutionResponse['series']): number[][] {
+  const totals = bucketTotals(series, series[0]?.values.length ?? 0)
+  return series.map((s) => s.values.map((v, i) => (totals[i] > 0 ? (Math.max(0, v) / totals[i]) * 100 : 0)))
+}
+
+/** Sub-steps per bucket gap: enough to look smooth, capped so long ranges stay cheap. */
+export const shareSteps = (buckets: number) => (buckets <= 1 ? 1 : Math.max(1, Math.min(8, Math.floor(600 / (buckets - 1)))))
+
+/**
+ * Monotone cubic (Fritsch–Carlson) resample at `steps` points per gap. Never overshoots its neighbours,
+ * so non-negative input stays non-negative.
+ */
+export function resampleMonotone(values: number[], steps: number): number[] {
+  const n = values.length
+  if (n < 2 || steps <= 1) return values.slice()
+  const d = Array.from({ length: n - 1 }, (_, i) => values[i + 1] - values[i])
+  const m = values.map((_, i) => (i === 0 ? d[0] : i === n - 1 ? d[n - 2] : d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2))
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue }
+    const a = m[i] / d[i]
+    const b = m[i + 1] / d[i]
+    const s = a * a + b * b
+    if (s > 9) { const k = 3 / Math.sqrt(s); m[i] = k * a * d[i]; m[i + 1] = k * b * d[i] }
+  }
+  const out: number[] = []
+  for (let i = 0; i < n - 1; i++) {
+    for (let j = 0; j < steps; j++) {
+      const u = j / steps
+      const u2 = u * u
+      const u3 = u2 * u
+      const v = (2 * u3 - 3 * u2 + 1) * values[i] + (u3 - 2 * u2 + u) * m[i] + (-2 * u3 + 3 * u2) * values[i + 1] + (u3 - u2) * m[i + 1]
+      out.push(Math.max(0, v))
+    }
+  }
+  out.push(values[n - 1])
+  return out
+}
+
+/** Hover sentinel for the pointer sitting in an empty-bucket gap: `gap:<bucket index>`. */
+export const GAP_PREFIX = 'gap:'
+
+/** Empty bucket index when `x` (fractional bucket index) lies within half a bucket of it, else null. */
+export function gapBucketAt(totals: number[], x: number): number | null {
+  if (totals.length === 0 || !Number.isFinite(x)) return null
+  const i = Math.min(Math.max(Math.round(x), 0), totals.length - 1)
+  return totals[i] <= 0 ? i : null
+}
+
+/** [first, last] bucket indexes of each run of empty buckets. */
+export function emptyRuns(totals: number[]): [number, number][] {
+  const runs: [number, number][] = []
+  for (let i = 0; i < totals.length; i++) {
+    if (totals[i] > 0) continue
+    let j = i
+    while (j + 1 < totals.length && totals[j + 1] <= 0) j++
+    runs.push([i, j])
+    i = j
+  }
+  return runs
+}
+
+/**
+ * Smooth 100% stack: shares are resampled per series, then each sub-step is re-normalized to 100.
+ * Smoothing the shares, not the stacked boundaries, keeps areas from crossing: boundaries are running sums of non-negatives.
+ * Buckets with no listens are real gaps (null): each run of buckets with data is smoothed on its own so nothing ramps
+ * to zero across a gap; edges are held flat to the middle of the empty bucket so the gap is one bucket wide.
+ */
+export function smoothShares(series: EvolutionResponse['series'], buckets: number): (number | null)[][] {
+  const steps = shareSteps(buckets)
+  const shares = normalizeShares(series)
+  const totals = bucketTotals(series, buckets)
+  const len = buckets <= 1 ? buckets : (buckets - 1) * steps + 1
+  const out = series.map(() => Array<number | null>(len).fill(null))
+  for (let i = 0; i < buckets; i++) {
+    if (totals[i] <= 0) continue
+    let j = i
+    while (j + 1 < buckets && totals[j + 1] > 0) j++
+    const cols = shares.map((v) => resampleMonotone(v.slice(i, j + 1), steps))
+    for (let k = 0; k < cols[0].length; k++) {
+      const total = cols.reduce((sum, c) => sum + c[k], 0)
+      cols.forEach((c, si) => { out[si][i * steps + k] = total > 0 ? (c[k] / total) * 100 : 0 })
+    }
+    // Hold the edge shares flat up to the middle of an adjacent empty bucket, so the hatched band is exactly one bucket
+    // wide per empty bucket (no blank transition strip) and a lone bucket stays visible as a bar.
+    const half = Math.floor(steps / 2)
+    const fill = (from: number, to: number, src: number) => {
+      for (let k = from; k <= to; k++) if (k >= 0 && k < len) series.forEach((_, si) => { out[si][k] = out[si][src] })
+    }
+    if (i > 0) fill(i * steps - half, i * steps - 1, i * steps)
+    if (j < buckets - 1) fill(j * steps + 1, j * steps + half, j * steps)
+    i = j
+  }
+  return out
+}
+
+/** Series with smoothed share values (NaN in gaps), for hit-testing with `seriesAtValue` at x * shareSteps(buckets). */
+export const smoothedSeries = (series: EvolutionResponse['series'], buckets: number): EvolutionResponse['series'] => {
+  const smooth = smoothShares(series, buckets)
+  return series.map((s, i) => ({ ...s, values: smooth[i].map((v) => v ?? Number.NaN) }))
+}
+
+/**
+ * Diagonal line hatch for buckets with no data: reads as "nothing recorded", distinct from any series.
+ * A repeating canvas pattern as the markArea fill (plain tint where canvas is unavailable, e.g. jsdom).
+ */
+export function gapFill(t: ChartTheme): string | { image: HTMLCanvasElement; repeat: 'repeat'; scaleX: number; scaleY: number } {
+  if (typeof document === 'undefined') return t.surface2
+  const dpr = Math.max(1, Math.round(globalThis.devicePixelRatio || 1))
+  const size = 8 * dpr
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const g = canvas.getContext('2d')
+  if (!g) return t.surface2
+  g.fillStyle = t.surface2
+  g.fillRect(0, 0, size, size)
+  g.strokeStyle = mixColors(t.textMuted, t.surface2, 0.45)
+  g.lineWidth = dpr
+  g.beginPath()
+  for (const o of [-size, 0, size]) { g.moveTo(o, size); g.lineTo(o + size, 0) } // seamless 45deg tiles
+  g.stroke()
+  return { image: canvas, repeat: 'repeat', scaleX: 1 / dpr, scaleY: 1 / dpr }
 }
 
 export function buildEvolutionOption(data: EvolutionResponse, t: ChartTheme, hover?: { current: string | null }): Opt {
@@ -96,6 +226,11 @@ export function buildEvolutionOption(data: EvolutionResponse, t: ChartTheme, hov
   const label = (i: number) => (unit === 'month' ? buckets[i].start.slice(0, 7) : buckets[i].start)
   const labelOf = new Map(series.map((s) => [seriesId(s), s.label]))
   const colors = series.map((s, i) => seriesColor(t, i, s.is_other))
+  const steps = shareSteps(buckets.length)
+  const smooth = smoothShares(series, buckets.length)
+  const totals = bucketTotals(series, buckets.length)
+  const gaps = emptyRuns(totals).map(([a, b]) => [{ xAxis: Math.max(0, a - 0.5) }, { xAxis: Math.min(buckets.length - 1, b + 0.5) }])
+  const seriesByName = new Map(series.map((s) => [seriesId(s), s]))
   return {
     animation: !t.reducedMotion,
     animationDuration: 500,
@@ -116,46 +251,61 @@ export function buildEvolutionOption(data: EvolutionResponse, t: ChartTheme, hov
       axisPointer: { type: 'line', lineStyle: { color: t.border, width: 1 } },
       // Only the highlighted area: its date, label and value. Without a hovered area there is nothing to show.
       formatter: (params: unknown) => {
-        const ps = params as { dataIndex: number; color?: unknown; seriesName: string; value: number }[]
+        const ps = params as { dataIndex: number; color?: unknown; seriesName: string }[]
+        if (hover?.current?.startsWith(GAP_PREFIX)) {
+          const g = buckets[Number(hover.current.slice(GAP_PREFIX.length))]
+          return g ? tipTitle(t, `${g.start} → ${g.end} (excl.)`) + `<div style="color:${esc(t.textMuted)}">No data</div>` : ''
+        }
         const p = ps.find((x) => x.seriesName === hover?.current)
         if (!p) return ''
-        const b = buckets[p.dataIndex]
+        const i = Math.min(buckets.length - 1, Math.round(p.dataIndex / steps))
+        const b = buckets[i]
+        const listens = seriesByName.get(p.seriesName)?.values[i] ?? 0
         const head = `${b.start} → ${b.end} (excl.)${b.partial ? ' · partial bucket' : ''}`
         return (
           tipTitle(t, head) +
           tipRow(t, {
             color: typeof p.color === 'string' ? p.color : undefined,
             label: labelOf.get(p.seriesName) ?? p.seriesName,
-            value: nf.format(p.value),
+            value: pct(totals[i] > 0 ? listens / totals[i] : 0),
+            sub: `${nf.format(listens)} listens`,
           })
         )
       },
     },
     xAxis: {
-      type: 'category',
-      boundaryGap: false,
-      data: buckets.map((_, i) => label(i)),
-      axisLabel: { color: t.textMuted, hideOverlap: true },
+      type: 'value',
+      min: 0,
+      max: Math.max(1, buckets.length - 1),
+      minInterval: 1,
+      axisLabel: { color: t.textMuted, hideOverlap: true, formatter: (v: number) => (buckets[Math.round(v)] ? label(Math.round(v)) : '') },
+      splitLine: { show: false },
       axisLine: { lineStyle: { color: t.border } },
       axisTick: { show: false },
     },
     yAxis: {
       type: 'value',
-      axisLabel: { color: t.textMuted },
+      min: 0,
+      max: 100,
+      interval: 25,
+      axisLabel: { color: t.textMuted, formatter: '{value}%' },
       splitLine: { lineStyle: { color: t.border, opacity: 0.6 } },
     },
     series: series.map((s, si) => ({
       name: seriesId(s),
       type: 'line',
       stack: 'total',
-      smooth: true,
+      smooth: false, // already smoothed in share space; ECharts' own bezier could overshoot and cross neighbours
       showSymbol: false,
       symbol: 'none',
       lineStyle: { width: 1, color: colors[si], opacity: 0.9 },
       areaStyle: { color: colors[si], opacity: 0.55 },
       emphasis: { focus: 'series', areaStyle: { opacity: 0.8 }, lineStyle: { width: 1.5 } },
       blur: { areaStyle: { opacity: 0.2 }, lineStyle: { opacity: 0.3 } },
-      data: s.values,
+      data: smooth[si].map((v, i) => [i / steps, v]),
+      ...(si === 0 && gaps.length
+        ? { markArea: { silent: true, itemStyle: { color: gapFill(t), opacity: 1 }, data: gaps } }
+        : {}),
       ...(si === 0 && partialIdx >= 0
         ? {
             markLine: {

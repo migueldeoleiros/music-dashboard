@@ -36,7 +36,7 @@ vi.mock('../src/components/charts/echarts', () => ({
   },
 }))
 
-import { buildRollingGrid, labelledPieIndexes, pieGeometry, pieNarrowHeight, seriesAtValue, worldWidth } from '../src/components/charts/builders'
+import { buildRollingGrid, emptyRuns, gapBucketAt, labelledPieIndexes, normalizeShares, resampleMonotone, shareSteps, smoothShares, pieGeometry, pieNarrowHeight, seriesAtValue, worldWidth } from '../src/components/charts/builders'
 import { CountryChart, EvolutionChart, HeatmapChart, PieChart, stableColor } from '../src/components/charts'
 import { esc, mixColors, parseColor, readTheme, seriesColor } from '../src/components/charts/theme'
 
@@ -104,6 +104,65 @@ describe('seriesAtValue', () => {
   })
 })
 
+describe('share normalization', () => {
+  const series = [
+    { key: 'a', label: 'A', is_other: false, values: [6, 0, 0, 1, 0] },
+    { key: 'b', label: 'B', is_other: false, values: [2, 3, 0, 0, 0] },
+    { key: 'o', label: 'Other', is_other: true, values: [2, 1, 0, 9, 0] },
+  ]
+  it('each bucket sums to 100; an empty bucket stays all zeros', () => {
+    const shares = normalizeShares(series)
+    expect(shares.map((v) => v[0])).toEqual([60, 20, 20])
+    expect(shares.map((v) => v[2])).toEqual([0, 0, 0])
+  })
+  it('monotone resample hits the knots, never overshoots or goes negative', () => {
+    const out = resampleMonotone([0, 10, 10, 0, 5], 8)
+    expect(out).toHaveLength(4 * 8 + 1)
+    ;[0, 10, 10, 0, 5].forEach((v, i) => expect(out[i * 8]).toBeCloseTo(v))
+    for (const v of out) { expect(v).toBeGreaterThanOrEqual(0); expect(v).toBeLessThanOrEqual(10 + 1e-9) }
+    expect(resampleMonotone([3], 8)).toEqual([3])
+  })
+  it('smoothed stack totals 100 at every sub-step with data, null in empty buckets, never NaN or negative', () => {
+    const smooth = smoothShares(series, 5)
+    const steps = shareSteps(5)
+    expect(smooth[0]).toHaveLength(4 * steps + 1)
+    // buckets 0-1 form one run; bucket 2 is empty; bucket 3 is a lone bucket (thin bar); bucket 4 is empty
+    for (let i = 0; i < smooth[0].length; i++) {
+      const col = smooth.map((v) => v[i])
+      if (col.every((v) => v === null)) continue
+      let floor = 0
+      for (const v of col) {
+        expect(v).not.toBeNull()
+        expect(Number.isFinite(v as number)).toBe(true)
+        expect(v as number).toBeGreaterThanOrEqual(0)
+        floor += v as number // boundaries are running sums of non-negatives: areas cannot cross
+      }
+      expect(floor).toBeCloseTo(100)
+    }
+    for (const s of smooth) {
+      expect(s[2 * steps]).toBeNull() // empty bucket
+      expect(s[4 * steps]).toBeNull()
+      expect(s[2 * steps + 1]).toBeNull() // nothing ramps toward zero inside the gap
+      expect(s[3 * steps]).not.toBeNull()
+      expect(s[3 * steps - steps / 2 - 1]).toBeNull() // gap is one bucket wide: data held flat only to its middle
+      expect(s[3 * steps - steps / 2]).not.toBeNull() // lone bucket widened to a one-bucket bar
+      expect(s[3 * steps + 1]).not.toBeNull()
+    }
+  })
+  it('detects the gap under the pointer and spans empty runs', () => {
+    const totals = [3, 0, 0, 2]
+    expect(gapBucketAt(totals, 0.4)).toBeNull()
+    expect(gapBucketAt(totals, 0.6)).toBe(1)
+    expect(gapBucketAt(totals, 1.4)).toBe(1)
+    expect(gapBucketAt(totals, 1.6)).toBe(2)
+    expect(gapBucketAt(totals, 2.4)).toBe(2)
+    expect(gapBucketAt(totals, 2.6)).toBeNull()
+    expect(gapBucketAt([3, 1], 0.5)).toBeNull()
+    expect(emptyRuns([1, 0, 0, 2, 0])).toEqual([[1, 2], [4, 4]])
+    expect(seriesAtValue([{ key: 'a', label: 'A', is_other: false, values: [1, Number.NaN] }], 0.5, 0.2)).toBeNull()
+  })
+})
+
 describe('EvolutionChart', () => {
   const data = {
     ...base,
@@ -121,15 +180,20 @@ describe('EvolutionChart', () => {
     ],
   } as const
 
-  it('stacked filled smooth areas with token colors and partial markLine', () => {
+  it('100% stacked filled areas with token colors and partial markLine', () => {
     render(<EvolutionChart data={data as never} />)
     const o = lastOption()
-    expect(o.series[0].data).toEqual([5, 0, 2])
+    const steps = shareSteps(3)
+    expect(o.series[0].data).toHaveLength(2 * steps + 1)
+    expect(o.series[0].data[0]).toEqual([0, (5 / 6) * 100])
+    expect(o.series[0].data[2 * steps][0]).toBe(2)
+    expect(o.yAxis).toMatchObject({ min: 0, max: 100 })
+    expect(o.xAxis.axisLabel.formatter(1)).toBe('2026-01-12')
     expect(o.series[0].type).toBe('line')
     for (const s of o.series) {
       expect(s.stack).toBe('total')
       expect(s.areaStyle).toBeTruthy()
-      expect(s.smooth).toBe(true)
+      expect(s.smooth).toBe(false) // smoothed in share space instead
       expect(s.showSymbol).toBe(false)
       expect(s.lineStyle.width).toBeLessThanOrEqual(1.5)
     }
@@ -140,29 +204,30 @@ describe('EvolutionChart', () => {
   })
 
   const axisHit = [
-    { dataIndex: 1, color: '#111', seriesName: 'other:o', value: 1 },
-    { dataIndex: 1, color: '#222', seriesName: 'key:a', value: 7 },
+    { dataIndex: 0, color: '#111', seriesName: 'other:o' },
+    { dataIndex: 0, color: '#222', seriesName: 'key:a' },
   ]
   it('tooltip shows only the hovered area: date, series and value (never all series)', () => {
     render(<EvolutionChart data={data as never} />)
     const o = lastOption()
     expect(o.tooltip.trigger).toBe('axis')
     expect(o.tooltip.formatter(axisHit)).toBe('') // pointer over no area: nothing to show
-    point(0, 3)
+    point(0, 40)
     const html = o.tooltip.formatter(axisHit)
-    expect(html).toContain('2026-01-12 → 2026-01-19')
+    expect(html).toContain('2026-01-05 → 2026-01-12')
     expect(html).toContain('>A<')
-    expect(html).toContain('<b style="font-variant-numeric:tabular-nums">7</b>')
+    expect(html).toContain('<b style="font-variant-numeric:tabular-nums">83.3%</b>')
+    expect(html).toContain('5 listens')
     expect(html).not.toContain('Other')
-    point(0, 5.5)
+    point(0, 95)
     const other = o.tooltip.formatter(axisHit)
     expect(other).toContain('Other')
     expect(other).not.toContain('>A<')
-    point(0, 9) // above the stack
+    point(0, 101) // above the stack
     expect(o.tooltip.formatter(axisHit)).toBe('')
-    point(0, 3); h.inGrid.value = false; point(0, 3) // outside the plot
+    point(0, 40); h.inGrid.value = false; point(0, 40) // outside the plot
     expect(o.tooltip.formatter(axisHit)).toBe('')
-    h.inGrid.value = true; point(0, 3); h.zr.globalout({})
+    h.inGrid.value = true; point(0, 40); h.zr.globalout({})
     expect(o.tooltip.formatter(axisHit)).toBe('')
     expect(o.tooltip.backgroundColor).toBe(readTheme().surface)
   })
@@ -172,7 +237,7 @@ describe('EvolutionChart', () => {
     render(<EvolutionChart data={data as never} />)
     const o = lastOption()
     expect(o.tooltip.triggerOn).toBe('click')
-    h.zr.click({ offsetX: 0, offsetY: 3 })
+    h.zr.click({ offsetX: 0, offsetY: 40 })
     expect(o.tooltip.formatter(axisHit)).toContain('>A<')
   })
 
@@ -189,6 +254,19 @@ describe('EvolutionChart', () => {
     expect(narrow.legend).toMatchObject({ type: 'scroll', orient: 'vertical', left: 'center', bottom: 4 })
     expect(narrow.legend.height).toBeLessThan(12 * 20) // capped: the rest scrolls
     expect(narrow.grid.bottom).toBeGreaterThanOrEqual(narrow.legend.height) // plot never overlaps the legend
+  })
+
+  it('empty buckets: shaded gap, null data and a "No data" tooltip', () => {
+    const d = { ...data, series: [{ key: 'a', label: 'A', is_other: false, values: [5, 0, 2] }, { key: 'o', label: 'Other', is_other: true, values: [1, 0, 1] }] }
+    render(<EvolutionChart data={d as never} />)
+    const o = lastOption()
+    const steps = shareSteps(3)
+    expect(o.series[0].data[steps][1]).toBeNull()
+    expect(o.series[0].markArea.data).toEqual([[{ xAxis: 0.5 }, { xAxis: 1.5 }]])
+    point(1, 50)
+    const html = o.tooltip.formatter([{ dataIndex: steps, seriesName: 'key:a' }])
+    expect(html).toContain('2026-01-12 → 2026-01-19')
+    expect(html).toContain('No data')
   })
 
   it('no markArea without partial bucket', () => {
@@ -218,10 +296,10 @@ describe('series identity', () => {
     const names = o.series.map((s: AnyOpt) => s.name)
     expect(new Set(names).size).toBe(4)
     expect(o.legend.formatter(names[1])).toBe('Same')
-    point(0, 0.5) // inside the first band
+    point(0, 5) // inside the first band (1 of 10 = 10%)
     const html = o.tooltip.formatter([{ dataIndex: 0, marker: '', seriesName: names[0], value: 1 }])
     expect(html).toContain('Same')
-    expect(html).toContain('<b style="font-variant-numeric:tabular-nums">1</b>')
+    expect(html).toContain('<b style="font-variant-numeric:tabular-nums">10%</b>')
   })
 
   it('pie data names unique for same-label slices and Other', () => {
@@ -398,8 +476,8 @@ describe('tooltip escaping', () => {
       />,
     )
     const evo = lastOption()
-    point(0, 1)
-    const html2 = evo.tooltip.formatter([{ dataIndex: 0, color: 'red"><b>', seriesName: evo.series[0].name, value: 3 }])
+    point(0, 50)
+    const html2 = evo.tooltip.formatter([{ dataIndex: 0, color: 'red"><b>', seriesName: evo.series[0].name }])
     expect(html2).not.toContain('<img')
     expect(html2).not.toContain('"><b>')
     expect(html2).toContain('&#60;img')
