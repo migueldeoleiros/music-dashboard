@@ -49,6 +49,26 @@ def test_api_has_no_table_grants_but_can_execute_functions(api, migrated_db):
         assert cfg[0] and any("search_path=pg_catalog" in x for x in cfg[1])
 
 
+def test_writer_can_execute_admission_and_downgrade_restores_300s(migrated_db, writer, admin_url):
+    from alembic import command
+
+    from tests.integration.conftest import alembic_cfg
+
+    with writer.connect() as c, c.begin():
+        c.exec_driver_sql("SET TRANSACTION READ WRITE")
+        row = c.execute(text(ADMIT)).mappings().one()
+    assert row["status"] == "pending"
+    assert timedelta(seconds=599) < row["cooldown_until"] - row["server_now"] <= timedelta(seconds=600)
+    command.downgrade(alembic_cfg(admin_url), "0007")
+    with migrated_db.connect() as c:
+        assert not c.execute(
+            text("SELECT has_function_privilege('music_writer', 'public.public_refresh_request()', 'EXECUTE')")
+        ).scalar_one()
+        assert "300" in c.execute(
+            text("SELECT prosrc FROM pg_proc WHERE proname='public_refresh_request'")
+        ).scalar_one()
+
+
 def test_admission_needs_read_write_and_default_is_read_only(api):
     with pytest.raises(DBAPIError):
         with api.begin() as c:  # role default is read-only
@@ -118,7 +138,7 @@ def test_claim_expires_stale(api, migrated_db):
 def test_admission_takes_no_caller_policy_and_cooldown_is_fixed(api):
     first = admit(api)
     window = first["cooldown_until"] - first["server_now"]
-    assert timedelta(seconds=299) < window <= timedelta(seconds=300)
+    assert timedelta(seconds=599) < window <= timedelta(seconds=600)
     with pytest.raises(DBAPIError):
         with api.connect() as c, c.begin():
             c.exec_driver_sql("SET TRANSACTION READ WRITE")
