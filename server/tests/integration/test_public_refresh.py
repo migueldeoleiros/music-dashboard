@@ -58,11 +58,15 @@ def test_writer_can_execute_admission_and_downgrade_restores_300s(migrated_db, w
         c.exec_driver_sql("SET TRANSACTION READ WRITE")
         row = c.execute(text(ADMIT)).mappings().one()
     assert row["status"] == "pending"
-    assert timedelta(seconds=599) < row["cooldown_until"] - row["server_now"] <= timedelta(seconds=600)
+    window = row["cooldown_until"] - row["server_now"]
+    assert timedelta(seconds=599) < window <= timedelta(seconds=600)
     command.downgrade(alembic_cfg(admin_url), "0007")
     with migrated_db.connect() as c:
         assert not c.execute(
-            text("SELECT has_function_privilege('music_writer', 'public.public_refresh_request()', 'EXECUTE')")
+            text(
+                "SELECT has_function_privilege("
+                "'music_writer', 'public.public_refresh_request()', 'EXECUTE')"
+            )
         ).scalar_one()
         assert "300" in c.execute(
             text("SELECT prosrc FROM pg_proc WHERE proname='public_refresh_request'")
