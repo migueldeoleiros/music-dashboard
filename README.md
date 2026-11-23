@@ -19,3 +19,8 @@ The dashboard has no login. If you publish it, anyone can see the stats. Deletes
 ## License
 
 [MIT](LICENSE). Third-party assets retain their own licenses.
+
+
+## Commit conventions
+
+Commits must follow Conventional Commits (`type(scope): subject`), enforced by `.githooks/commit-msg`. Enable once per clone with `scripts/install-hooks.sh`.
