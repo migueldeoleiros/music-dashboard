@@ -17,6 +17,7 @@ from unicodedata import normalize
 
 from sqlalchemy import Connection, text
 
+from music_dashboard.infrastructure.artwork.store import artwork_dir, public_url
 from music_dashboard.infrastructure.artwork.urls import MBID, validate_image_url
 from music_dashboard.infrastructure.persistence.artist_cover_fallback import (
     artist_cover_fallbacks,
@@ -33,7 +34,8 @@ _BY_NAME = """SELECT name_key, image_url FROM artwork_name
 def resolve_artwork(
     c: Connection, entity_type: str, keys: Iterable[str], params: dict[str, Any]
 ) -> dict[str, str]:
-    """Map ranking key -> validated cover URL for the keys that have one.
+    """Map ranking key -> cover URL for the keys that have one: the local `/artwork/<key>.webp`
+    copy when the worker has converted it, else the validated upstream URL.
 
     `params` must carry the shared `casefold` / `whitespace` fold parameters (artist fallback)."""
     if entity_type not in KINDS:
@@ -52,7 +54,8 @@ def resolve_artwork(
         missing = [k for k in ids + names if k not in found]
         if missing:
             found.update(artist_cover_fallbacks(c, missing, params))
-    return found
+    directory = artwork_dir()
+    return {key: public_url(directory, url) for key, url in found.items()}
 
 
 @dataclass(frozen=True)

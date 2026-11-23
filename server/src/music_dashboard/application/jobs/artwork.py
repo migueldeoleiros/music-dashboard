@@ -5,6 +5,8 @@ MUSIC_METADATA_USER_AGENT (required, descriptive contact), MUSIC_ARTWORK_BATCH_S
 MUSIC_ARTWORK_BUSY_BATCH_SIZE=5 / MUSIC_ARTWORK_BUSY_EVERY=4 (reduced share while the genre
 enrichment queue has due work), MUSIC_ARTWORK_POSITIVE_TTL_DAYS=30, MUSIC_ARTWORK_MISS_TTL_DAYS=7,
 MUSIC_ARTWORK_RETRY_BASE_SECONDS=60, MUSIC_ARTWORK_RETRY_MAX_SECONDS=86400.
+WebP copies: MUSIC_ARTWORK_DIR (shared volume; unset = disabled),
+MUSIC_ARTWORK_CONVERT_BATCH_SIZE=10.
 Metadata/artwork endpoints are public: this job never reads a ListenBrainz token.
 """
 
@@ -93,6 +95,41 @@ def _busy(now: datetime) -> bool:
         engine.dispose()
 
 
+_failed: dict[str, datetime] = {}
+
+
+def convert_pending(limit: int = 10) -> int:
+    """WebP-convert resolved artwork lacking a local copy (needs MUSIC_ARTWORK_DIR).
+
+    Bumps the data generation when anything converted so cached responses switch to local URLs.
+    """
+    from music_dashboard.infrastructure.artwork import store
+    from music_dashboard.infrastructure.persistence.database import create_db_engine
+    from music_dashboard.infrastructure.persistence.repositories.artwork import (
+        SqlArtworkRepository,
+    )
+
+    directory = store.artwork_dir()
+    if directory is None:
+        return 0
+    engine = create_db_engine()
+    try:
+        repository = SqlArtworkRepository(engine)
+        done = store.convert_missing(
+            directory,
+            repository.resolved_urls(),
+            store.user_agent_downloader(os.environ.get("MUSIC_METADATA_USER_AGENT", "")),
+            _failed,
+            datetime.now(UTC),
+            limit,
+        )
+        if done:
+            repository.bump_generation()
+        return done
+    finally:
+        engine.dispose()
+
+
 def tick() -> None:
     """Idle enrichment queue: full batch. Busy queue: small batch on every Nth tick only."""
     global _ticks
@@ -106,3 +143,4 @@ def tick() -> None:
             return
         batch = min(batch, int(os.environ.get("MUSIC_ARTWORK_BUSY_BATCH_SIZE", "5")))
     run_once(max(1, min(batch, 100)))
+    convert_pending(int(os.environ.get("MUSIC_ARTWORK_CONVERT_BATCH_SIZE", "10")))

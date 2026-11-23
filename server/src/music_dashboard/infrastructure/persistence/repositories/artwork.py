@@ -328,6 +328,18 @@ class SqlArtworkRepository:
                 )
             )
 
+    def resolved_urls(self) -> list[str]:
+        """Distinct upstream image URLs currently shown (id-keyed and name-keyed rows)."""
+        with self.engine.connect() as c:
+            return list(
+                c.execute(
+                    text(
+                        "SELECT image_url FROM artwork WHERE status = 'resolved' "
+                        "UNION SELECT image_url FROM artwork_name WHERE status = 'resolved'"
+                    )
+                ).scalars()
+            )
+
     def reset_retries(self) -> int:
         """Make every miss/transient row due now (resolved rows keep their TTL)."""
         with self.engine.begin() as c:

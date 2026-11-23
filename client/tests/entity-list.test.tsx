@@ -27,6 +27,14 @@ it('sizedImageUrl picks allowed Deezer sizes and leaves other hosts alone', () =
   expect(sizedImageUrl(noSegment, 'sm')).toBe(noSegment)
 })
 
+it('resolveImageSrc maps server WebP copies to the size variant', () => {
+  const key = 'a'.repeat(32)
+  expect(resolveImageSrc(`/artwork/${key}.webp`, 'sm')).toBe(`/artwork/${key}-120.webp`)
+  expect(resolveImageSrc(`/artwork/${key}.webp`, 'sm', { dpr: 2 })).toBe(`/artwork/${key}-250.webp`)
+  expect(resolveImageSrc(`/artwork/${key}.webp`, 'hero', { dpr: 2, mock: true })).toBe(`/artwork/${key}-1000.webp`)
+  expect(resolveImageSrc('/artwork/../etc.webp', 'md')).toBe('/artwork/../etc.webp') // not a key: untouched local path
+})
+
 it('helpers: initials, hue, resolve', () => {
   expect(initials('Blue Harbor')).toBe('BH')
   expect(initials('  madonna ')).toBe('M')

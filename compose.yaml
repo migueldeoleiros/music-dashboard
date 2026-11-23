@@ -41,6 +41,9 @@ services:
       MUSIC_DATABASE_URL: postgresql+psycopg://music_api:${MUSIC_API_PASSWORD}@db/music_dashboard
       MUSIC_FIXTURE_MODE: ${MUSIC_FIXTURE_MODE:-true}
       MUSIC_PUBLIC_EVENT_FEEDS_ENABLED: ${MUSIC_PUBLIC_EVENT_FEEDS_ENABLED:-false}
+      MUSIC_ARTWORK_DIR: /var/artwork
+    volumes:
+      - artwork-data:/var/artwork:ro
     depends_on:
       db: {condition: service_healthy}
     healthcheck:
@@ -65,8 +68,11 @@ services:
       MUSIC_METADATA_RETRY_BASE_SECONDS: ${MUSIC_METADATA_RETRY_BASE_SECONDS:-30}
       MUSIC_METADATA_RETRY_MAX_SECONDS: ${MUSIC_METADATA_RETRY_MAX_SECONDS:-86400}
       MUSIC_ENRICHMENT_BATCH_SIZE: ${MUSIC_ENRICHMENT_BATCH_SIZE:-100}
+      MUSIC_ARTWORK_DIR: /var/artwork
       LISTENBRAINZ_USERNAME: ${LISTENBRAINZ_USERNAME:-}
       LISTENBRAINZ_TOKEN: ${LISTENBRAINZ_TOKEN:-}
+    volumes:
+      - artwork-data:/var/artwork
     depends_on:
       db: {condition: service_healthy}
   web:
@@ -74,6 +80,9 @@ services:
       context: .
       dockerfile: deploy/Dockerfile.client
     ports: ["127.0.0.1:${WEB_PORT:-8080}:8080"]
+    # api is created first and seeds the volume with /var/artwork's app ownership (see Dockerfile.server).
+    volumes:
+      - artwork-data:/usr/share/nginx/artwork:ro
     depends_on:
       api: {condition: service_healthy}
     restart: unless-stopped
@@ -83,3 +92,4 @@ services:
     security_opt: ["no-new-privileges:true"]
 volumes:
   postgres-data:
+  artwork-data:

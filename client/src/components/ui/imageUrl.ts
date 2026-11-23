@@ -25,6 +25,14 @@ export function sizedImageUrl(src: string, size: ImageSize, dpr = 1): string {
   return url.toString()
 }
 
+const LOCAL_ARTWORK = /^\/artwork\/([0-9a-f]{32})\.webp$/
+
+/** Server-converted WebP copies: `/artwork/<key>.webp` -> `/artwork/<key>-<N>.webp` (120/250/500/1000). */
+export function localArtworkUrl(src: string, size: ImageSize, dpr = 1): string | null {
+  const match = LOCAL_ARTWORK.exec(src)
+  return match ? `/artwork/${match[1]}-${deezerSize(size, dpr)}.webp` : null
+}
+
 /** Local-only sources: same-origin paths, data: and blob: URLs. */
 function isLocal(src: string): boolean {
   return (src.startsWith('/') && !src.startsWith('//')) || src.startsWith('data:image/') || src.startsWith('blob:')
@@ -36,6 +44,8 @@ function isLocal(src: string): boolean {
  */
 export function resolveImageSrc(src: string | null | undefined, size: ImageSize, opts: { mock?: boolean; dpr?: number } = {}): string | null {
   if (!src) return null
+  const local = localArtworkUrl(src, size, opts.dpr)
+  if (local) return local
   if (isLocal(src)) return src
   if (opts.mock) return null
   if (!/^https?:\/\//i.test(src)) return null

@@ -61,6 +61,26 @@ class _AllowlistedRedirects(urllib.request.HTTPRedirectHandler):
 _opener = urllib.request.build_opener(_AllowlistedRedirects)
 
 
+def download_image(url: str, user_agent: str, *, max_bytes: int, timeout: float = 30.0) -> bytes:
+    """GET an allowlisted https image. Raises ValueError when not a 200 image or over max_bytes."""
+    check_request(HttpRequest("GET", url, {"User-Agent": user_agent}, None, timeout))
+    req = urllib.request.Request(  # noqa: S310 - https + allowlisted host enforced above
+        url, data=None, headers={"User-Agent": user_agent}, method="GET"
+    )
+    try:
+        with _opener.open(req, timeout=timeout) as resp:
+            if not resp.headers.get("content-type", "").lower().startswith("image/"):
+                raise ValueError("not an image")
+            body: bytes = resp.read(max_bytes + 1)
+    except urllib.error.HTTPError as exc:
+        raise ValueError(f"http {exc.code}") from None
+    except (urllib.error.URLError, TimeoutError, OSError, HTTPException):
+        raise ValueError("network error") from None
+    if len(body) > max_bytes:
+        raise ValueError("image too large")
+    return body
+
+
 def unauthenticated_transport(request: HttpRequest) -> HttpResponse:
     check_request(request)
     req = urllib.request.Request(  # noqa: S310 - https + allowlisted host enforced above

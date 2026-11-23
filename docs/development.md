@@ -249,6 +249,15 @@ name-only `name:` ranking entities; see "Artwork resolution and Deezer terms" an
 fallback" in architecture.md. Needs migration 0004 (`alembic upgrade head`) and `MUSIC_WORKER_FIXTURE_MODE=false`
 with a descriptive `MUSIC_METADATA_USER_AGENT`. Tests mock all HTTP; fixture mode makes none.
 
+**WebP copies.** With `MUSIC_ARTWORK_DIR` set (compose: shared `artwork-data` volume, worker rw, api/web
+ro), each worker tick also downloads up to `MUSIC_ARTWORK_CONVERT_BATCH_SIZE` (10) resolved images
+lacking a copy and writes `<key>-{1000,500,250,120}.webp` (key = sha256(upstream URL)[:32]; no
+upscaling; failures back off 6 h in memory). `artwork.image_url` stays the upstream URL; the API
+resolver returns `/artwork/<key>.webp` only once the copy is complete (else the upstream URL), the
+client requests `-<size>.webp`, and nginx serves `/artwork/` with `immutable` 1-year caching. The
+generation bump after conversion refreshes cached responses. Existing rows backfill automatically
+over successive ticks. Unset `MUSIC_ARTWORK_DIR` to disable (everything stays hotlinked).
+
 ```sh
 # Manual bounded batch (limit 1..1000, default 20). --allow-network is required.
 docker compose run --rm worker \
