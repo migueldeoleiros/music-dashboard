@@ -3,6 +3,8 @@ import type { PublicSong } from '../../api/history'
 import { artistHref } from '../../app/navigation'
 import { reliableArtistKey, ArtistLink } from '../../features/artist-history/ArtistLinks'
 import { EntityImage } from './EntityImage'
+import { Icon } from './Icon'
+import { ytMusicSearchUrl } from './ytMusic'
 
 /**
  * Credits cell: first credited artist is plain text (the row link covers it); the others link
@@ -24,5 +26,6 @@ export function SongRow({ song, excludeArtistKey }: { song: PublicSong; excludeA
       <span className="song-artist"><CreditNames artists={song.artists} excludeArtistKey={excludeArtistKey} /></span>
       <span className="song-album">{song.album}</span>
     </span>
+    {song.title && <a className="row-inline-link song-ytm" href={ytMusicSearchUrl(song.title, song.artists[0]?.label)} target="_blank" rel="noopener noreferrer" aria-label={`Search "${title}" on YouTube Music`} title="Search on YouTube Music"><Icon name="search" size={20} /></a>}
   </li>
 }

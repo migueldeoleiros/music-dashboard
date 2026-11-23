@@ -29,6 +29,8 @@ body:has(.floating-nav) .app { padding-top: calc(max(.75rem, env(safe-area-inset
 @media (hover: hover) { .row--link:hover .entity-label, .row--link:hover .song-cols > span, .row--link:hover .entity-hero-name { color: var(--accent); } }
 
 .song-row .song-cols { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: .15rem 1rem; align-items: center; font-size: .8rem; }
+.song-ytm { flex: none; display: inline-flex; align-items: center; justify-content: center; width: var(--tap-size); height: var(--tap-size); color: var(--text-muted); }
+@media (hover: hover) { a.song-ytm:hover { color: var(--accent); border-color: transparent; } }
 .song-title { color: var(--text); overflow-wrap: anywhere; }
 .song-artist, .song-album { color: var(--text-muted); overflow-wrap: anywhere; }
 @media (max-width: 720px) {

@@ -82,7 +82,7 @@ All in `client/src/components/ui/` (barrel `index.ts`).
 | `SongRow` | Image + full-width columns title \| artist \| album (stacked on mobile). Only History and artist recent songs. Props: `song: PublicSong`, `excludeArtistKey?: string`. Links itself to the primary artist. |
 | `Panel` | Section title + card frame (see Section titles). Props: `title, variant? 'default'\|'heatmap'\|'ranking', busy?`. |
 | `EntityList` | The `<ol>` wrapper for rows. |
-| `Icon` | Inline SVG Material icon, `name: 'home' \| 'history' \| 'add'`, `size` (24). Add new icons to its path map. |
+| `Icon` | Inline SVG Material icon, `name: 'home' \| 'history' \| 'add' \| 'search'`, `size` (24). Add new icons to its path map. |
 | `IconButton` | Round 44px icon-only control. Props: `icon, label` (required name + tooltip), `href?` (renders `<a>`) or `onClick`. |
 | `FloatingNav` | Top-left single bubble (`position: fixed`, follows scroll; `--surface` + `--border`, `--radius-lg`) holding borderless IconButtons (`bare`), Home first. Vertical on wide viewports, horizontal at `max-width: 1632px`, i.e. once the page gutter is narrower than bubble width + left offset (`1500px` `.app` max-width + 2 × (54px bubble + 12px offset); derivation in `ui.css`). Page top padding is one constant (safe-area + one bubble height + gap) regardless of icon count; a 2-icon vertical bubble may overlap content. Safe-area insets respected. `items`: dashboard `['history']`, History `['home']`, artist `['home','history']`. No bottom-left bubble, no text nav links. |
 | `HeatmapPanel`, `RankingList` (`features/dashboard`) | Reused as-is on the artist page (artist data, own range). |
