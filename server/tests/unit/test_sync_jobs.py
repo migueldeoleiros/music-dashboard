@@ -46,11 +46,11 @@ def test_not_due_does_not_dispatch(runtime):
     engine.dispose.assert_called_once()
 
 
-def test_fifteen_minute_incremental_interval(runtime):
+def test_stale_incremental_never_scheduled_by_sync_tick(runtime):
     repo, engine, incremental, reconcile = runtime
-    repo.state["last_incremental_at"] -= timedelta(minutes=16)
-    assert job.run_sync("incremental", scheduled=True) == {"mode": "incremental"}
-    assert incremental.call_args.kwargs["overlap"] == timedelta(hours=72)
+    repo.state["last_incremental_at"] -= timedelta(days=3)
+    assert job.run_sync("incremental", scheduled=True) == {"status": "not-due"}
+    incremental.assert_not_called()
     reconcile.assert_not_called()
 
 
@@ -68,22 +68,20 @@ def test_weekly_bootstrap_and_ambiguity_use_exports(runtime, state):
     incremental.assert_not_called()
 
 
-def test_persistent_backoff_prevents_dispatch_but_explicit_cli_can_retry(runtime):
+def test_explicit_cli_incremental_ignores_scheduler_backoff(runtime):
     repo, engine, incremental, reconcile = runtime
-    repo.state["last_incremental_at"] -= timedelta(minutes=20)
     repo.retry = {"incremental": datetime.now(UTC) + timedelta(minutes=10)}
-    assert job.run_sync("incremental", scheduled=True) == {"status": "backoff"}
     assert job.run_sync("incremental", scheduled=False) == {"mode": "incremental"}
     assert incremental.call_count == 1
     reconcile.assert_not_called()
 
 
-def test_failed_weekly_reconcile_does_not_starve_incremental(runtime):
+def test_failed_weekly_reconcile_backoff_does_not_dispatch_anything(runtime):
     repo, engine, incremental, reconcile = runtime
     repo.state["last_export_at"] -= timedelta(days=8)
-    repo.state["last_incremental_at"] -= timedelta(minutes=20)
     repo.retry = {"reconcile": datetime.now(UTC) + timedelta(minutes=10)}
-    assert job.run_sync("incremental", scheduled=True) == {"mode": "incremental"}
+    assert job.run_sync("incremental", scheduled=True) == {"status": "not-due"}
+    incremental.assert_not_called()
     reconcile.assert_not_called()
 
 
@@ -128,12 +126,10 @@ def test_long_upstream_rate_limit_survives_restart_and_blocks_both_jobs(runtime,
     reconcile.assert_not_called()
 
 
-def test_configurable_schedule_and_overlap(runtime, monkeypatch):
+def test_configurable_overlap_for_explicit_incremental(runtime, monkeypatch):
     repo, engine, incremental, reconcile = runtime
-    monkeypatch.setenv("MUSIC_SYNC_INTERVAL_SECONDS", "1")
     monkeypatch.setenv("MUSIC_SYNC_OVERLAP_HOURS", "24")
-    repo.state["last_incremental_at"] -= timedelta(seconds=2)
-    job.run_sync("incremental", scheduled=True)
+    job.run_sync("incremental")
     assert incremental.call_args.kwargs["overlap"] == timedelta(hours=24)
 
 

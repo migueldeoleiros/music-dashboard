@@ -1,9 +1,10 @@
 """Worker registry entry and sync composition. Imports are side-effect free.
 
 Worker-only environment: LISTENBRAINZ_USERNAME/TOKEN, MUSIC_SYNC_OVERLAP_HOURS
-(default 72), MUSIC_SYNC_INTERVAL_SECONDS (900), MUSIC_RECONCILE_INTERVAL_SECONDS
-(604800), MUSIC_EXPORT_MAX_BYTES (export download cap, default 64 MiB, allowed 1 MiB..512 MiB;
-the archive is held in memory, so peak usage is roughly this value plus parsing overhead).
+(default 72), MUSIC_RECONCILE_INTERVAL_SECONDS (604800), MUSIC_EXPORT_MAX_BYTES
+(export download cap, default 64 MiB, allowed 1 MiB..512 MiB; the archive is held in
+memory, so peak usage is roughly this value plus parsing overhead).
+The sync tick only runs the weekly reconcile; incrementals come from refresh requests.
 Configuration is deliberately not added to API Settings.
 """
 
@@ -37,7 +38,6 @@ class WorkerSyncSettings:
     user: str
     token: str = field(repr=False)
     overlap_hours: float = 72
-    interval_seconds: int = 900
     reconcile_seconds: int = 604800
     export_max_bytes: int = DEFAULT_EXPORT_MAX_BYTES
 
@@ -53,18 +53,17 @@ class WorkerSyncSettings:
             )
         try:
             overlap = float(os.environ.get("MUSIC_SYNC_OVERLAP_HOURS", "72"))
-            interval = int(os.environ.get("MUSIC_SYNC_INTERVAL_SECONDS", "900"))
             reconcile = int(os.environ.get("MUSIC_RECONCILE_INTERVAL_SECONDS", "604800"))
             export_cap = int(
                 os.environ.get("MUSIC_EXPORT_MAX_BYTES", str(DEFAULT_EXPORT_MAX_BYTES))
             )
         except ValueError:
             raise SyncConfigurationError("Sync overlap and schedule must be numeric") from None
-        if not 0 < overlap < float("inf") or interval <= 0 or reconcile <= 0:
+        if not 0 < overlap < float("inf") or reconcile <= 0:
             raise SyncConfigurationError("Sync overlap and schedule intervals must be positive")
         if not MIN_EXPORT_MAX_BYTES <= export_cap <= MAX_EXPORT_MAX_BYTES:
             raise SyncConfigurationError("MUSIC_EXPORT_MAX_BYTES is outside the allowed range")
-        return cls(fixture, user or "fixture-user", token, overlap, interval, reconcile, export_cap)
+        return cls(fixture, user or "fixture-user", token, overlap, reconcile, export_cap)
 
 
 def _build_client(config: WorkerSyncSettings) -> Any:
@@ -130,13 +129,8 @@ def run_sync(
                     # weekly export errors or the large-deletion guard.
                     return {"status": "backoff"}
                 else:
-                    last = state.get("last_incremental_at")
-                    if last is not None and now - last < timedelta(seconds=config.interval_seconds):
-                        return {"status": "not-due"}
-                    retry = repository.next_retry(config.user, "incremental")
-                    if retry is not None and retry > now:
-                        return {"status": "backoff"}
-                    kind = "incremental"
+                    # Incrementals are admitted via public_refresh_request(), not here.
+                    return {"status": "not-due"}
             if kind in {"bootstrap", "reconcile"}:
                 return reconcile_history(
                     client,
@@ -158,16 +152,7 @@ def run_sync(
 
 
 def tick() -> None:
-    run_sync("incremental", scheduled=True)
-
-
-def public_refresh_enabled() -> bool:
-    """Worker opt-in, same variable as the API (default off); no other config is read."""
-    return os.environ.get("MUSIC_PUBLIC_REFRESH_ENABLED", "false").strip().lower() in {
-        "true",
-        "1",
-        "yes",
-    }
+    run_sync("reconcile", scheduled=True)
 
 
 def run_public_refresh(now: datetime | None = None) -> dict[str, Any]:
@@ -179,9 +164,6 @@ def run_public_refresh(now: datetime | None = None) -> dict[str, Any]:
     until it expires); reconciliation is left to the normal schedule. A `running` row seen
     while holding the lock is an orphan of a dead worker and is recovered to pending.
     """
-    if not public_refresh_enabled():
-        # Opt-out is total: no config parsing, no database access, queued rows untouched.
-        return {"status": "disabled"}
     from music_dashboard.infrastructure.persistence.database import create_db_engine
     from music_dashboard.infrastructure.persistence.repositories.listening_sync import (
         SyncRepository,

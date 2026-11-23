@@ -234,7 +234,7 @@ def test_fixture_worker_tick_does_not_need_db_or_token(monkeypatch):
     [
         ("MUSIC_SYNC_OVERLAP_HOURS", "nan"),
         ("MUSIC_SYNC_OVERLAP_HOURS", "inf"),
-        ("MUSIC_SYNC_INTERVAL_SECONDS", "0"),
+        ("MUSIC_RECONCILE_INTERVAL_SECONDS", "0"),
         ("MUSIC_RECONCILE_INTERVAL_SECONDS", "oops"),
     ],
 )

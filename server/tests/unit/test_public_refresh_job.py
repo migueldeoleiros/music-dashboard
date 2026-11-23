@@ -46,7 +46,6 @@ def runtime(monkeypatch):
     from music_dashboard.infrastructure.persistence.repositories import listening_sync
     from music_dashboard.infrastructure.persistence.repositories import refresh as refresh_repo
 
-    monkeypatch.setenv("MUSIC_PUBLIC_REFRESH_ENABLED", "true")
     monkeypatch.setenv("MUSIC_FIXTURE_MODE", "false")
     monkeypatch.setenv("LISTENBRAINZ_USERNAME", "synthetic-user")
     monkeypatch.setenv("LISTENBRAINZ_TOKEN", "synthetic-test-token")
@@ -152,25 +151,62 @@ def test_fixture_mode_fails_closed_without_upstream(runtime, monkeypatch):
 
 
 def test_registry_tick_delegates(monkeypatch):
-    spy = Mock()
+    spy, auto = Mock(return_value={"status": "idle"}), Mock()
     monkeypatch.setattr(refresh_job, "run_public_refresh", spy)
+    monkeypatch.setattr(refresh_job, "auto_admit", auto)
     refresh_job.tick()
+    auto.assert_called_once_with()
     spy.assert_called_once_with()
 
 
-@pytest.mark.parametrize("value", [None, "", "false", "0", "no", "garbage"])
-def test_disabled_by_default_touches_nothing(monkeypatch, value):
+def test_runs_without_env_flag(runtime, monkeypatch):
+    repo, fake, engine, incremental, reconcile = runtime
+    monkeypatch.delenv("MUSIC_PUBLIC_REFRESH_ENABLED", raising=False)
+    assert job.run_public_refresh()["status"] == "succeeded"
+    incremental.assert_called_once()
+
+
+def test_auto_admit_fires_at_startup_then_waits_for_interval(monkeypatch):
+    from music_dashboard.infrastructure.persistence import database
+    from music_dashboard.infrastructure.persistence.repositories import refresh as refresh_repo
+
+    monkeypatch.setenv("MUSIC_FIXTURE_MODE", "false")
+    monkeypatch.setenv("MUSIC_REFRESH_AUTO_INTERVAL_SECONDS", "100")
+    monkeypatch.setattr(refresh_job, "_next_auto", None)
+    clock = [1000.0]
+    monkeypatch.setattr(refresh_job.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(database, "create_db_engine", lambda: Mock())
+    admit = Mock(return_value=("pending", False))
+    monkeypatch.setattr(refresh_repo.RefreshRepository, "admit", lambda self: admit())
+    assert refresh_job.auto_admit() == "pending"
+    clock[0] += 99
+    assert refresh_job.auto_admit() == "not-due"
+    clock[0] += 2
+    admit.return_value = ("succeeded", False)
+    assert refresh_job.auto_admit() == "succeeded"
+    assert admit.call_count == 2
+
+
+def test_auto_admit_failure_retries_next_tick_without_leaking(monkeypatch, caplog):
+    from music_dashboard.infrastructure.persistence import database
+    from music_dashboard.infrastructure.persistence.repositories import refresh as refresh_repo
+
+    monkeypatch.setenv("MUSIC_FIXTURE_MODE", "false")
+    monkeypatch.setattr(refresh_job, "_next_auto", None)
+    monkeypatch.setattr(database, "create_db_engine", lambda: Mock())
+    boom = Mock(side_effect=RuntimeError("secret-dsn"))
+    monkeypatch.setattr(refresh_repo.RefreshRepository, "admit", lambda self: boom())
+    assert refresh_job.auto_admit() == "error"
+    assert refresh_job._next_auto is None
+    assert "secret-dsn" not in caplog.text
+
+
+def test_auto_admit_skipped_in_fixture_mode(monkeypatch):
     from music_dashboard.infrastructure.persistence import database
 
-    for name in ("LISTENBRAINZ_USERNAME", "LISTENBRAINZ_TOKEN", "MUSIC_DATABASE_URL"):
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("MUSIC_FIXTURE_MODE", "false")  # would raise config error if parsed
-    if value is None:
-        monkeypatch.delenv("MUSIC_PUBLIC_REFRESH_ENABLED", raising=False)
-    else:
-        monkeypatch.setenv("MUSIC_PUBLIC_REFRESH_ENABLED", value)
-    forbidden = Mock(side_effect=AssertionError("database must not be touched"))
+    monkeypatch.setenv("MUSIC_FIXTURE_MODE", "true")
+    monkeypatch.setattr(refresh_job, "_next_auto", None)
+    forbidden = Mock(side_effect=AssertionError("no db"))
     monkeypatch.setattr(database, "create_db_engine", forbidden)
-    assert job.run_public_refresh() == {"status": "disabled"}
-    refresh_job.tick()  # registry tick is a silent no-op too
+    assert refresh_job.auto_admit() == "fixture-idle"
     forbidden.assert_not_called()

@@ -198,7 +198,6 @@ def worker(monkeypatch, writer, writer_url):
     from music_dashboard.application.jobs import sync as job
 
     monkeypatch.setenv("MUSIC_DATABASE_URL", writer_url)
-    monkeypatch.setenv("MUSIC_PUBLIC_REFRESH_ENABLED", "true")
     monkeypatch.setenv("MUSIC_FIXTURE_MODE", "false")
     monkeypatch.setenv("LISTENBRAINZ_USERNAME", USER)
     monkeypatch.setenv("LISTENBRAINZ_TOKEN", "synthetic-test-token")
@@ -353,15 +352,14 @@ def test_execute_revoked_from_public_on_both_functions(migrated_db):
             assert c.execute(text(api_sql)).scalar_one(), sig
 
 
-def test_worker_disabled_does_not_claim_queued_request(api, writer, worker, monkeypatch):
+def test_worker_executes_request_regardless_of_legacy_flag(api, writer, worker, monkeypatch):
     job, client = worker
     seed_checkpoint(writer, last_export_at=datetime.now(UTC))
     req = admit(api)
-    monkeypatch.setenv("MUSIC_PUBLIC_REFRESH_ENABLED", "false")  # rollback with work queued
-    assert job.run_public_refresh() == {"status": "disabled"}
+    monkeypatch.setenv("MUSIC_PUBLIC_REFRESH_ENABLED", "false")  # legacy flag is ignored
+    assert job.run_public_refresh()["status"] == "succeeded"
     got = status(api)
-    assert got["request_id"] == req["request_id"] and got["status"] == "pending"
-    assert client.calls == 0
+    assert got["request_id"] == req["request_id"] and got["status"] == "succeeded"
 
 
 def test_expiry_crossed_between_claim_and_start_never_calls_upstream(
@@ -465,3 +463,14 @@ def test_expiry_is_terminal_even_when_stale_worker_finishes(api, writer, transit
     assert status(api)["status"] == "expired"
     with writer.connect() as c:
         assert c.execute(text("SELECT status FROM refresh_state")).scalar_one() == "expired"
+
+
+def test_repository_admit_via_writer_respects_cooldown_and_coalesces(migrated_db, writer):
+    with migrated_db.begin() as c:
+        c.execute(text(EXPIRE_ALL))
+    repo = RefreshRepository(writer)
+    assert repo.admit() == ("pending", False)
+    assert repo.admit() == ("pending", True)  # coalesced onto the in-flight request
+    with migrated_db.begin() as c:
+        c.execute(text("UPDATE refresh_state SET status='succeeded', finished_at=now()"))
+    assert repo.admit()[0] == "succeeded"  # cooldown active: nothing new admitted

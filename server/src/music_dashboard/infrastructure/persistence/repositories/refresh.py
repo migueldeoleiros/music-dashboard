@@ -52,6 +52,16 @@ class RefreshRepository:
                 ).first()
             )
 
+    def admit(self) -> tuple[str, bool]:
+        """Call the shared DB admission function (same one the API uses) in its own
+        read-write transaction. Returns (status, coalesced); cooldown is enforced in SQL."""
+        with self._engine.begin() as c:
+            c.execute(text("SET TRANSACTION READ WRITE"))
+            row = c.execute(
+                text("SELECT status, coalesced FROM public.public_refresh_request()")
+            ).one()
+            return str(row.status), bool(row.coalesced)
+
     def claim(self) -> RefreshRequest | None:
         """Expire stale work, recover an orphaned `running` request, return the active one.
 
