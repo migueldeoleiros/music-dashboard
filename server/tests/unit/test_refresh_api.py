@@ -1,4 +1,4 @@
-"""Public refresh route: gating, same-origin, headers, SQL shape. Fake engine, no database."""
+"""Public refresh route: gating, open admission, headers, SQL shape. Fake engine, no database."""
 
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -76,7 +76,6 @@ def row(status="pending", coalesced=False, **kw):
 
 @pytest.fixture
 def enabled(monkeypatch):
-    monkeypatch.setattr(settings, "public_refresh_enabled", True)
     monkeypatch.setattr(settings, "fixture_mode", False)
 
 
@@ -90,65 +89,33 @@ def boom(*_):
     raise AssertionError("database must not be touched")
 
 
-def test_disabled_by_default_and_never_touches_database(monkeypatch):
+def test_fixture_mode_default_and_never_touches_database(monkeypatch):
     monkeypatch.setattr(route, "refresh_engine", boom)
     got = client.get("/api/refresh")
     assert got.status_code == 200
     assert got.json()["enabled"] is False and got.json()["status"] == "idle"
     assert got.headers["cache-control"] == "no-store"
-    posted = client.post("/api/refresh", headers={"Origin": "http://music.test:8080"})
+    posted = client.post("/api/refresh")
     assert posted.status_code == 404
     assert posted.headers["cache-control"] == "no-store"
 
 
-def test_enabled_but_fixture_mode_stays_disabled(monkeypatch):
-    monkeypatch.setattr(settings, "public_refresh_enabled", True)
+def test_fixture_mode_stays_disabled(monkeypatch):
     monkeypatch.setattr(settings, "fixture_mode", True)
     monkeypatch.setattr(route, "refresh_engine", boom)
     assert client.get("/api/refresh").json()["enabled"] is False
     assert client.post("/api/refresh").status_code == 404
 
 
-@pytest.mark.parametrize(
-    "origin",
-    [
-        None,
-        "null",
-        "http://evil.test:8080",
-        "http://music.test",  # port dropped
-        "https://music.test:8080",  # scheme differs
-        "http://music.test:8080/path",
-        "http://user@music.test:8080",
-        "http://[invalid",  # urlsplit raises ValueError for malformed IPv6 authorities
-        "http://[not-an-ipv6-address]",
-    ],
-)
-def test_cross_origin_rejected_before_database(enabled, monkeypatch, origin):
-    monkeypatch.setattr(route, "refresh_engine", boom)
-    headers = {"Origin": origin} if origin else {}
-    res = client.post("/api/refresh", headers=headers)
-    assert res.status_code == 403
-    assert res.headers["cache-control"] == "no-store"
-
-
-def test_sec_fetch_site_cross_site_rejected(enabled, monkeypatch):
-    monkeypatch.setattr(route, "refresh_engine", boom)
-    res = client.post(
-        "/api/refresh",
-        headers={"Origin": "http://music.test:8080", "Sec-Fetch-Site": "cross-site"},
-    )
-    assert res.status_code == 403
-
-
-def test_default_port_normalised(enabled, monkeypatch):
+def test_no_origin_check_any_caller_admitted(enabled, monkeypatch):
     install(monkeypatch, row=row())
-    plain = TestClient(app, base_url="http://music.test")
-    assert plain.post("/api/refresh", headers={"Origin": "http://music.test:80"}).status_code == 202
+    for headers in ({}, {"Origin": "http://evil.test"}, {"Origin": "null"}):
+        assert client.post("/api/refresh", headers=headers).status_code == 202
 
 
 def test_admission_is_isolated_read_write_transaction(enabled, monkeypatch):
     engine = install(monkeypatch, row=row())
-    res = client.post("/api/refresh", headers={"Origin": "http://music.test:8080"})
+    res = client.post("/api/refresh")
     assert res.status_code == 202
     assert res.headers["cache-control"] == "no-store"
     assert engine.log[:2] == ["BEGIN", "SET TRANSACTION READ WRITE"]
@@ -161,10 +128,10 @@ def test_admission_is_isolated_read_write_transaction(enabled, monkeypatch):
 
 def test_coalesced_flag_and_cooldown_replay(enabled, monkeypatch):
     install(monkeypatch, row=row("running", coalesced=True))
-    res = client.post("/api/refresh", headers={"Origin": "http://music.test:8080"})
+    res = client.post("/api/refresh")
     assert res.status_code == 202 and res.json()["coalesced"] is True
     install(monkeypatch, row=row("succeeded", finished_at=NOW))
-    res = client.post("/api/refresh", headers={"Origin": "http://music.test:8080"})
+    res = client.post("/api/refresh")
     assert res.status_code == 200 and res.json()["status"] == "succeeded"
 
 
@@ -187,133 +154,8 @@ def test_database_error_maps_to_503(enabled, monkeypatch):
     install(monkeypatch, error=OperationalError("s", {}, Exception("secret-dsn")))
     for res in (
         client.get("/api/refresh"),
-        client.post("/api/refresh", headers={"Origin": "http://music.test:8080"}),
+        client.post("/api/refresh"),
     ):
         assert res.status_code == 503
         assert res.headers["cache-control"] == "no-store"
         assert "secret" not in res.text
-
-
-PUBLIC = "https://music.miguel.md"
-
-
-@pytest.fixture
-def public(enabled, monkeypatch):
-    monkeypatch.setattr(settings, "public_origin", PUBLIC)
-    return TestClient(app, base_url="http://music.miguel.md")  # proxy hop is plain http
-
-
-def test_public_origin_accepts_exact_origin_and_host(public, monkeypatch):
-    install(monkeypatch, row=row())
-    assert public.post("/api/refresh", headers={"Origin": PUBLIC}).status_code == 202
-    ok_port = {"Origin": PUBLIC, "Host": "music.miguel.md:443"}
-    assert public.post("/api/refresh", headers=ok_port).status_code == 202
-
-
-@pytest.mark.parametrize(
-    ("origin", "host"),
-    [
-        ("http://music.miguel.md", "music.miguel.md"),  # scheme
-        ("https://music.miguel.md:8443", "music.miguel.md"),
-        ("https://evil.test", "music.miguel.md"),
-        (PUBLIC, "evil.test"),  # Host mismatch
-        (PUBLIC, "music.miguel.md:8080"),
-        ("https://evil.test", "evil.test"),  # self-consistent but not configured: no fallback
-        (PUBLIC + "/", "music.miguel.md"),
-        ("null", "music.miguel.md"),
-        (None, "music.miguel.md"),
-    ],
-)
-def test_public_origin_mismatch_rejected(public, monkeypatch, origin, host):
-    monkeypatch.setattr(route, "refresh_engine", boom)
-    headers = {"Host": host} | ({"Origin": origin} if origin else {})
-    assert public.post("/api/refresh", headers=headers).status_code == 403
-
-
-def test_public_origin_ignores_spoofed_forwarding(public, monkeypatch):
-    monkeypatch.setattr(route, "refresh_engine", boom)
-    spoof = {
-        "Origin": "http://evil.test",
-        "Host": "evil.test",
-        "X-Forwarded-Proto": "https",
-        "X-Forwarded-Host": "music.miguel.md",
-        "Forwarded": "proto=https;host=music.miguel.md",
-    }
-    assert public.post("/api/refresh", headers=spoof).status_code == 403
-    # spoofed forwarding cannot rescue a Host mismatch with the right Origin either
-    both = {"Origin": PUBLIC, "Host": "evil.test", "X-Forwarded-Host": "music.miguel.md"}
-    assert public.post("/api/refresh", headers=both).status_code == 403
-
-
-def test_public_origin_sec_fetch_site_still_enforced(public, monkeypatch):
-    monkeypatch.setattr(route, "refresh_engine", boom)
-    headers = {"Origin": PUBLIC, "Sec-Fetch-Site": "same-site"}
-    assert public.post("/api/refresh", headers=headers).status_code == 403
-
-
-@pytest.mark.parametrize(
-    "bad",
-    [
-        "http://music.miguel.md",
-        "music.miguel.md",
-        "https://",
-        PUBLIC + "/",
-        PUBLIC + "/x",
-        PUBLIC + "?a=1",
-        PUBLIC + "#f",
-        " " + PUBLIC,
-        "https://u@music.miguel.md",
-        "https://music.miguel.md:bad",
-        "https://[invalid",
-        "*",
-        "https://@music.miguel.md",  # empty userinfo
-        "https://music.miguel.md:0",
-        "https://music.miguel.md:",
-        "https://music.miguel.md:443",  # explicit default port is not canonical
-        "https://music.miguel.md:0443",
-        "https://music.miguel.md:65536",
-        "https://MUSIC.miguel.md",
-        "https://music.miguel.md.",
-        "https://music..miguel.md",
-    ],
-)
-def test_malformed_public_origin_fails_closed(enabled, monkeypatch, bad):
-    monkeypatch.setattr(settings, "public_origin", bad)
-    monkeypatch.setattr(route, "refresh_engine", boom)
-    c = TestClient(app, base_url="https://music.miguel.md")
-    assert c.post("/api/refresh", headers={"Origin": PUBLIC}).status_code == 403
-
-
-@pytest.mark.parametrize(
-    ("origin", "host"),
-    [
-        ("HTTPS://music.miguel.md", "music.miguel.md"),
-        ("https://MUSIC.miguel.md", "music.miguel.md"),  # literal Origin equality
-        ("https://music.miguel.md:443", "music.miguel.md"),
-        (PUBLIC, "user@music.miguel.md"),
-        (PUBLIC, "@music.miguel.md"),
-        (PUBLIC, "music.miguel.md:"),
-        (PUBLIC, "music.miguel.md:0"),
-        (PUBLIC, "music.miguel.md:00443"),
-        (PUBLIC, "music.miguel.md:443x"),
-        (PUBLIC, "music.miguel.md, evil.test"),
-        (PUBLIC, "music.miguel.md/x"),
-        (PUBLIC, "music.miguel.md evil"),
-        (PUBLIC, "[::1]"),
-    ],
-)
-def test_public_origin_strict_literal_and_host_authority(public, monkeypatch, origin, host):
-    monkeypatch.setattr(route, "refresh_engine", boom)
-    assert public.post("/api/refresh", headers={"Origin": origin, "Host": host}).status_code == 403
-
-
-def test_public_origin_nondefault_port_exact(enabled, monkeypatch):
-    monkeypatch.setattr(settings, "public_origin", "https://music.miguel.md:8443")
-    install(monkeypatch, row=row())
-    c = TestClient(app, base_url="http://music.miguel.md:8443")
-    assert (
-        c.post("/api/refresh", headers={"Origin": "https://music.miguel.md:8443"}).status_code
-        == 202
-    )
-    bad = {"Origin": "https://music.miguel.md:8443", "Host": "music.miguel.md"}
-    assert c.post("/api/refresh", headers=bad).status_code == 403
