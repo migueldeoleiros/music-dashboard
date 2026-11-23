@@ -4,12 +4,15 @@
 .icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 /* Icon color only; restate border/background to beat the global button:hover, a:hover rule. */
 @media (hover: hover) { .icon-button:hover { color: var(--accent); border-color: var(--border); background: var(--surface-2); } }
-/* One bubble (--surface + --border) holding borderless icon buttons. Vertical on wide viewports, horizontal at <=720px. */
+/* One bubble (--surface + --border) holding borderless icon buttons. Vertical on wide viewports, horizontal below the breakpoint derived next to the media query. */
 .floating-nav { position: fixed; z-index: 30; top: max(.75rem, env(safe-area-inset-top)); left: max(.75rem, env(safe-area-inset-left)); display: flex; flex-direction: column; gap: .25rem; padding: .25rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
 .icon-button--bare { border-color: transparent; background: transparent; }
 /* Restate to beat the global button:hover / a:hover rule and the plain .icon-button:hover above. */
 @media (hover: hover) { .icon-button--bare:hover { color: var(--accent); border-color: transparent; background: transparent; } }
-@media (max-width: 720px) { .floating-nav { flex-direction: row; } }
+/* Horizontal as soon as the side gutter (vw - .app max-width)/2 < bubble width + left offset (media queries cannot use var()):
+   bubble = --tap-size 44px + 2*.25rem padding + 2px border = 54px; offset = max(.75rem, safe-area) = 12px (no inset);
+   breakpoint = .app max-width 1500px (shell.css) + 2*(54 + 12) = 1632px. Keep in sync with those values. */
+@media (max-width: 1632px) { .floating-nav { flex-direction: row; } }
 
 /* Constant top padding = safe-area + ONE bubble height (tap-size + 2*.25rem padding + 2px border) + gap, whatever the icon count. A 2-icon vertical stack may overlap content (accepted). */
 body:has(.floating-nav) .app { padding-top: calc(max(.75rem, env(safe-area-inset-top)) + var(--tap-size) + .5rem + 2px + .75rem); }
