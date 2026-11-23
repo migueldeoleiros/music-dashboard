@@ -26,7 +26,7 @@ body:has(.floating-nav) .app { padding-top: calc(max(.75rem, env(safe-area-inset
 .row-inline-link { position: relative; z-index: 1; }
 /* a.x:hover beats the global a:hover color rule */
 @media (hover: hover) { a.row-link:hover, a.artist-link:hover { color: var(--accent); border-color: transparent; } }
-@media (hover: hover) { .row--link:hover .entity-label, .row--link:hover .song-title, .row--link:hover .entity-hero-name { color: var(--accent); } }
+@media (hover: hover) { .row--link:hover .entity-label, .row--link:hover .song-cols > span, .row--link:hover .entity-hero-name { color: var(--accent); } }
 
 .song-row .song-cols { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: .15rem 1rem; align-items: center; font-size: .8rem; }
 .song-title { color: var(--text); overflow-wrap: anywhere; }

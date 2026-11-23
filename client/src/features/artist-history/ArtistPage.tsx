@@ -20,7 +20,7 @@ function Rankings({ artistKey, dimension }: { artistKey: string; dimension: 'alb
   const data = { dimension, items: items.map(item => ({ ...item, mbid: null, metadata_state: item.label ? 'resolved' : 'missing' })) } as unknown as components['schemas']['RankingResponse']
   return <Panel title={`Top ${dimension}`} variant="ranking">
     {feed.restarted && <p role="status">Listening data changed. Rankings reloaded.</p>}
-    {!feed.loading && !feed.error && <RankingList data={data} />}
+    {!feed.loading && !feed.error && <RankingList data={data} excludeArtistKey={artistKey} />}
     {feed.loading && <p role="status">Loading…</p>}
     <FeedError error={feed.error} retry={feed.retry} />
   </Panel>
@@ -31,7 +31,7 @@ function Recent({ artistKey }: { artistKey: string }) {
   const items = feed.pages.flatMap(page => page.items)
   return <Panel title="Recent songs">
     {feed.restarted && <p role="status">Listening data changed. Recent songs reloaded.</p>}
-    <ol className="entity-list">{items.map((song, index) => <SongRow key={index} song={song} />)}</ol>
+    <ol className="entity-list">{items.map((song, index) => <SongRow key={index} song={song} excludeArtistKey={artistKey} />)}</ol>
     {!feed.loading && !feed.error && !items.length && <p className="entity-empty">No recent songs yet.</p>}
     <FeedError error={feed.error} retry={feed.retry} />
     <LoadMore {...feed} onLoad={feed.loadMore} />
