@@ -8,6 +8,8 @@ COPY client/ ./
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine
-COPY deploy/proxy.conf /etc/nginx/conf.d/default.conf
+# Rendered to conf.d/default.conf at start; only MUSIC_* env vars are substituted (nginx's $vars stay).
+COPY deploy/proxy.conf /etc/nginx/templates/default.conf.template
+ENV MUSIC_PAGE_TITLE="Music Dashboard" NGINX_ENVSUBST_FILTER="^MUSIC_"
 COPY --from=build /app/client/dist /usr/share/nginx/html
 EXPOSE 8080
