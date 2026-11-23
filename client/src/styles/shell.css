@@ -30,7 +30,7 @@ html:has(.custom-dialog[open]) { overflow: hidden; }
 .coverage { position: relative; display: inline-flex; }
 .coverage-badge { display: inline-flex; align-items: center; gap: .35rem; min-height: 28px; padding: .15rem .6rem; border-radius: var(--radius-lg); background: transparent; color: var(--text-muted); font-size: .72rem; font-variant-numeric: tabular-nums; }
 .coverage-badge svg { width: .95rem; height: .95rem; flex: none; }
-.coverage-pop { position: absolute; z-index: 20; top: calc(100% + .4rem); right: 0; width: min(18rem, 86vw); padding: .75rem .9rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: 0 8px 24px var(--scrim); font-size: .72rem; color: var(--text); visibility: hidden; opacity: 0; transition: opacity .12s; }
+.coverage-pop { position: absolute; z-index: 20; top: calc(100% + .4rem); right: 0; width: min(18rem, 86vw); padding: .75rem .9rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: 0 8px 24px var(--scrim); font-size: .72rem; color: var(--text); visibility: hidden; opacity: 0; transition: opacity .12s; }
 .coverage[data-open] .coverage-pop, .coverage:focus-within .coverage-pop { visibility: visible; opacity: 1; }
 @media (hover: hover) { .coverage:hover .coverage-pop { visibility: visible; opacity: 1; } }
 .coverage-title { display: block; margin: 0 0 .4rem; font-size: .7rem; font-weight: 600; color: var(--text-muted); }

@@ -10,12 +10,12 @@ const TARGETS: { id: NavTarget; href: string; label: string; icon: IconName }[] 
 ]
 
 /**
- * Top-left floating stack of icon-only buttons. Pass the targets for the page:
+ * Top-left floating bubble (one container) of icon-only buttons. Pass the targets for the page:
  * dashboard ['history'], History ['home'], artist ['home', 'history'].
  */
 export function FloatingNav({ items }: { items: NavTarget[] }) {
   const shown = TARGETS.filter(t => items.includes(t.id))
-  return <nav className={`floating-nav floating-nav--${shown.length}`} aria-label="Page navigation">
-    {shown.map(t => <IconButton key={t.id} icon={t.icon} label={t.label} href={t.href} />)}
+  return <nav className="floating-nav" aria-label="Page navigation">
+    {shown.map(t => <IconButton key={t.id} icon={t.icon} label={t.label} href={t.href} bare />)}
   </nav>
 }

@@ -7,10 +7,13 @@ export type IconButtonProps = {
   /** Renders an <a> when set, otherwise a <button type="button">. */
   href?: string
   onClick?: () => void
+  /** Borderless transparent variant for use inside a container bubble. */
+  bare?: boolean
 }
 
-export function IconButton({ icon, label, href, onClick }: IconButtonProps) {
+export function IconButton({ icon, label, href, onClick, bare }: IconButtonProps) {
+  const cls = bare ? 'icon-button icon-button--bare' : 'icon-button'
   return href !== undefined
-    ? <a className="icon-button" href={href} aria-label={label} title={label}><Icon name={icon} /></a>
-    : <button type="button" className="icon-button" aria-label={label} title={label} onClick={onClick}><Icon name={icon} /></button>
+    ? <a className={cls} href={href} aria-label={label} title={label}><Icon name={icon} /></a>
+    : <button type="button" className={cls} aria-label={label} title={label} onClick={onClick}><Icon name={icon} /></button>
 }

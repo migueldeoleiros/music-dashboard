@@ -31,6 +31,8 @@ runtime for canvas charts) and never hard-code the values below.
 | `--tap-size` | Minimum touch target height | `44px` |
 | `--series-other` | The "Other" aggregate series and no-data marks | `#808080` |
 
+Floating/overlay widgets (FloatingNav bubble, coverage popover) use `--surface` + `--border`; `--surface-2` stays for inputs, buttons and placeholders.
+
 `--muted` is a deprecated alias of `--text-muted`, kept so existing rules keep working. New code
 uses `--text-muted`.
 
@@ -82,7 +84,7 @@ All in `client/src/components/ui/` (barrel `index.ts`).
 | `EntityList` | The `<ol>` wrapper for rows. |
 | `Icon` | Inline SVG Material icon, `name: 'home' \| 'history' \| 'add'`, `size` (24). Add new icons to its path map. |
 | `IconButton` | Round 44px icon-only control. Props: `icon, label` (required name + tooltip), `href?` (renders `<a>`) or `onClick`. |
-| `FloatingNav` | Top-left vertical stack (`position: fixed`, follows scroll; its height is reserved above content at scroll 0 via `.floating-nav--N`; safe-area insets respected) of IconButtons, Home first. `items`: dashboard `['history']`, History `['home']`, artist `['home','history']`. No bottom-left bubble, no text nav links. |
+| `FloatingNav` | Top-left single bubble (`position: fixed`, follows scroll; `--surface` + `--border`, `--radius-lg`) holding borderless IconButtons (`bare`), Home first. Vertical on wide viewports, horizontal at `max-width: 720px`. Page top padding is one constant (safe-area + one bubble height + gap) regardless of icon count; a 2-icon vertical bubble may overlap content. Safe-area insets respected. `items`: dashboard `['history']`, History `['home']`, artist `['home','history']`. No bottom-left bubble, no text nav links. |
 | `HeatmapPanel`, `RankingList` (`features/dashboard`) | Reused as-is on the artist page (artist data, own range). |
 
 ### Rows and lists
@@ -95,7 +97,7 @@ All in `client/src/components/ui/` (barrel `index.ts`).
 - Hover styles are wrapped in `@media (hover: hover)`. Keyboard focus is always visible (2px `--accent` outline; rows show it on the row).
 
 ### Icon buttons
-- Icon-only, `aria-label` + tooltip, 44px (`--tap-size`), `--surface-2` fill, `--border` outline; hover color `--accent`.
+- Icon-only, `aria-label` + tooltip, 44px (`--tap-size`), `--surface-2` fill, `--border` outline; hover color `--accent`. Inside a container bubble (FloatingNav) use the borderless transparent `icon-button--bare` variant.
 
 ### Page header
 - Page title `h1` (`clamp(1.6rem, 4vw, 2.6rem)`), small muted line(s) under it only when informative. No explanatory subtext about sorting, grouping or privacy. Navigation is the FloatingNav, not inline links.

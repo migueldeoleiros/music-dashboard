@@ -4,11 +4,15 @@
 .icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 /* Icon color only; restate border/background to beat the global button:hover, a:hover rule. */
 @media (hover: hover) { .icon-button:hover { color: var(--accent); border-color: var(--border); background: var(--surface-2); } }
-.floating-nav { position: fixed; z-index: 30; top: max(.75rem, env(safe-area-inset-top)); left: max(.75rem, env(safe-area-inset-left)); display: flex; flex-direction: column; gap: .5rem; }
+/* One bubble (--surface + --border) holding borderless icon buttons. Vertical on wide viewports, horizontal at <=720px. */
+.floating-nav { position: fixed; z-index: 30; top: max(.75rem, env(safe-area-inset-top)); left: max(.75rem, env(safe-area-inset-left)); display: flex; flex-direction: column; gap: .25rem; padding: .25rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.icon-button--bare { border-color: transparent; background: transparent; }
+/* Restate to beat the global button:hover / a:hover rule and the plain .icon-button:hover above. */
+@media (hover: hover) { .icon-button--bare:hover { color: var(--accent); border-color: transparent; background: transparent; } }
+@media (max-width: 720px) { .floating-nav { flex-direction: row; } }
 
-/* Fixed stack: its height is reserved above the content at scroll 0, so it covers nothing initially; while scrolling, content passes beneath the opaque buttons. */
-body:has(.floating-nav--1) .app { padding-top: calc(max(.75rem, env(safe-area-inset-top)) + var(--tap-size) + .75rem); }
-body:has(.floating-nav--2) .app { padding-top: calc(max(.75rem, env(safe-area-inset-top)) + 2 * var(--tap-size) + .5rem + .75rem); }
+/* Constant top padding = safe-area + ONE bubble height (tap-size + 2*.25rem padding + 2px border) + gap, whatever the icon count. A 2-icon vertical stack may overlap content (accepted). */
+body:has(.floating-nav) .app { padding-top: calc(max(.75rem, env(safe-area-inset-top)) + var(--tap-size) + .5rem + 2px + .75rem); }
 
 /* Full-row link: the title anchor is stretched over the whole <li>. Hover changes text color only. */
 .row--link { position: relative; }
