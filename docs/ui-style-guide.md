@@ -79,7 +79,7 @@ All in `client/src/components/ui/` (barrel `index.ts`).
 | --- | --- |
 | `EntityImage` | The only way to render cover art/photos. Size by role: `sm` 32 (dense), `md` 48 (rows), `lg` 96, `hero` (page header, #1 card). Placeholder tile when no/failed image. |
 | `CompactRow` | Image, title, count. Dashboard top lists and artist top albums/tracks. Props: `label, href?, src?, secondary?, count?, rank?, showImage?, shape?`. `EntityRow` is legacy; migrate to `CompactRow`. |
-| `SongRow` | Image + full-width columns title \| artist \| album (stacked on mobile). Only History and artist recent songs. Props: `song: PublicSong`. Links itself to the primary artist. |
+| `SongRow` | Image + full-width columns title \| artist \| album (stacked on mobile). Only History and artist recent songs. Props: `song: PublicSong`, `excludeArtistKey?: string`. Links itself to the primary artist. |
 | `Panel` | Section title + card frame (see Section titles). Props: `title, variant? 'default'\|'heatmap'\|'ranking', busy?`. |
 | `EntityList` | The `<ol>` wrapper for rows. |
 | `Icon` | Inline SVG Material icon, `name: 'home' \| 'history' \| 'add'`, `size` (24). Add new icons to its path map. |
@@ -89,7 +89,7 @@ All in `client/src/components/ui/` (barrel `index.ts`).
 
 ### Rows and lists
 - Whole row is one link: the title anchor (`.row-link`) is stretched over the `<li>` (`::after { inset: 0 }`). Never nest anchors.
-- Multi-credit songs/albums: row links to the primary (first credited) artist. Other credited names are individual links (`.row-inline-link`, `position: relative; z-index: 1`) above the row link. Unresolved artists: plain text, no link. Only collaboration rows have two hover behaviours.
+- Multi-credit songs/albums: row links to the primary (first credited) artist. Other credited names are individual links (`.row-inline-link`, `position: relative; z-index: 1`) above the row link. Unresolved artists: plain text, no link. On an artist page, `SongRow` and `RankingList` take `excludeArtistKey` (the page's artist): credits equal to it render as plain text and the row link is dropped when it is the primary (no hover highlight); a different primary (feat artist page) stays linked. Hovering a linked `SongRow` highlights title, artist and album (`.song-cols > span`). Only collaboration rows have two hover behaviours.
 - Row look follows the dashboard: `.entity-row` padding, hairline separators, `--text` title, `--text-muted` secondary.
 
 ### Links and hover
