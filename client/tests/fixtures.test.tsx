@@ -1,6 +1,5 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup } from '@testing-library/react'
 import { afterEach, expect, it } from 'vitest'
-import { CoverageNote } from '../src/components/ui/CoverageNote'
 import { mockChart } from '../src/api/mock'
 import { ApiError, type ChartPath } from '../src/api/client'
 
@@ -17,19 +16,6 @@ it('covers every endpoint with partial, full and empty fixtures', () => {
       expect(data.coverage.genres.included_listens).toBe(scenario === 'empty' ? 0 : scenario === 'full' ? 4 : 3)
     }
   }
-})
-it('summarizes per-dimension included of total listens in one indicator, including zero and 100%', () => {
-  const full = mockChart('/api/pies/genres', filters, 10, 'full')
-  const view = render(<CoverageNote coverage={full.coverage} />)
-  expect(screen.getByRole('button', { name: 'Metadata coverage, lowest 100%' })).toBeTruthy()
-  expect(screen.getByRole('tooltip').textContent).toContain('Genres4 of 4')
-  view.rerender(<CoverageNote coverage={mockChart('/api/heatmap', filters, 10, 'empty').coverage} />)
-  expect(screen.getByRole('button', { name: 'Metadata coverage, lowest 0%' })).toBeTruthy()
-  view.rerender(<CoverageNote coverage={mockChart('/api/heatmap', filters, 10, 'partial').coverage} />)
-  const popover = screen.getByRole('tooltip').textContent ?? ''
-  expect(popover).toContain('Genres3 of 4')
-  expect(popover).toContain('Countries2 of 4')
-  expect(screen.getByRole('button').getAttribute('aria-describedby')).toBe(screen.getByRole('tooltip').id)
 })
 it('keeps weighted totals equal to included listens in genre/country/pie fixtures', () => {
   for (const scenario of ['partial', 'full'] as const) {

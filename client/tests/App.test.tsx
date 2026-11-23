@@ -63,12 +63,10 @@ it('opens straight into content: heatmap first, concise card titles only, no her
   expect(screen.queryByText(/^Unmapped$/)).toBeNull()
 })
 
-it('shows one coverage indicator near the period selector with per-dimension details', async () => {
+it('does not show a metadata coverage indicator', async () => {
   showApp(); await screen.findByText('Blue Harbor')
-  const badge = await screen.findByRole('button', { name: /Metadata coverage, lowest 50%/ })
-  expect(screen.getAllByRole('button', { name: /Metadata coverage/ })).toHaveLength(1)
-  expect(within(screen.getByRole('region', { name: 'Period' })).getByRole('tooltip').textContent).toContain('Genres3 of 4')
-  expect(badge.getAttribute('aria-describedby')).toBe(screen.getByRole('tooltip').id)
+  expect(screen.queryByRole('button', { name: /Metadata coverage/ })).toBeNull()
+  expect(screen.queryByRole('tooltip')).toBeNull()
 })
 
 it('keeps the heatmap on its own rolling-365-day window and query, independent of the period', async () => {

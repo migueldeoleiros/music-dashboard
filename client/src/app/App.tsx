@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChartPanel } from '../features/dashboard/ChartPanel'
-import { useChartQuery } from '../features/dashboard/ChartSection'
 import { Controls } from '../features/dashboard/Controls'
 import { browserTimezone, presetRange, readFilters, readPeriod, rollingYearRange, utcFallback, validateFilters, writeFilters, type Filters, type Period } from '../features/dashboard/filters'
 import { CountryArtistsPanel } from '../features/origin-map/CountryArtistsPanel'
 import { CountryRankingPanel } from '../features/origin-map/CountryRankingPanel'
 import { FloatingNav } from '../components/ui/FloatingNav'
-import { CoverageNote } from '../components/ui/CoverageNote'
 import { SyncStatus } from '../components/ui/SyncStatus'
 import { ArtistPage } from '../features/artist-history/ArtistPage'
 import { HistoryPage } from '../features/artist-history/HistoryPage'
@@ -17,12 +15,6 @@ type State = { filters: Filters; period: Period }
 const readState = (tz: string = browserTimezone()): State => {
   const filters = readFilters(window.location.search, tz)
   return { filters, period: readPeriod(window.location.search, filters) }
-}
-
-// Coverage is identical across views for one range, so reuse the artists ranking's cache entry.
-function PeriodCoverage({ filters }: { filters: Filters }) {
-  const query = useChartQuery('/api/rankings/artists', filters)
-  return query.data ? <CoverageNote coverage={query.data.coverage} /> : null
 }
 
 function safeDecode(value: string): string | null {
@@ -94,7 +86,6 @@ function Dashboard() {
   return <main className="app">
     <ChartPanel path="/api/heatmap" label="Daily listening" variant="heatmap" {...heatmap} />
     <Controls filters={filters} period={period} onChange={apply}>
-      {!error && <PeriodCoverage filters={filters} />}
       <SyncStatus />
     </Controls>
     {timezoneNotice && <p className="notice" role="status">{timezoneNotice}</p>}

@@ -26,17 +26,6 @@ html:has(.custom-dialog[open]) { overflow: hidden; }
 .custom-actions { display: flex; justify-content: flex-end; gap: .75rem; }
 .custom-actions button { min-height: var(--tap-size); }
 
-/* Coverage indicator: one muted badge, details in a popover on hover/focus */
-.coverage { position: relative; display: inline-flex; }
-.coverage-badge { display: inline-flex; align-items: center; gap: .35rem; min-height: 28px; padding: .15rem .6rem; border-radius: var(--radius-lg); background: transparent; color: var(--text-muted); font-size: .72rem; font-variant-numeric: tabular-nums; }
-.coverage-badge svg { width: .95rem; height: .95rem; flex: none; }
-.coverage-pop { position: absolute; z-index: 20; top: calc(100% + .4rem); right: 0; width: min(18rem, 86vw); padding: .75rem .9rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: 0 8px 24px var(--scrim); font-size: .72rem; color: var(--text); visibility: hidden; opacity: 0; transition: opacity .12s; }
-.coverage[data-open] .coverage-pop, .coverage:focus-within .coverage-pop { visibility: visible; opacity: 1; }
-@media (hover: hover) { .coverage:hover .coverage-pop { visibility: visible; opacity: 1; } }
-.coverage-title { display: block; margin: 0 0 .4rem; font-size: .7rem; font-weight: 600; color: var(--text-muted); }
-.coverage-pop dl { display: grid; grid-template-columns: 1fr auto; gap: .25rem .8rem; margin: 0; }
-.coverage-pop dt { color: var(--text-muted); }
-.coverage-pop dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 
 /* Notices */
 .notice, .error { font-size: .8rem; padding: .85rem 1rem; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); overflow-wrap: anywhere; margin: 0; }
@@ -68,7 +57,6 @@ html:has(.custom-dialog[open]) { overflow: hidden; }
 /* Touch (narrow or coarse pointer): 44px targets, 16px inputs. */
 @media (max-width: 720px), (pointer: coarse) {
   .pill { min-height: var(--tap-size); padding-inline: 1.1rem; }
-  .coverage-badge { min-height: var(--tap-size); min-width: var(--tap-size); }
 }
 /* Breakpoints: 1100px tablet, 720px mobile (docs/ui-style-guide.md). */
 /* Pies keep their legend beside the donut, which needs ~500px of card width: stack them on tablets. */
@@ -85,7 +73,6 @@ html:has(.custom-dialog[open]) { overflow: hidden; }
   .custom-dates { grid-template-columns: minmax(0, 1fr); }
   .custom-dates label { grid-row: auto; }
   .custom-actions button { flex: 1; }
-  .coverage-pop { right: auto; left: 0; }
   .card { padding: .75rem; }
 }
 .sync-refresh { all: unset; cursor: pointer; text-decoration: underline dotted; text-underline-offset: .2em; }

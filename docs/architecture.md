@@ -310,7 +310,7 @@ there is no privacy guarantee.
 
 | Lane | Owns |
 | --- | --- |
-| C1 shell/theme | `styles/global.css` token values, `styles/shell.css`, `app/App.tsx`, `features/dashboard/{Controls,filters}`, `components/ui/{SyncStatus,CoverageNote}`, `tests/App.test.tsx` |
+| C1 shell/theme | `styles/global.css` token values, `styles/shell.css`, `app/App.tsx`, `features/dashboard/{Controls,filters}`, `components/ui/SyncStatus`, `tests/App.test.tsx` |
 | C2 charts | `components/charts/*`, `styles/charts.css`, `tests/charts.test.tsx`; `features/dashboard/{HeatmapPanel,MapPanel}.tsx` bodies |
 | C3 entity-list/rankings/country panel | `components/ui/{EntityImage,EntityRow,EntityList}`, `styles/entity-list.css`, `features/dashboard/RankingList.tsx`, `features/rankings/`, `features/origin-map/CountryArtistsPanel` |
 | L-ART server artwork + deploy | server artwork migration/jobs/adapters, artwork LEFT JOINs in ranking and country-artist queries, `deploy/proxy.conf` (CSP) |
