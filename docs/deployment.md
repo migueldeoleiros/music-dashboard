@@ -21,7 +21,7 @@ switches the API to PostgreSQL aggregates (no upstream access). Worker upstream 
 separate: `MUSIC_WORKER_FIXTURE_MODE` defaults true (no upstream calls); set it false
 explicitly for real actions and recreate the worker. Worker-only:
 `LISTENBRAINZ_USERNAME`, `LISTENBRAINZ_TOKEN`, `MUSIC_METADATA_USER_AGENT` (descriptive contact
-User-Agent, required for metadata calls), optional `MUSIC_SYNC_INTERVAL_SECONDS` (900),
+User-Agent, required for metadata calls), optional `MUSIC_REFRESH_AUTO_INTERVAL_SECONDS` (3600),
 `MUSIC_SYNC_OVERLAP_HOURS` (72), `MUSIC_RECONCILE_INTERVAL_SECONDS` (604800),
 `MUSIC_METADATA_{EMPTY,POSITIVE}_TTL_DAYS` (7/30), `MUSIC_METADATA_RETRY_{BASE,MAX}_SECONDS`
 (30/86400), `MUSIC_ENRICHMENT_BATCH_SIZE` (100); Compose forwards these to the worker.

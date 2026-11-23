@@ -143,7 +143,7 @@ docker compose run --rm worker alembic upgrade head
 #    the ZIP from /1/export/{id}/download). May take minutes. Succeeds on import-complete
 #    evidence: imports and checkpoints, but never deletes (see "Export completeness").
 docker compose run --rm worker music-dashboard bootstrap-import
-# 2. Recent incremental sync (page API, 72h overlap) - also run by the worker every 15 min.
+# 2. Recent incremental sync (page API, 72h overlap) - the worker also runs it hourly via the unified refresh request.
 docker compose run --rm worker music-dashboard sync
 # 3. Enrichment, explicit batches. --allow-network is required; limit 1..1000.
 docker compose run --rm worker \
@@ -397,7 +397,7 @@ Add a CLI command module exporting configure(subparsers), an API module exportin
 or a job module exporting tick(); no shared registry edits. See ownership in architecture.md.
 The worker discovers job modules. With worker fixture mode true sync ticks are idle
 (`fixture-idle`) and enrichment does not run. With `MUSIC_WORKER_FIXTURE_MODE=false`, the worker loop (every 30s) runs
-scheduled sync (incremental every 15 min, export reconcile when due/weekly) and enrichment.
+the hourly refresh admission, the sync tick (export reconcile when due/weekly) and enrichment.
 
 ## Git workflow
 

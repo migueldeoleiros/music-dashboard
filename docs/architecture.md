@@ -223,7 +223,8 @@ metadata remapping must never change source identity. Tombstones support upstrea
 LB pages are timestamp-only, nondeterministic ties, count <=1000 and one exclusive bound.
 A full page ending at T must refetch `max_ts=T+1` to clear T before progressing to `max_ts=T`.
 Full all-T responses are ambiguous and require authenticated export reconcile, never a false
-complete checkpoint. Incremental default: every 15 minutes, 72-hour overlap (configurable).
+complete checkpoint. Incremental sync runs only through the unified refresh request (hourly automatic admission or
+`POST /api/refresh`; see `docs/public-refresh.md`), 72-hour overlap (configurable).
 Weekly full export reconcile repairs arbitrary old imports, edits, deletions and remaps.
 Use advisory locking, durable checkpoints, bounded retries/backoff.
 

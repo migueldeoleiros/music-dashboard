@@ -1,83 +1,63 @@
-# Opt-in public refresh
+# Unified refresh
 
-Public refresh is **off by default**. This document is an operator plan, not a record of a deployment.
-Normal read-only statistics, the existing scheduled sync/reconciliation, and external cron are unchanged.
-No public route triggers an export or a rebuild.
+One refresh mechanism. Both the public button and the hourly automatic refresh go through the same
+database admission function, `public.public_refresh_request()`, and the worker executes the admitted
+request (recent incremental sync only; never an export or rebuild). The weekly export reconcile stays a
+separate worker job.
 
-## Enable (only during a separately authorized deployment)
+## Admission
 
-1. Back up and apply migration `0005` as the non-superuser `music_writer`, with the worker stopped.
-   The migration adds a durable one-row request slot and narrowly scoped admission/status functions.
-   `music_api` receives function execution only, **no access to the request table**. Functions pin
-   their search path and do not grant execution to `PUBLIC`.
-2. Confirm normal scheduled reconciliation has completed for the worker's account. A public request
-   waits if the checkpoint requires reconciliation or has no successful initial export. Only the
-   normal schedule can perform that prerequisite; do not clear the checkpoint by hand.
-3. Set `MUSIC_PUBLIC_ORIGIN` (**required** for any public deployment; exact canonical HTTPS origin, API only) and
-   `MUSIC_PUBLIC_REFRESH_ENABLED=true` for **both API and worker**, then recreate those services.
-   Both fixture flags must retain their intended values. Worker fixture mode must never be disabled
-   merely to test the button. The upstream token remains worker-only.
-4. Confirm `/api/refresh` reports enabled, same-origin admission works through the public proxy,
-   cross-origin POST fails, and the request UUID matches its eventual status. Check HTTPS/Host forwarding
-   with the actual TLS terminator before exposing it. Do not trust arbitrary client-supplied forwarded headers.
+- `POST /api/refresh` calls `public_refresh_request()` in its own transaction (first statement
+  `SET TRANSACTION READ WRITE`; the API role defaults to read-only). The endpoint is open: there is no
+  origin or caller check. The **only guard is the cooldown**.
+- Policy is fixed in the function (callers cannot choose it): **10 minute cooldown** counted from admission,
+  15 minute pending TTL. A request arriving while one is pending/running/deferred coalesces onto it and
+  never extends its cooldown or expiry. Otherwise it is rejected as cooling down until `cooldown_until`.
+- The worker role `music_writer` has EXECUTE on the same function (migration `0008`). `music_api`
+  has function execution only, no access to the request table. Functions are `SECURITY DEFINER`, pin
+  `search_path`, and EXECUTE is revoked from `PUBLIC`.
+- `GET /api/refresh` reads the shared current/last request (`public_refresh_status()`). Responses are
+  non-cacheable. This is a shared button, not per-visitor auth or a private queue. Anyone can trigger one
+  sync per 10 minutes (accepted).
 
-### Public origin (fail-closed)
+## Automatic hourly refresh
 
-Set `MUSIC_PUBLIC_ORIGIN=https://music.miguel.md` on the **API** (compose wires it). The value must
-already be canonical: lowercase `https://host[:port]`, no trailing slash/path/query/fragment/userinfo,
-no explicit `:443`, port 1-65535 without leading zeros. Anything else (including empty userinfo,
-port `0`, uppercase, normalizable forms) is malformed and rejects **every** POST with 403.
+The worker keeps an in-process monotonic timer. It fires at startup and then every
+`MUSIC_REFRESH_AUTO_INTERVAL_SECONDS` (default 3600), calling the same admission function directly
+(no HTTP hop). It admits only if no cooldown is active, so restarts and button presses cannot cause more
+than one refresh per cooldown window. If admission errors, the timer is not advanced and the next tick
+retries. Logs carry outcome status codes only.
 
-When set, POST admission requires: `Origin` **literally equal** to the configured string (no case
-folding or slash tolerance); the whole `Host` authority to validate as `host[:port]` (no userinfo, lists,
-paths, empty/zero port) and canonicalize to the same origin; and `Sec-Fetch-Site: same-origin` if present.
-There is no fallback to Host-plus-scheme and `X-Forwarded-*`/`Forwarded` are never read. Empty
-`MUSIC_PUBLIC_ORIGIN` keeps the local http behavior and is not acceptable for public exposure.
+## Execution
 
-Port forwarding: for the default 443 origin the host proxy may send `Host $host` (port omitted is
-treated as 443). For a non-default port in the origin, the proxy must forward the port, e.g.
-`proxy_set_header Host $http_host;` (`$host` drops it and POSTs will be rejected). The container
-nginx already preserves `$http_host`.
+Each worker tick admits (if due) and then runs any pending request, serialized with the sync tick by the
+existing account advisory lock; persisted retry/rate-limit deadlines are honored. A request defers while the
+checkpoint requires reconciliation or no successful initial export exists, until its fixed expiry; the sync
+tick's weekly reconcile (promptly when `last_export_at` is NULL) clears that prerequisite. A crashed worker
+releases its lock; another worker recovers the same request UUID and safely replays incremental work. A stale
+worker's completion cannot complete a newer request.
 
-## Behavior
+## Fixture mode
 
-`GET /api/refresh` reads the shared current/last request. `POST /api/refresh` admits or coalesces a
-request; it does not wait for upstream. Both responses are non-cacheable. A deployment-wide durable
-cooldown and singleton bound public work across API processes. Repeated requests do not extend the
-original deadline. This is a shared public button, not per-visitor authentication or a private queue.
-The same-origin check protects browser cross-site submissions; non-browser clients can supply Origin,
-so admission's durable cooldown is still essential.
+`MUSIC_FIXTURE_MODE=true` (API) reports refresh `enabled=false` and POST returns 404.
+`MUSIC_WORKER_FIXTURE_MODE=true` (worker) skips automatic admission and fails any request with `fixture_mode`.
+Worker fixture mode must never be disabled merely to test the button. The upstream token remains worker-only.
 
-The API admits in a separate transaction whose first SQL statement is `SET TRANSACTION READ WRITE`.
-It never changes the connection's default transaction mode. Normal aggregate/status reads stay
-read-only. No upstream request is made by the API.
-
-The worker uses the existing account advisory lock and honors persisted retry/rate-limit deadlines.
-Public requests perform recent incremental sync only. Blocked requests defer until their fixed expiry.
-A crashed worker releases its session lock; another worker can recover the same UUID and safely replay
-incremental work. A stale worker's completion cannot complete a newer request. A status deadline bounds
-what the UI waits for; it is not cancellation of an upstream call already in progress.
+## UI
 
 The UI remembers the admitted UUID in session storage, polls active requests, and reloads chart queries
-when that UUID succeeds. Page reload resumes observation. If another shared request replaces it, the UI
-says so rather than attributing the newer result to the old request. An explicit **Reload charts** action
-is also available. Storage failure does not prevent refresh; automatic post-reload correlation then
-cannot be guaranteed. A transport failure during admission may have queued work; the UI checks status
-before offering retry and never retries POST automatically.
+when that UUID succeeds. If another shared request replaces it, the UI says so. The cooldown display follows
+`cooldown_until`. A transport failure during admission may have queued work; the UI checks status before
+offering retry and never retries POST automatically.
 
-## Disable / rollback
+## Rollback
 
-Set `MUSIC_PUBLIC_REFRESH_ENABLED=false` for API **and worker**, then recreate both. The button disappears,
-POST returns 404, and public work is no longer claimed. A job already running is not cancelled by changing
-an environment variable. To ensure no in-flight public job remains, stop the worker gracefully and inspect
-its state before restarting with the flag off. Keep ordinary scheduled sync/cron enabled after rollback.
-No database downgrade is needed to disable this feature; retain the harmless singleton and functions.
-If a schema rollback is separately authorized, stop refresh-capable API/worker versions first and downgrade
-`0005` to `0004`; this drops only public-refresh state/functions, not listening history or scheduled sync state.
+Schema: downgrade `0008` to `0007` restores the 300 s function and removes the writer grant (stop the
+worker first). To stop automatic refresh without a downgrade, set `MUSIC_REFRESH_AUTO_INTERVAL_SECONDS` very
+large or stop the worker; the button remains governed by cooldown.
 
 ## Verification boundaries
 
 Use `server/scripts/check_db.py` for destructive integration checks: it creates/removes its own disposable
 PostgreSQL container and initializes the actual API/writer roles. Never set its test URLs to a live database.
-Tests must use fake upstream clients; no real token or upstream traffic is needed. Browser fixture evidence
-is not proof of production TLS proxy configuration or deployment enable/disable behavior.
+Tests use fake upstream clients; no real token or upstream traffic is needed.
