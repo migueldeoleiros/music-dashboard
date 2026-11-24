@@ -39,7 +39,7 @@ from music_dashboard.domain.statistics.policies import (
     validate_filters,
 )
 from music_dashboard.infrastructure.artwork.urls import validate_image_url
-from music_dashboard.infrastructure.persistence.artwork_resolver import resolve_artwork
+from music_dashboard.infrastructure.persistence.artwork_resolver import resolve_ranked_artwork
 from music_dashboard.infrastructure.persistence.timezones import load_timezones
 
 # Preserve full Unicode casefold (ß, sigma, ligatures, etc.), not locale lower().
@@ -671,7 +671,7 @@ class SQLStatisticsQueries:
     ) -> None:
         """Covers come from the shared resolver. Display-only: keys, labels, totals and order
         are untouched, nothing is stored."""
-        covers = resolve_artwork(c, kind, (i["key"] for i in items), params)
+        covers = resolve_ranked_artwork(c, kind, (i["key"] for i in items), params)
         for item in items:
             item["image_url"] = covers.get(item["key"])
 

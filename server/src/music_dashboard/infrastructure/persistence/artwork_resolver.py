@@ -58,6 +58,45 @@ def resolve_artwork(
     return {key: public_url(directory, url) for key, url in found.items()}
 
 
+def _primary_artist_key(c: Connection, kind: str, key: str) -> str | None:
+    """Primary (first credited) artist key of a ranked album/track key, None if unreliable."""
+    from music_dashboard.infrastructure.persistence import artist_queries as q  # import cycle
+
+    dimension = "tracks" if kind == "track" else "albums"
+    if MBID.match(key):
+        credits = q.resolve_credits(q.credit_sets(c, dimension, key))
+        return credits[0]["key"] if credits else None
+    try:
+        pair = json.loads(key[5:])  # name:[folded artist, folded title]
+    except ValueError:
+        return None
+    if isinstance(pair, list) and len(pair) == 2 and isinstance(pair[0], str) and pair[0]:
+        return "name:" + pair[0]
+    return None
+
+
+def resolve_ranked_artwork(
+    c: Connection,
+    kind: str,
+    keys: Iterable[str],
+    params: dict[str, Any],
+    artist_key: str | None = None,
+) -> dict[str, str]:
+    """Like `resolve_artwork`, but album/track rows without a cover show their primary artist's
+    image (same fallback as the history feed). `artist_key` is the known artist on artist pages."""
+    wanted = list(dict.fromkeys(k for k in keys if k))
+    found = resolve_artwork(c, kind, wanted, params)
+    if kind == "artist":
+        return found
+    missing = [k for k in wanted if k not in found]
+    if not missing:
+        return found
+    primary = {k: artist_key or _primary_artist_key(c, kind, k) for k in missing}
+    artists = resolve_artwork(c, "artist", {a for a in primary.values() if a}, params)
+    found.update({k: artists[a] for k, a in primary.items() if a and a in artists})
+    return found
+
+
 @dataclass(frozen=True)
 class SongKeys:
     """Ranking keys of one listen; any may be None when the listen cannot be keyed."""

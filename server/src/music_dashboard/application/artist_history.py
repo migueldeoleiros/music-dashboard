@@ -23,6 +23,7 @@ from music_dashboard.config import settings
 from music_dashboard.infrastructure.persistence import artist_queries as queries
 from music_dashboard.infrastructure.persistence.artwork_resolver import (
     resolve_artwork,
+    resolve_ranked_artwork,
     resolve_song_artwork,
     song_keys,
 )
@@ -194,8 +195,12 @@ class ArtistHistory:
             rows = queries.rankings(c, p, dimension, limit, state["after"])
             more = len(rows) > limit
             rows = rows[:limit]
-            covers = resolve_artwork(
-                c, "album" if dimension == "albums" else "track", (r["key"] for r in rows), p
+            covers = resolve_ranked_artwork(
+                c,
+                "album" if dimension == "albums" else "track",
+                (r["key"] for r in rows),
+                p,
+                artist_key=key,
             )
             for row in rows:
                 row["image_url"] = covers.get(row["key"])
