@@ -21,6 +21,7 @@ from typing import Any
 from sqlalchemy import Connection, Engine, text
 
 from music_dashboard.domain.listening.entities import epoch_seconds
+from music_dashboard.domain.listening.feat_credit import split_feat
 
 from ..models import DataGeneration
 
@@ -157,7 +158,8 @@ def _parse(payload: Any, user: str) -> _Parsed:
         raw_mbids = mapping.get("artist_mbids") or info.get("artist_mbids")
         ids = [_uuid(x) for x in raw_mbids] if isinstance(raw_mbids, list) else []
         only = ids[0] if len(ids) == 1 else None
-        artists.append({"n": credit, "m": str(only) if only else None})
+        names = split_feat(credit) if only is None else [credit]
+        artists.extend({"n": n, "m": str(only) if only else None} for n in names)
     if credit is None and artists:
         credit = "".join(a["n"] or "" for a in artists)
     out.artists = artists
