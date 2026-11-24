@@ -95,7 +95,7 @@ function Dashboard() {
     {timezoneNotice && <p className="notice" role="status">{timezoneNotice}</p>}
     {import.meta.env.VITE_MOCK_API === 'true' && <p className="notice">Standalone synthetic preview — no API or music-service requests. <a href="?from=2026-01-05&to=2026-01-05&tz=UTC&fixture=partial">Load foundation sample</a> · <a href="?from=2026-01-05&to=2026-01-05&tz=UTC&fixture=full">100% coverage</a> · <a href="?from=2026-01-05&to=2026-01-05&tz=UTC&fixture=empty">Empty sample</a></p>}
     {error ? <p className="error" role="alert">{error} Adjust the period above.</p> : <>
-      <section id="rankings" className="dash-section" aria-label="Rankings"><div className="grid-4">{(['artists', 'albums', 'tracks', 'genres'] as const).map(dimension => <ChartPanel key={dimension} path={`/api/rankings/${dimension}`} label={`Top ${dimension}`} {...sharedCounted} />)}</div></section>
+      <section id="rankings" className="dash-section" aria-label="Rankings"><div className="grid-4">{(['tracks', 'artists', 'albums', 'genres'] as const).map(dimension => <ChartPanel key={dimension} path={`/api/rankings/${dimension}`} label={`Top ${dimension}`} {...sharedCounted} />)}</div></section>
       <section id="origins" ref={originsRef} tabIndex={-1} className="dash-section" aria-label="Artist origins">
         <div className="origins-layout has-panel">
           <ChartPanel path="/api/countries" label="Artist origins" selectedCountry={selectedCountry} onCountrySelect={setSelectedCountry} {...sharedCounted} />

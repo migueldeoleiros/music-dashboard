@@ -40,7 +40,7 @@ it('opens straight into content: heatmap first, concise card titles only, no her
   expect(screen.getByText('Missing title')).toBeTruthy()
   // Titles sit right above (outside) their cards and name them; nothing else is a heading.
   const titles = screen.getAllByRole('heading', { level: 2 }).map(heading => heading.textContent)
-  expect(titles).toEqual(['Daily listening', 'Top artists', 'Top albums', 'Top tracks', 'Top genres', 'Artist origins', 'Artist evolution', 'Genre evolution', 'Artist shares', 'Genre shares'])
+  expect(titles).toEqual(['Daily listening', 'Top tracks', 'Top artists', 'Top albums', 'Top genres', 'Artist origins', 'Artist evolution', 'Genre evolution', 'Artist shares', 'Genre shares'])
   expect(screen.getAllByRole('heading').map(heading => heading.textContent)).toContain('Top countries')
   for (const heading of screen.getAllByRole('heading', { level: 2 })) {
     const card = heading.nextElementSibling
