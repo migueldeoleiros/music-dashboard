@@ -955,3 +955,20 @@ def test_feat_listen_merges_into_the_id_album_via_primary_credit(identity):
         c.execute(text("UPDATE data_generation SET ingestion_generation=ingestion_generation+1"))
     items, _ = albums(q, "2026-01-01", "2026-01-31")
     assert {k: v["listens"] for k, v in items.items()} == {RG: 3}
+
+
+def test_localized_credit_name_does_not_split_the_album(identity):
+    """Mapped listen credits '유주' (raw artist 'YUJU'); a name-only 'YUJU' listen still joins."""
+    q, writer = identity
+    with writer.begin() as c:
+        add_listen(c, "2026-01-02", "YUJU", "In Bloom", rg=RG)
+        add_listen(c, "2026-01-03", "YUJU", "In Bloom")
+        c.execute(
+            text(
+                "INSERT INTO listen_artists(listen_id,position,artist_name) "
+                "SELECT id,0,'\uc720\uc8fc' FROM listens WHERE release_group_mbid IS NOT NULL"
+            )
+        )
+        c.execute(text("UPDATE data_generation SET ingestion_generation=ingestion_generation+1"))
+    items, _ = albums(q, "2026-01-01", "2026-01-31")
+    assert {k: v["listens"] for k, v in items.items()} == {RG: 2}
