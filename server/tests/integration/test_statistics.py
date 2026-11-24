@@ -581,6 +581,7 @@ def test_unicode_identity_and_missing_states(stats):
 
 RG = "7a29cb18-db62-4598-9b85-9d3d9eb9638b"
 RG2 = "11111111-2222-4333-8444-555555555555"
+RG3 = "33333333-2222-4333-8444-555555555555"
 COVER = "https://coverartarchive.org/release-group/" + RG + "/front"
 
 
@@ -654,10 +655,10 @@ def test_album_fallback_ambiguous_or_distinct_ids_preserved(identity):
     q, writer = identity
     with writer.begin() as c:
         add_listen(c, "2026-01-02", "Polyphia", "Be Not Afraid", rg=RG)
-        add_listen(c, "2026-01-02", "Polyphia", "Be Not Afraid", rg=RG2)  # ambiguous name
+        add_listen(c, "2026-01-02", "Polyphia", "Be Not Afraid", rg=RG2)  # same title, 2nd id
         add_listen(c, "2026-01-03", "Polyphia", "be not afraid")
         add_listen(c, "2026-01-03", "Polyphia", "be not afraid")
-        # distinct known IDs never merge with each other
+        # several ids with the same (artist, title) merge into the smallest-id one
         # fuzzy/different artist or album: no match
         add_listen(c, "2026-01-03", "Polyphia", "Be Not Afraid (Deluxe)")
         add_listen(c, "2026-01-03", "Other", "Be Not Afraid")
@@ -666,19 +667,19 @@ def test_album_fallback_ambiguous_or_distinct_ids_preserved(identity):
         add_listen(
             c, "2026-01-04", "Solo", "Record", release="99999999-2222-4333-8444-555555555555"
         )
-        add_listen(c, "2026-01-04", "Solo", "Record", rg=RG)
+        add_listen(c, "2026-01-04", "Solo", "Record", rg=RG3)
         add_listen(c, "2026-01-05", "Solo", "record")
         # missing artist or album never matches
         add_listen(c, "2026-01-06", None, "Be Not Afraid")
         add_listen(c, "2026-01-06", "Polyphia", None)
         c.execute(text("UPDATE data_generation SET ingestion_generation=ingestion_generation+1"))
     items, r = albums(q, "2026-01-01", "2026-01-31")
-    assert items[RG]["listens"] == 2  # Polyphia + Solo (rg listens), fallbacks not merged
-    assert items[RG2]["listens"] == 1
-    assert items['name:["polyphia", "be not afraid"]']["listens"] == 3  # incl. trimmed
+    # both Polyphia ids + the 3 ID-less (incl. trimmed) listens collapse onto the smaller id
+    assert items[RG2]["listens"] == 5
+    assert RG not in items
+    assert items[RG3]["listens"] == 3  # Solo: release id + release group id + ID-less
     assert items['name:["polyphia", "be not afraid (deluxe)"]']["listens"] == 1
     assert items['name:["other", "be not afraid"]']["listens"] == 1
-    assert items['name:["solo", "record"]']["listens"] == 1
     assert r["coverage"]["albums"]["total_listens"] == 12
     assert sum(i["listens"] for i in r["items"] if i["metadata_state"] != "missing") == 11
 
@@ -937,3 +938,20 @@ def test_small_random_timezone_range_load(stats, capsys):
                 }
             )
         )
+
+
+def test_feat_listen_merges_into_the_id_album_via_primary_credit(identity):
+    q, writer = identity
+    with writer.begin() as c:
+        add_listen(c, "2026-01-02", "YUJU", "[REC.]", rg=RG)
+        add_listen(c, "2026-01-03", "YUJU feat. Mad Clown", "[REC.]")  # raw artist differs
+        add_listen(c, "2026-01-03", "YUJU feat. Mad Clown", "[REC.]")
+        c.execute(
+            text(
+                "INSERT INTO listen_artists(listen_id,position,artist_name) "
+                "SELECT id,0,'YUJU' FROM listens WHERE artist_name LIKE 'YUJU feat.%'"
+            )
+        )
+        c.execute(text("UPDATE data_generation SET ingestion_generation=ingestion_generation+1"))
+    items, _ = albums(q, "2026-01-01", "2026-01-31")
+    assert {k: v["listens"] for k, v in items.items()} == {RG: 3}

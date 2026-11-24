@@ -192,12 +192,13 @@ def test_explicit_label_and_ties_preserved_in_mixed_bucket(env):
         listen(c, album="Alpha", rg=RG1)
         listen(c, rg=RG1)  # blank sibling adopts an explicit label, state resolved
         listen(c, album="Same", rg=RG2)
-        listen(c, album="Same", rel=REL2)  # tie on listens=1 ordered by key
+        listen(c, album="Same", rel=REL2)  # same title, other id
         bump(c)
     items, _ = rank(q, "rankings/albums")
     assert items[RG1]["label"] == "Alpha" and items[RG1]["listens"] == 3
     assert items[RG1]["metadata_state"] == "resolved"
-    assert list(items)[1:] == sorted([RG2, REL2])
+    # same (artist, title) under two ids: one merged key (the smallest id)
+    assert list(items)[1:] == [min(RG2, REL2)] and items[min(RG2, REL2)]["listens"] == 2
 
 
 def test_track_title_recovered_from_consistent_recording_history_only(env):

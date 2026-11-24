@@ -149,16 +149,20 @@ WITH bounds AS (
 ), album_history AS MATERIALIZED (
  -- Stable identity across date ranges: canonical albums come from ALL history, not the
  -- selected window. Read-only; raw listens are never rewritten. Only evaluated for albums.
- SELECT DISTINCT artist_name, release_name,
-        coalesce(release_group_mbid,release_mbid)::text AS kid
- FROM listens WHERE coalesce(release_group_mbid,release_mbid) IS NOT NULL
- AND artist_name IS NOT NULL AND release_name IS NOT NULL
- -- Skip the history scan unless an ID-less listen has a USABLE (NFKC+Unicode-trimmed) album
- -- AND artist name: blank/whitespace-only names can never match canonical_albums.
- AND EXISTS (SELECT 1 FROM selected s JOIN normalized n ON n.name=s.release_name
-             JOIN normalized a ON a.name=s.artist_name
-             WHERE s.release_group_mbid IS NULL AND s.release_mbid IS NULL
-             AND n.folded<>'' AND a.folded<>'')
+ -- The artist is the PRIMARY credit (listen_artists position 0), so "A feat. B" listens and
+ -- plain "A" listens of the same album agree; `plays` ranks competing ids.
+ SELECT h.artist_name, h.release_name, h.kid, count(*) AS plays FROM (
+  SELECT coalesce(a.artist_name, l.artist_name) AS artist_name,
+         l.release_name, coalesce(l.release_group_mbid,l.release_mbid)::text AS kid
+  FROM listens l LEFT JOIN listen_artists a ON a.listen_id=l.id AND a.position=0
+  WHERE coalesce(l.release_group_mbid,l.release_mbid) IS NOT NULL
+  AND l.release_name IS NOT NULL
+  -- Skip the history scan unless a selected listen has a USABLE (NFKC+Unicode-trimmed) album
+  -- AND artist name: blank/whitespace-only names can never match canonical_albums.
+  AND EXISTS (SELECT 1 FROM selected s JOIN normalized n ON n.name=s.release_name
+              JOIN normalized a ON a.name=s.artist_name
+              WHERE n.folded<>'' AND a.folded<>'')) h
+ WHERE h.artist_name IS NOT NULL GROUP BY h.artist_name, h.release_name, h.kid
 ), album_history_names AS (
  SELECT artist_name AS name FROM album_history UNION SELECT release_name FROM album_history
 ), album_history_normalized AS MATERIALIZED (
@@ -168,28 +172,42 @@ WITH bounds AS (
         WITH ORDINALITY AS chars(ch, ord)), '') AS folded
  FROM album_history_names
 ), canonical_albums AS (
- -- Exact normalized (artist, album) -> exactly ONE known id. Two or more distinct ids
- -- (e.g. deluxe vs original, release vs release group) stay ambiguous: no entry.
- SELECT a.folded AS artist, n.folded AS album, min(h.kid) AS kid
+ -- Exact normalized (primary artist, album) -> ONE id, even when several ids carry the same
+ -- title (single vs EP, regional release groups): most played wins, ties by smallest id.
+ SELECT a.folded AS artist, n.folded AS album,
+        (array_agg(h.kid ORDER BY h.plays DESC, h.kid))[1] AS kid
  FROM album_history h
  JOIN album_history_normalized a ON a.name=h.artist_name
  JOIN album_history_normalized n ON n.name=h.release_name
  WHERE a.folded<>'' AND n.folded<>''
- GROUP BY a.folded, n.folded HAVING count(DISTINCT h.kid)=1
+ GROUP BY a.folded, n.folded
+), kid_map AS MATERIALIZED (
+ -- Every known id -> the canonical id of its (primary artist, album) group (the group where
+ -- that id is most played), so id-keyed listens need no per-listen name joins.
+ SELECT DISTINCT ON (h.kid) h.kid, c.kid AS canon
+ FROM album_history h
+ JOIN album_history_normalized a ON a.name=h.artist_name
+ JOIN album_history_normalized n ON n.name=h.release_name
+ JOIN canonical_albums c ON c.artist=a.folded AND c.album=n.folded
+ ORDER BY h.kid, h.plays DESC, c.kid
 ), album_values AS (
  SELECT l.id, l.day,
-   coalesce(l.release_group_mbid::text,l.release_mbid::text,c.kid,
+   coalesce(k.canon,c.kid,l.release_group_mbid::text,l.release_mbid::text,
      'name:' || jsonb_build_array(coalesce(a.folded,''),coalesce(n.folded,''))::text) AS key,
    coalesce(nullif(btrim(l.release_name, :whitespace),''),'[Missing album]') AS label,
-   coalesce(l.release_group_mbid::text,l.release_mbid::text,c.kid) AS mbid,
+   coalesce(k.canon,c.kid,l.release_group_mbid::text,l.release_mbid::text) AS mbid,
    CASE WHEN coalesce(n.folded,'')='' THEN 'missing'
-        WHEN coalesce(l.release_group_mbid::text,l.release_mbid::text,c.kid) IS NULL
+        WHEN coalesce(k.canon,c.kid,l.release_group_mbid::text,l.release_mbid::text) IS NULL
           THEN 'unmapped'
         ELSE 'resolved' END AS state, l.w AS weight
  FROM selected l LEFT JOIN normalized n ON n.name=l.release_name
  LEFT JOIN normalized a ON a.name=l.artist_name
- LEFT JOIN canonical_albums c ON l.release_group_mbid IS NULL AND l.release_mbid IS NULL
-  AND c.artist=a.folded AND c.album=n.folded
+ LEFT JOIN kid_map k ON k.kid=coalesce(l.release_group_mbid,l.release_mbid)::text
+ LEFT JOIN listen_artists p ON p.listen_id=l.id AND p.position=0
+  AND l.release_group_mbid IS NULL AND l.release_mbid IS NULL
+ LEFT JOIN normalized pa ON pa.name=coalesce(p.artist_name,l.artist_name)
+  AND l.release_group_mbid IS NULL AND l.release_mbid IS NULL
+ LEFT JOIN canonical_albums c ON c.artist=pa.folded AND c.album=n.folded
 ), track_values AS (
  SELECT l.id, l.day,
    coalesce(l.recording_mbid::text,
