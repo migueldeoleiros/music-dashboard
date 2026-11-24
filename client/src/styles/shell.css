@@ -12,6 +12,10 @@
 @media (hover: hover) { .pill:hover { border-color: var(--text-muted); } }
 .pill[aria-pressed='true'] { background: var(--accent); border-color: transparent; color: var(--on-accent); font-weight: 650; }
 .controls-meta { display: flex; align-items: center; gap: .9rem; color: var(--text-muted); font-size: .72rem; min-width: 0; }
+.app-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem 1rem; color: var(--text-muted); font-size: .72rem; }
+.footer-credit { margin: 0; }
+.footer-credit a { color: inherit; text-decoration: underline dotted; text-underline-offset: .2em; }
+.app-footer .sync-status { margin-left: auto; text-align: right; }
 .sync-status { margin: 0; color: var(--text-muted); font-size: .72rem; overflow-wrap: anywhere; }
 .sync-status.error { background: none; border: 0; padding: 0; color: var(--text-muted); }
 .custom-dialog { width: min(30rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; padding: clamp(1rem, 3vw, 1.5rem); color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); }

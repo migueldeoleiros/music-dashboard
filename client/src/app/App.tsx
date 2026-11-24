@@ -85,9 +85,7 @@ function Dashboard() {
   const heatmap = { filters: rollingYearRange(filters.tz), onTimezoneRejected: fallbackTimezone }
   return <main className="app">
     <ChartPanel path="/api/heatmap" label="Daily listening" variant="heatmap" {...heatmap} />
-    <Controls filters={filters} period={period} onChange={apply}>
-      <SyncStatus />
-    </Controls>
+    <Controls filters={filters} period={period} onChange={apply} />
     {timezoneNotice && <p className="notice" role="status">{timezoneNotice}</p>}
     {import.meta.env.VITE_MOCK_API === 'true' && <p className="notice">Standalone synthetic preview — no API or music-service requests. <a href="?from=2026-01-05&to=2026-01-05&tz=UTC&fixture=partial">Load foundation sample</a> · <a href="?from=2026-01-05&to=2026-01-05&tz=UTC&fixture=full">100% coverage</a> · <a href="?from=2026-01-05&to=2026-01-05&tz=UTC&fixture=empty">Empty sample</a></p>}
     {error ? <p className="error" role="alert">{error} Adjust the period above.</p> : <>
@@ -102,5 +100,9 @@ function Dashboard() {
       {filters.from !== filters.to && <section id="evolution" className="dash-section" aria-label="Evolution"><div className="grid-2">{(['artists', 'genres'] as const).map(dimension => <ChartPanel key={dimension} path={`/api/evolution/${dimension}`} label={`${dimension === 'artists' ? 'Artist' : 'Genre'} evolution`} {...shared} />)}</div></section>}
       <section id="shares" className="dash-section" aria-label="Shares"><div className="grid-2">{(['artists', 'genres'] as const).map(dimension => <ChartPanel key={dimension} path={`/api/pies/${dimension}`} label={`${dimension === 'artists' ? 'Artist' : 'Genre'} shares`} {...shared} />)}</div></section>
     </>}
+    <footer className="app-footer">
+      <p className="footer-credit">By <a href="https://github.com/migueldeoleiros/music-dashboard" target="_blank" rel="noreferrer">migueldeoleiros</a> with &lt;3</p>
+      <SyncStatus />
+    </footer>
   </main>
 }
