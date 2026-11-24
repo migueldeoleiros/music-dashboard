@@ -31,9 +31,9 @@ function showApp() { return render(<QueryClientProvider client={queryClient}><Ap
 
 const search = () => new URLSearchParams(window.location.search)
 const calls = () => vi.mocked(fetch).mock.calls.map(([url]) => new URL(String(url), 'http://localhost')).filter(url => url.pathname !== '/api/artist-credits')
-const pressed = () => screen.getAllByRole('button', { pressed: true }).map(button => button.textContent)
+const pressed = () => screen.getAllByRole('button', { pressed: true }).filter(button => !button.closest('.metric-toggle')).map(button => button.textContent)
 
-it('opens straight into content: heatmap first, concise card titles only, no hero, taglines, footers or read-only text', async () => {
+it('opens straight into content: heatmap first, concise card titles only, no hero, taglines or read-only text', async () => {
   showApp()
   expect(await screen.findByText('Blue Harbor')).toBeTruthy()
   expect(screen.getByText('Missing album')).toBeTruthy()
@@ -50,7 +50,9 @@ it('opens straight into content: heatmap first, concise card titles only, no her
   }
   expect(document.querySelector('details, .chart-table')).toBeNull()
   expect(screen.queryByRole('banner')).toBeNull()
-  expect(screen.queryByRole('contentinfo')).toBeNull()
+  const footer = screen.getByRole('contentinfo')
+  expect(footer.textContent).toContain('By migueldeoleiros with <3')
+  expect(screen.getByRole('link', { name: 'migueldeoleiros' }).getAttribute('href')).toBe('https://github.com/migueldeoleiros/music-dashboard')
   expect(document.body.textContent).not.toMatch(/read.?only|public|Data freshness|available for \d+% of listens|Timezone/i)
   const regions = screen.getAllByRole('region').map(region => region.getAttribute('aria-label') ?? document.getElementById(region.getAttribute('aria-labelledby') ?? '')?.textContent)
   expect(regions[0]).toBe('Daily listening')
@@ -91,7 +93,7 @@ it('selects live presets, keeps shared queries consistent, and persists preset i
   showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(10))
   expect(screen.queryByRole('dialog')).toBeNull()
   const period = screen.getByRole('region', { name: 'Period' })
-  expect([...period.querySelectorAll('button[aria-pressed]')].map(button => button.textContent)).toEqual(['Today', '7 days', '30 days', 'This week', 'This month', 'This year', 'All time', 'Custom'])
+  expect([...period.querySelectorAll('.preset-row button[aria-pressed]')].map(button => button.textContent)).toEqual(['Today', '7 days', '30 days', 'This week', 'This month', 'This year', 'All time', 'Custom'])
   fireEvent.click(screen.getByRole('button', { name: 'All time' }))
   await waitFor(() => expect(pressed()).toEqual(['All time']))
   expect(window.location.search).toBe('?preset=all')
@@ -300,4 +302,18 @@ it('shows loading and network errors per view', async () => {
   showApp()
   expect(screen.getAllByRole('status')).toHaveLength(11) // nine views, the country ranking beside the map, and the period/sync line
   await waitFor(() => expect(screen.getAllByText('Network is offline')).toHaveLength(10))
+})
+
+it('switches rankings, map and heatmap to minutes without touching pies or evolution', async () => {
+  window.localStorage.removeItem('music-metric')
+  window.history.replaceState(null, '', '?')
+  showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(10))
+  expect(calls().some(url => url.searchParams.has('metric'))).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Minutes' }))
+  await waitFor(() => expect(calls().some(url => url.pathname === '/api/rankings/artists' && url.searchParams.get('metric') === 'minutes')).toBe(true))
+  const withMetric = new Set(calls().filter(url => url.searchParams.get('metric') === 'minutes').map(url => url.pathname))
+  expect(withMetric).toEqual(new Set(['/api/heatmap', '/api/rankings/artists', '/api/rankings/albums', '/api/rankings/tracks', '/api/rankings/genres', '/api/countries']))
+  expect(pressed()).toEqual(['7 days'])
+  fireEvent.click(screen.getByRole('button', { name: 'Listens' }))
+  window.localStorage.removeItem('music-metric')
 })

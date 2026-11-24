@@ -5,6 +5,7 @@ import { useMediaQuery } from '../../components/ui/useMediaQuery'
 import type { Filters } from '../dashboard/filters'
 import { ArtistLink } from '../artist-history/ArtistLinks'
 import { useCountryArtists } from './useCountryArtists'
+import { formatMetric, useMetric } from '../../app/metric'
 
 export type CountryArtistsPanelProps = {
   code: string | null
@@ -21,7 +22,7 @@ const SWIPE_CLOSE_PX = 64
 // freshly mounted backdrop. Backdrop clicks inside this window are that ghost click, not a tap outside.
 const GHOST_CLICK_MS = 500
 
-const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 })
+
 
 function countryName(code: string): string {
   try { return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code } catch { return code }
@@ -89,6 +90,7 @@ function Panel({ code, filters, onClose, restoreFocusRef }: { code: string; filt
     }
   }, [sheet])
 
+  const metric = useMetric()
   const drag = useRef<number | null>(null)
   const onHandleDown = (event: ReactPointerEvent) => { drag.current = event.clientY; event.currentTarget.setPointerCapture?.(event.pointerId) }
   const onHandleMove = (event: ReactPointerEvent) => {
@@ -109,13 +111,13 @@ function Panel({ code, filters, onClose, restoreFocusRef }: { code: string; filt
   const panel = <aside ref={ref} tabIndex={-1} className="country-panel" role={sheet ? 'dialog' : 'complementary'} aria-modal={sheet ? true : undefined} aria-label={`Artists from ${name}`} aria-busy={query.isPending}>
     {sheet && <div className="sheet-handle" aria-hidden="true" onPointerDown={onHandleDown} onPointerMove={onHandleMove} onPointerUp={onHandleUp} onPointerCancel={onHandleUp}><span /></div>}
     <header className="country-panel-header">
-      <div><h3>{name}</h3>{query.data && items.length > 0 && <p className="entity-secondary">{number.format(total)} listens</p>}</div>
+      <div><h3>{name}</h3>{query.data && items.length > 0 && <p className="entity-secondary">{formatMetric(total, metric)}{metric === 'listens' && ' listens'}</p>}</div>
       <button type="button" className="country-panel-close" onClick={onClose} aria-label={`Close ${name} panel`}><svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true" focusable="false"><path d="M2 2l8 8M10 2l-8 8" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" /></svg></button>
     </header>
     {query.isPending && <p role="status" className="entity-empty">Loading artists…</p>}
     {query.isError && <div role="alert" className="entity-empty"><p>Could not load artists.</p><button type="button" onClick={() => void query.refetch()}>Retry</button></div>}
     {query.data && <EntityList label={`Artists from ${name}`} maxHeight="none" empty="No artists for this country in this range.">
-      {items.map((item, index) => <EntityRow key={item.key} rank={index + 1} label={item.label || 'Missing metadata'} labelContent={item.label ? <ArtistLink artist={{ key: item.key, label: item.label }} /> : undefined} src={item.image_url} value={number.format(item.listens)} />)}
+      {items.map((item, index) => <EntityRow key={item.key} rank={index + 1} label={item.label || 'Missing metadata'} labelContent={item.label ? <ArtistLink artist={{ key: item.key, label: item.label }} /> : undefined} src={item.image_url} value={formatMetric(item.listens, metric)} />)}
     </EntityList>}
   </aside>
   return sheet ? <><div className="sheet-backdrop" aria-hidden="true" onClick={() => { if (performance.now() - openedAt.current > GHOST_CLICK_MS) onClose() }} />{panel}</> : <div className="country-panel-slot">{panel}</div>

@@ -27,6 +27,7 @@ import type { EChartsType } from 'echarts/core'
 import { echarts } from './echarts'
 import { useECharts, type ChartHandle, type ChartSize, type Opt } from './useECharts'
 import type { ChartTheme } from './theme'
+import { formatMetric, useMetric } from '../../app/metric'
 
 export { stableColor } from './stableColor'
 
@@ -187,15 +188,18 @@ export function PieChart({ data }: { data: PieResponse }) {
 
 // ---------- Heatmap (rolling window, no year logic) ----------
 export function HeatmapChart({ data }: { data: HeatmapResponse }) {
+  const metric = useMetric()
+  const unit = metric === 'minutes' ? 'of listening' : 'listens'
   const max = useMemo(() => data.cells.reduce((m, c) => Math.max(m, c.listens), 0), [data.cells])
   const total = useMemo(() => data.cells.reduce((s, c) => s + c.listens, 0), [data.cells])
   const active = useMemo(() => data.cells.filter((c) => c.listens > 0), [data.cells])
-  const build = useMemo(() => (t: ChartTheme) => buildHeatmapOption(data, t), [data])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const build = useMemo(() => (t: ChartTheme) => buildHeatmapOption(data, t), [data, metric])
   const heatWidth = useMemo(() => buildRollingGrid(data.cells, data.range.from, data.range.to).cols * 15 + 40, [data])
   return (
     <Frame
       label="Daily listening heatmap, weeks start Monday"
-      summary={`${nf.format(total)} listens across ${active.length} active days from ${data.range.from} to ${data.range.to} (${data.range.tz}); busiest day ${nf.format(max)} listens.`}
+      summary={`${formatMetric(total, metric)} ${unit} across ${active.length} active days from ${data.range.from} to ${data.range.to} (${data.range.tz}); busiest day ${formatMetric(max, metric)} ${unit}.`}
       height={7 * 16 + 28}
       scrollX={{ minWidth: heatWidth, scrollLabel: 'Daily listening heatmap, scroll sideways for earlier weeks', key: data }}
       build={build}
@@ -210,18 +214,18 @@ export function HeatmapChart({ data }: { data: HeatmapResponse }) {
       }
       table={
         <table>
-          <caption className="sr-only">Listens per day</caption>
+          <caption className="sr-only">{metric === 'minutes' ? 'Listening time per day' : 'Listens per day'}</caption>
           <thead>
             <tr>
               <th scope="col">Day</th>
-              <th scope="col">Listens</th>
+              <th scope="col">{metric === 'minutes' ? 'Time' : 'Listens'}</th>
             </tr>
           </thead>
           <tbody>
             {active.map((c) => (
               <tr key={c.day}>
                 <th scope="row">{c.day}</th>
-                <td>{nf.format(c.listens)}</td>
+                <td>{formatMetric(c.listens, metric)}</td>
               </tr>
             ))}
           </tbody>
@@ -262,6 +266,7 @@ function MapZoom({ handleRef }: { handleRef: { current: ChartHandle | null } }) 
 }
 
 export function CountryChart({ data, selectedCountry = null, onCountrySelect }: CountryChartProps) {
+  const metric = useMetric()
   const handleRef = useRef<ChartHandle | null>(null)
   const countries = data.countries
   const max = countries.reduce((m, c) => Math.max(m, c.listens), 0)
@@ -272,7 +277,8 @@ export function CountryChart({ data, selectedCountry = null, onCountrySelect }: 
       registerWorldMap()
       return buildCountryOption(data, t, sel, size)
     },
-    [data, sel],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, sel, metric],
   )
   const markerCount = countries.filter((c) => !polygonCodes.has(c.code.toUpperCase()) && markers[c.code.toUpperCase()]).length
   const select = (code: string) => onCountrySelect?.(code.toUpperCase() === sel ? null : code.toUpperCase())
@@ -302,7 +308,7 @@ export function CountryChart({ data, selectedCountry = null, onCountrySelect }: 
           <div className="map-legend" aria-hidden="true">
             <span>0</span>
             <i />
-            <span>{nf.format(max)}</span>
+            <span>{formatMetric(max, metric)}</span>
           </div>
           {onCountrySelect ? (
             <div className="map-picker" role="group" aria-label="Select a country">
@@ -324,7 +330,7 @@ export function CountryChart({ data, selectedCountry = null, onCountrySelect }: 
           <thead>
             <tr>
               <th scope="col">Country</th>
-              <th scope="col">Weighted listens</th>
+              <th scope="col">{metric === 'minutes' ? 'Weighted time' : 'Weighted listens'}</th>
               <th scope="col">Share</th>
             </tr>
           </thead>
@@ -340,7 +346,7 @@ export function CountryChart({ data, selectedCountry = null, onCountrySelect }: 
                     ? ' — not drawn on map'
                     : ''}
                 </th>
-                <td>{nf.format(c.listens)}</td>
+                <td>{formatMetric(c.listens, metric)}</td>
                 <td>{pct(c.share)}</td>
               </tr>
             ))}

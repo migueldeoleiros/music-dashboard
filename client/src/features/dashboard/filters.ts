@@ -1,4 +1,5 @@
-export type Filters = { from: string; to: string; tz: string }
+// `metric` is only present for minutes; it is sent to the views that support it and never read from the URL.
+export type Filters = { from: string; to: string; tz: string; metric?: 'minutes' }
 export type Preset = 'today' | 'week' | '7d' | 'month' | '30d' | 'year' | 'all'
 export type Period = Preset | 'custom'
 // Detection order matters when ranges coincide (e.g. Monday: today == week).

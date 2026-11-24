@@ -16,6 +16,10 @@
 .footer-credit { margin: 0; }
 .footer-credit a { color: inherit; text-decoration: underline dotted; text-underline-offset: .2em; }
 .app-footer .sync-status { margin-left: auto; text-align: right; }
+.metric-toggle { display: inline-flex; gap: .15rem; }
+.metric-toggle button { all: unset; cursor: pointer; padding: .15rem .5rem; border-radius: var(--radius-lg); color: var(--text-muted); font-size: .72rem; }
+.metric-toggle button:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
+.metric-toggle button[aria-pressed='true'] { background: var(--surface-2); color: var(--text); font-weight: 650; }
 .sync-status { margin: 0; color: var(--text-muted); font-size: .72rem; overflow-wrap: anywhere; }
 .sync-status.error { background: none; border: 0; padding: 0; color: var(--text-muted); }
 .custom-dialog { width: min(30rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; padding: clamp(1rem, 3vw, 1.5rem); color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); }

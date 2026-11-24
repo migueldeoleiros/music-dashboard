@@ -2,6 +2,7 @@
 import type { components } from '../../api/schema'
 import worldGeoJson from '../../assets/maps/world-countries.geo.json'
 import markerJson from '../../assets/maps/country-markers.json'
+import { currentMetric, formatMetric } from '../../app/metric'
 import type { Opt } from './useECharts'
 import { esc, mixColors, seriesColor, tipRow, tipTitle, tooltipStyle, type ChartTheme } from './theme'
 
@@ -496,7 +497,8 @@ export function heatColor(t: ChartTheme, listens: number, max: number): string {
 
 export function heatTooltip(t: ChartTheme, v: HeatPoint): string {
   const wd = WEEKDAYS[v[1]] ?? ''
-  return tipTitle(t, `${wd} ${v[3]}`) + tipRow(t, { label: v[2] === 1 ? 'listen' : 'listens', value: nf.format(v[2]) })
+  const minutes = currentMetric() === 'minutes'
+  return tipTitle(t, `${wd} ${v[3]}`) + tipRow(t, { label: minutes ? 'time' : v[2] === 1 ? 'listen' : 'listens', value: formatMetric(v[2]) })
 }
 
 export function buildHeatmapOption(
@@ -626,7 +628,7 @@ export function buildCountryOption(
         if (!x.data) return tipRow(t, { label: countryName(x.name), value: '0', sub: 'no listens' })
         const code = x.data.code ?? x.name
         const v = Array.isArray(x.data.value) ? x.data.value[2] : x.data.value
-        return tipRow(t, { color: mapColor(t, v, max), label: countryName(code), value: nf.format(v), sub: pct(x.data.share) })
+        return tipRow(t, { color: mapColor(t, v, max), label: countryName(code), value: formatMetric(v), sub: pct(x.data.share) })
       },
     },
     geo: {

@@ -873,7 +873,10 @@ export interface operations {
     };
     artist_summary_api_artists__artist_key__get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Count listens or minutes */
+                metric?: "listens" | "minutes";
+            };
             header?: never;
             path: {
                 artist_key: string;
@@ -934,6 +937,8 @@ export interface operations {
             query?: {
                 year?: number | null;
                 tz?: string;
+                /** @description Count listens or minutes */
+                metric?: "listens" | "minutes";
             };
             header?: never;
             path: {
@@ -995,6 +1000,8 @@ export interface operations {
             query?: {
                 limit?: number;
                 cursor?: string | null;
+                /** @description Count listens or minutes */
+                metric?: "listens" | "minutes";
             };
             header?: never;
             path: {
@@ -1123,6 +1130,8 @@ export interface operations {
                 /** @description Supported IANA timezone, canonicalized */
                 tz: string;
                 limit?: number;
+                /** @description Rankings, heatmap and countries only: count listens or minutes */
+                metric?: "listens" | "minutes";
             };
             header?: never;
             path?: never;
@@ -1160,6 +1169,8 @@ export interface operations {
                 /** @description Supported IANA timezone, canonicalized */
                 tz: string;
                 limit?: number;
+                /** @description Rankings, heatmap and countries only: count listens or minutes */
+                metric?: "listens" | "minutes";
             };
             header?: never;
             path: {
@@ -1200,6 +1211,8 @@ export interface operations {
                 /** @description Supported IANA timezone, canonicalized */
                 tz: string;
                 limit?: number;
+                /** @description Rankings, heatmap and countries only: count listens or minutes */
+                metric?: "listens" | "minutes";
             };
             header?: never;
             path?: never;
@@ -1237,6 +1250,8 @@ export interface operations {
                 /** @description Supported IANA timezone, canonicalized */
                 tz: string;
                 limit?: number;
+                /** @description Rankings, heatmap and countries only: count listens or minutes */
+                metric?: "listens" | "minutes";
             };
             header?: never;
             path?: never;
@@ -1294,6 +1309,8 @@ export interface operations {
                 /** @description Supported IANA timezone, canonicalized */
                 tz: string;
                 limit?: number;
+                /** @description Rankings, heatmap and countries only: count listens or minutes */
+                metric?: "listens" | "minutes";
             };
             header?: never;
             path?: never;
@@ -1391,6 +1408,8 @@ export interface operations {
                 /** @description Supported IANA timezone, canonicalized */
                 tz: string;
                 limit?: number;
+                /** @description Rankings, heatmap and countries only: count listens or minutes */
+                metric?: "listens" | "minutes";
             };
             header?: never;
             path?: never;
@@ -1428,6 +1447,8 @@ export interface operations {
                 /** @description Supported IANA timezone, canonicalized */
                 tz: string;
                 limit?: number;
+                /** @description Rankings, heatmap and countries only: count listens or minutes */
+                metric?: "listens" | "minutes";
             };
             header?: never;
             path?: never;
@@ -1465,6 +1486,8 @@ export interface operations {
                 /** @description Supported IANA timezone, canonicalized */
                 tz: string;
                 limit?: number;
+                /** @description Rankings, heatmap and countries only: count listens or minutes */
+                metric?: "listens" | "minutes";
             };
             header?: never;
             path?: never;
@@ -1502,6 +1525,8 @@ export interface operations {
                 /** @description Supported IANA timezone, canonicalized */
                 tz: string;
                 limit?: number;
+                /** @description Rankings, heatmap and countries only: count listens or minutes */
+                metric?: "listens" | "minutes";
             };
             header?: never;
             path?: never;
@@ -1539,6 +1564,8 @@ export interface operations {
                 /** @description Supported IANA timezone, canonicalized */
                 tz: string;
                 limit?: number;
+                /** @description Rankings, heatmap and countries only: count listens or minutes */
+                metric?: "listens" | "minutes";
             };
             header?: never;
             path?: never;
@@ -1576,6 +1603,8 @@ export interface operations {
                 /** @description Supported IANA timezone, canonicalized */
                 tz: string;
                 limit?: number;
+                /** @description Rankings, heatmap and countries only: count listens or minutes */
+                metric?: "listens" | "minutes";
             };
             header?: never;
             path?: never;

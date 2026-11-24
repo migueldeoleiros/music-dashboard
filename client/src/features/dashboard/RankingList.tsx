@@ -4,8 +4,7 @@ import { artistHref } from '../../app/navigation'
 import { EmptyState } from './ChartSection'
 import { ArtistLink, reliableArtistKey } from '../artist-history/ArtistLinks'
 import { useArtistCredits } from '../artist-history/useArtistCredits'
-
-const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 })
+import { formatMetric, useMetric } from '../../app/metric'
 
 type Item = components['schemas']['RankedEntity']
 type Dimension = components['schemas']['RankingResponse']['dimension']
@@ -23,19 +22,21 @@ function linksFor(dimension: Dimension, item: Item, all: Credits, excludeArtistK
 
 function RankRow({ dimension, item, rank, text, note, credits, excludeArtistKey }: { dimension: Dimension; item: Item; rank: number; text: string; note?: string; credits: Credits; excludeArtistKey?: string }) {
   const { href, others } = linksFor(dimension, item, credits, excludeArtistKey)
+  const metric = useMetric()
   const secondary = others.length ? <>{note && `${note} · `}{others.map((a, i) => <span key={i}>{i > 0 && ', '}<ArtistLink artist={a} className="row-inline-link" /></span>)}</> : note
-  return <CompactRow rank={rank} label={text} href={href} src={item.image_url} showImage={dimension !== 'genres'} secondary={secondary} count={number.format(item.listens)} />
+  return <CompactRow rank={rank} label={text} href={href} src={item.image_url} showImage={dimension !== 'genres'} secondary={secondary} count={formatMetric(item.listens, metric)} />
 }
 
 function Hero({ dimension, item, text, note, credits, excludeArtistKey }: { dimension: Dimension; item: Item; text: string; note?: string; credits: Credits; excludeArtistKey?: string }) {
   const { href, others } = linksFor(dimension, item, credits, excludeArtistKey)
+  const metric = useMetric()
   const secondary = others.length ? <>{note && `${note} · `}{others.map((a, i) => <span key={i}>{i > 0 && ', '}<ArtistLink artist={a} className="row-inline-link" /></span>)}</> : note
   return <li className={`entity-hero${href ? ' row--link' : ''}`}>
     {dimension !== 'genres' && <EntityImage src={item.image_url} label={text} size="hero" decorative />}
     <span className="entity-text">
       <span className="entity-hero-name" title={text}>{href ? <a className="row-link" href={href}>{text}</a> : text}</span>
       {secondary && <small className="entity-secondary">{secondary}</small>}
-      <span className="entity-hero-count">{number.format(item.listens)} <small>{dimension === 'genres' ? 'genre tags' : 'listens'}</small></span>
+      <span className="entity-hero-count">{formatMetric(item.listens, metric)}{metric === 'listens' && <> <small>{dimension === 'genres' ? 'genre tags' : 'listens'}</small></>}</span>
     </span>
   </li>
 }
