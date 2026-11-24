@@ -1,7 +1,7 @@
 import re
 from datetime import date
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import HTTPException, Query
 from pydantic import BeforeValidator, Field
@@ -45,6 +45,10 @@ def statistics_filter(
     to_date: Annotated[LocalDate, Query(alias="to", description="Inclusive local end date")],
     tz: Annotated[str, Query(description="Supported IANA timezone, canonicalized")],
     limit: Annotated[int, Query(ge=1, le=100)] = 10,
+    metric: Annotated[
+        Literal["listens", "minutes"],
+        Query(description="Rankings, heatmap and countries only: count listens or minutes"),
+    ] = "listens",
 ) -> StatisticsFilter:
     # Validation only: never compute date boundaries or buckets in Python.
     zones = load_timezones()
@@ -52,4 +56,4 @@ def statistics_filter(
         raise HTTPException(400, "from must be on or before to")
     if tz not in zones:
         raise HTTPException(400, "Unsupported IANA timezone")
-    return StatisticsFilter(from_date, to_date, zones[tz], limit)
+    return StatisticsFilter(from_date, to_date, zones[tz], limit, metric=metric)

@@ -148,9 +148,9 @@ class ArtistHistory:
             raise HTTPException(409, "Pagination changed; reload")
         return state
 
-    def summary(self, artist_key: str) -> ArtistSummary:
+    def summary(self, artist_key: str, minutes: bool = False) -> ArtistSummary:
         key = _key(artist_key)
-        p = queries.params(key)
+        p = queries.params(key, minutes=minutes)
         with self._snapshot() as (c, _, _reference):
             found = self._identity(c, p)
             genres = (
@@ -181,15 +181,16 @@ class ArtistHistory:
         dimension: str,
         limit: int = 50,
         cursor: str | None = None,
+        minutes: bool = False,
     ) -> ArtistRankingPage:
         key = _key(artist_key)
         _limit(limit)
         if dimension not in ("albums", "tracks"):
             raise HTTPException(400, "Invalid ranking dimension")
-        p = queries.params(key)
+        p = queries.params(key, minutes=minutes)
         with self._snapshot() as (c, generation, reference):
             state = self._page_state(
-                cursor, ("artist-ranking", key, dimension, limit), generation, reference
+                cursor, ("artist-ranking", key, dimension, limit, minutes), generation, reference
             )
             self._identity(c, p)
             rows = queries.rankings(c, p, dimension, limit, state["after"])
@@ -217,7 +218,9 @@ class ArtistHistory:
                 }
             )
 
-    def heatmap(self, artist_key: str, year: int | None = None, tz: str = "UTC") -> ArtistHeatmap:
+    def heatmap(
+        self, artist_key: str, year: int | None = None, tz: str = "UTC", minutes: bool = False
+    ) -> ArtistHeatmap:
         key = _key(artist_key)
         zones = load_timezones()
         if tz not in zones:
@@ -228,7 +231,7 @@ class ArtistHistory:
                 year = reference.astimezone(ZoneInfo(tz)).year
             if not 1 <= year <= 9999:
                 raise HTTPException(400, "Invalid year")
-            p = queries.params(key, tz)
+            p = queries.params(key, tz, minutes)
             self._identity(c, p)
             years = list(
                 c.execute(
@@ -245,7 +248,7 @@ class ArtistHistory:
                 text(
                     queries.MATCH
                     + """
-                SELECT day,count(*) AS listens FROM selected
+                SELECT day,round(sum(w))::bigint AS listens FROM selected
                 WHERE extract(year FROM day)=:year GROUP BY day ORDER BY day
             """
                 ),

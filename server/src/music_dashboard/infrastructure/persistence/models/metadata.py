@@ -55,6 +55,15 @@ class MetadataCache(Base):
     last_error: Mapped[str | None] = mapped_column(Text)
 
 
+class RecordingDuration(Base):
+    """Track length per recording MBID (ms), projected from the LB recording metadata."""
+
+    __tablename__ = "recording_durations"
+    __table_args__ = (CheckConstraint("duration_ms > 0", name="ck_recording_durations_positive"),)
+    recording_mbid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    duration_ms: Mapped[int] = mapped_column(Integer)
+
+
 class EnrichmentQueueItem(Base):
     __tablename__ = "enrichment_queue"
     __table_args__ = (

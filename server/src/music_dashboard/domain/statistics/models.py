@@ -15,6 +15,8 @@ class StatisticsFilter:
     limit: int
     # Only for the path-param family countries/artists (validated against COUNTRY_CODES).
     country_code: str | None = None
+    # "minutes" weighs listens by track length. Honoured by MINUTES_FAMILIES only.
+    metric: str = "listens"
 
 
 @dataclass(frozen=True)

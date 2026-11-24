@@ -6,7 +6,7 @@ Callers hold the enrichment advisory lock across a run, not a transaction across
 """
 
 from datetime import datetime
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import Engine, delete, select, text, update
@@ -28,10 +28,20 @@ from music_dashboard.infrastructure.persistence.models import (
     EntityGenre,
     Genre,
     MetadataCache,
+    RecordingDuration,
 )
 
 # Session-level lock: crash automatically releases it; no in-progress queue lease needed.
 ENRICHMENT_LOCK = 730004
+
+
+def recording_length_ms(payload: dict[str, Any] | None) -> int | None:
+    """MusicBrainz track length (ms) from a cached LB recording entry, if valid."""
+    recording = ((payload or {}).get("metadata") or {}).get("recording")
+    length = recording.get("length") if isinstance(recording, dict) else None
+    if isinstance(length, bool) or not isinstance(length, int) or not 0 < length <= 2**31 - 1:
+        return None
+    return length
 
 
 class SqlMetadataRepository:
@@ -146,6 +156,37 @@ class SqlMetadataRepository:
                     set_=values,
                 )
             )
+            length = (
+                recording_length_ms(lookup.payload)
+                if lookup.entity_type == "recording" and lookup.source == "listenbrainz"
+                else None
+            )
+            if length is not None:
+                old_length = connection.scalar(
+                    select(RecordingDuration.duration_ms).where(
+                        RecordingDuration.recording_mbid == UUID(lookup.mbid)
+                    )
+                )
+                if old_length != length:
+                    connection.execute(
+                        insert(RecordingDuration)
+                        .values(recording_mbid=UUID(lookup.mbid), duration_ms=length)
+                        .on_conflict_do_update(
+                            index_elements=["recording_mbid"], set_={"duration_ms": length}
+                        )
+                    )
+                    # Minutes statistics change: invalidate generation-keyed response caches.
+                    connection.execute(
+                        insert(DataGeneration)
+                        .values(id=1, enrichment_generation=1, last_updated=lookup.fetched_at)
+                        .on_conflict_do_update(
+                            index_elements=["id"],
+                            set_={
+                                "enrichment_generation": DataGeneration.enrichment_generation + 1,
+                                "last_updated": lookup.fetched_at,
+                            },
+                        )
+                    )
             if (
                 lookup.source == "listenbrainz"
                 and lookup.status == "positive"

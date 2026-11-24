@@ -9,6 +9,7 @@ from .metadata import (
     EntityGenre,
     Genre,
     MetadataCache,
+    RecordingDuration,
 )
 from .reference import Timezone
 from .titles import ReleaseTitleCache, ReleaseTitleLookup
@@ -28,6 +29,7 @@ __all__ = [
     "ListenArtist",
     "MetadataCache",
     "QuarantinedListen",
+    "RecordingDuration",
     "RawListen",
     "RefreshState",
     "SyncRun",

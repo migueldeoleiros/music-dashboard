@@ -44,7 +44,8 @@ def test_all_chart_families_and_get_only() -> None:
         }
         if path != "/api/health":
             params = {p["name"] for p in operations["get"]["parameters"]}
-            expected = {"from", "to", "tz", "limit"} | ({"code"} if "{code}" in path else set())
+            expected = {"from", "to", "tz", "limit", "metric"}
+            expected |= {"code"} if "{code}" in path else set()
             assert params == expected
             assert "422" not in operations["get"]["responses"]
             assert "400" in operations["get"]["responses"]

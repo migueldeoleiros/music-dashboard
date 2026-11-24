@@ -20,6 +20,7 @@ router = APIRouter(
 )
 Limit = Annotated[int, Query(ge=1, le=100)]
 Cursor = Annotated[str | None, Query(max_length=256)]
+Metric = Annotated[Literal["listens", "minutes"], Query(description="Count listens or minutes")]
 
 
 def artist_service() -> Any:
@@ -29,24 +30,26 @@ def artist_service() -> Any:
 
 
 @router.get("/artists/{artist_key}", response_model=ArtistSummary)
-def artist_summary(artist_key: str) -> Any:
-    return artist_service().summary(artist_key)
+def artist_summary(artist_key: str, metric: Metric = "listens") -> Any:
+    return artist_service().summary(artist_key, minutes=metric == "minutes")
 
 
 @router.get("/artists/{artist_key}/rankings/{dimension}", response_model=ArtistRankingPage)
 def artist_rankings(
     artist_key: str, dimension: Literal["albums", "tracks"],
-    limit: Limit = 50, cursor: Cursor = None,
+    limit: Limit = 50, cursor: Cursor = None, metric: Metric = "listens",
 ) -> Any:
-    return artist_service().rankings(artist_key, dimension, limit=limit, cursor=cursor)
+    return artist_service().rankings(
+        artist_key, dimension, limit=limit, cursor=cursor, minutes=metric == "minutes"
+    )
 
 
 @router.get("/artists/{artist_key}/heatmap", response_model=ArtistHeatmap)
 def artist_heatmap(
     artist_key: str, year: Annotated[int | None, Query(ge=1, le=9999)] = None,
-    tz: Annotated[str, Query(max_length=100)] = "UTC",
+    tz: Annotated[str, Query(max_length=100)] = "UTC", metric: Metric = "listens",
 ) -> Any:
-    return artist_service().heatmap(artist_key, year=year, tz=tz)
+    return artist_service().heatmap(artist_key, year=year, tz=tz, minutes=metric == "minutes")
 
 
 @router.get("/artists/{artist_key}/recent", response_model=ArtistRecentPage)

@@ -35,8 +35,13 @@ WITH candidate_names AS (
  AND NOT EXISTS (SELECT 1 FROM listen_artists a WHERE a.listen_id=l.id)
  AND EXISTS (SELECT 1 FROM folded_names n WHERE n.name=l.artist_name AND n.folded=:name)
 ), selected AS MATERIALIZED (
- SELECT l.*, (l.listened_at AT TIME ZONE :tz)::date AS day
+ SELECT l.*, (l.listened_at AT TIME ZONE :tz)::date AS day,
+  CASE WHEN CAST(:minutes AS boolean)
+       THEN coalesce(d.duration_ms, (SELECT avg(duration_ms) FROM recording_durations), 0)
+            / 60000.0
+       ELSE 1.0 END AS w
  FROM matched m JOIN listens l ON l.id=m.id
+ LEFT JOIN recording_durations d ON d.recording_mbid=l.recording_mbid
 )
 """
 # COMMON's later CTEs retain canonical album resolution over ALL history and the
@@ -44,7 +49,7 @@ WITH candidate_names AS (
 SCOPED = MATCH + ", names AS (" + COMMON.split("), names AS (", 1)[1]
 
 
-def params(key: str, tz: str = "UTC") -> dict[str, Any]:
+def params(key: str, tz: str = "UTC", minutes: bool = False) -> dict[str, Any]:
     return {
         "key": key,
         "mbid": None if key.startswith("name:") else key,
@@ -53,6 +58,7 @@ def params(key: str, tz: str = "UTC") -> dict[str, Any]:
         "whitespace": WHITESPACE,
         "tz": tz,
         "country_codes": [],
+        "minutes": minutes,
     }
 
 
@@ -62,8 +68,9 @@ def identity(c: Connection, p: dict[str, Any]) -> dict[str, Any] | None:
             text(
                 SCOPED
                 + """
- SELECT min(label) AS label, count(*) AS total FROM unique_credits
- WHERE key=:key AND state<>'missing' HAVING count(*)>0
+ SELECT min(u.label) AS label, round(sum(s.w))::bigint AS total
+ FROM unique_credits u JOIN selected s ON s.id=u.id
+ WHERE u.key=:key AND u.state<>'missing' HAVING count(*)>0
  """
             ),
             p,
@@ -92,7 +99,7 @@ def rankings(
             + extra
             + f"""
  , totals AS (
-   SELECT key, min(label) AS label, count(*)::bigint AS listens
+   SELECT key, min(label) AS label, round(sum(weight))::bigint AS listens
    FROM {source} GROUP BY key
  )
  SELECT key, label, listens FROM totals

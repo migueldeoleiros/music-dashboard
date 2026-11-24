@@ -1353,6 +1353,22 @@
               "title": "Artist Key",
               "type": "string"
             }
+          },
+          {
+            "description": "Count listens or minutes",
+            "in": "query",
+            "name": "metric",
+            "required": false,
+            "schema": {
+              "default": "listens",
+              "description": "Count listens or minutes",
+              "enum": [
+                "listens",
+                "minutes"
+              ],
+              "title": "Metric",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1452,6 +1468,22 @@
               "default": "UTC",
               "maxLength": 100,
               "title": "Tz",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Count listens or minutes",
+            "in": "query",
+            "name": "metric",
+            "required": false,
+            "schema": {
+              "default": "listens",
+              "description": "Count listens or minutes",
+              "enum": [
+                "listens",
+                "minutes"
+              ],
+              "title": "Metric",
               "type": "string"
             }
           }
@@ -1567,6 +1599,22 @@
                 }
               ],
               "title": "Cursor"
+            }
+          },
+          {
+            "description": "Count listens or minutes",
+            "in": "query",
+            "name": "metric",
+            "required": false,
+            "schema": {
+              "default": "listens",
+              "description": "Count listens or minutes",
+              "enum": [
+                "listens",
+                "minutes"
+              ],
+              "title": "Metric",
+              "type": "string"
             }
           }
         ],
@@ -1779,6 +1827,22 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "description": "Rankings, heatmap and countries only: count listens or minutes",
+            "in": "query",
+            "name": "metric",
+            "required": false,
+            "schema": {
+              "default": "listens",
+              "description": "Rankings, heatmap and countries only: count listens or minutes",
+              "enum": [
+                "listens",
+                "minutes"
+              ],
+              "title": "Metric",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1870,6 +1934,22 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "description": "Rankings, heatmap and countries only: count listens or minutes",
+            "in": "query",
+            "name": "metric",
+            "required": false,
+            "schema": {
+              "default": "listens",
+              "description": "Rankings, heatmap and countries only: count listens or minutes",
+              "enum": [
+                "listens",
+                "minutes"
+              ],
+              "title": "Metric",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1950,6 +2030,22 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "description": "Rankings, heatmap and countries only: count listens or minutes",
+            "in": "query",
+            "name": "metric",
+            "required": false,
+            "schema": {
+              "default": "listens",
+              "description": "Rankings, heatmap and countries only: count listens or minutes",
+              "enum": [
+                "listens",
+                "minutes"
+              ],
+              "title": "Metric",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2029,6 +2125,22 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Rankings, heatmap and countries only: count listens or minutes",
+            "in": "query",
+            "name": "metric",
+            "required": false,
+            "schema": {
+              "default": "listens",
+              "description": "Rankings, heatmap and countries only: count listens or minutes",
+              "enum": [
+                "listens",
+                "minutes"
+              ],
+              "title": "Metric",
+              "type": "string"
             }
           }
         ],
@@ -2130,6 +2242,22 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Rankings, heatmap and countries only: count listens or minutes",
+            "in": "query",
+            "name": "metric",
+            "required": false,
+            "schema": {
+              "default": "listens",
+              "description": "Rankings, heatmap and countries only: count listens or minutes",
+              "enum": [
+                "listens",
+                "minutes"
+              ],
+              "title": "Metric",
+              "type": "string"
             }
           }
         ],
@@ -2314,6 +2442,22 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "description": "Rankings, heatmap and countries only: count listens or minutes",
+            "in": "query",
+            "name": "metric",
+            "required": false,
+            "schema": {
+              "default": "listens",
+              "description": "Rankings, heatmap and countries only: count listens or minutes",
+              "enum": [
+                "listens",
+                "minutes"
+              ],
+              "title": "Metric",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2393,6 +2537,22 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Rankings, heatmap and countries only: count listens or minutes",
+            "in": "query",
+            "name": "metric",
+            "required": false,
+            "schema": {
+              "default": "listens",
+              "description": "Rankings, heatmap and countries only: count listens or minutes",
+              "enum": [
+                "listens",
+                "minutes"
+              ],
+              "title": "Metric",
+              "type": "string"
             }
           }
         ],
@@ -2474,6 +2634,22 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "description": "Rankings, heatmap and countries only: count listens or minutes",
+            "in": "query",
+            "name": "metric",
+            "required": false,
+            "schema": {
+              "default": "listens",
+              "description": "Rankings, heatmap and countries only: count listens or minutes",
+              "enum": [
+                "listens",
+                "minutes"
+              ],
+              "title": "Metric",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2553,6 +2729,22 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Rankings, heatmap and countries only: count listens or minutes",
+            "in": "query",
+            "name": "metric",
+            "required": false,
+            "schema": {
+              "default": "listens",
+              "description": "Rankings, heatmap and countries only: count listens or minutes",
+              "enum": [
+                "listens",
+                "minutes"
+              ],
+              "title": "Metric",
+              "type": "string"
             }
           }
         ],
@@ -2634,6 +2826,22 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "description": "Rankings, heatmap and countries only: count listens or minutes",
+            "in": "query",
+            "name": "metric",
+            "required": false,
+            "schema": {
+              "default": "listens",
+              "description": "Rankings, heatmap and countries only: count listens or minutes",
+              "enum": [
+                "listens",
+                "minutes"
+              ],
+              "title": "Metric",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2713,6 +2921,22 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Rankings, heatmap and countries only: count listens or minutes",
+            "in": "query",
+            "name": "metric",
+            "required": false,
+            "schema": {
+              "default": "listens",
+              "description": "Rankings, heatmap and countries only: count listens or minutes",
+              "enum": [
+                "listens",
+                "minutes"
+              ],
+              "title": "Metric",
+              "type": "string"
             }
           }
         ],

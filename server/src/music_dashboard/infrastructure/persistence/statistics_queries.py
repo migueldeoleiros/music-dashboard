@@ -59,8 +59,15 @@ WITH bounds AS (
  SELECT (CAST(:from_date AS date)-1)::timestamp AT TIME ZONE :tz AS lo,
         (CAST(:to_date AS date)+2)::timestamp AT TIME ZONE :tz AS hi
 ), selected AS MATERIALIZED (
- SELECT l.*, (l.listened_at AT TIME ZONE :tz)::date AS day
- FROM listens l, bounds b WHERE l.listened_at >= b.lo AND l.listened_at < b.hi
+ -- w: weight of one listen. 1 for listen counts; in minutes mode the recording length in
+ -- minutes, with the average known length for recordings without one.
+ SELECT l.*, (l.listened_at AT TIME ZONE :tz)::date AS day,
+  CASE WHEN CAST(:minutes AS boolean)
+       THEN coalesce(d.duration_ms, (SELECT avg(duration_ms) FROM recording_durations), 0)
+            / 60000.0
+       ELSE 1.0 END AS w
+ FROM listens l LEFT JOIN recording_durations d ON d.recording_mbid=l.recording_mbid,
+ bounds b WHERE l.listened_at >= b.lo AND l.listened_at < b.hi
  AND (l.listened_at AT TIME ZONE :tz)::date
      BETWEEN CAST(:from_date AS date) AND CAST(:to_date AS date)
 ), names AS (
@@ -92,9 +99,11 @@ WITH bounds AS (
  SELECT id, day, key, mbid, min(label) AS label, min(state) AS state
  FROM credits GROUP BY id, day, key, mbid
 ), artist_values AS (
+ -- Listens split one listen across its credits; minutes give every credit the full length.
  SELECT a.id, a.day, a.key, a.label, a.mbid, a.state,
-        1.0 / count(*) OVER (PARTITION BY a.id) AS weight
- FROM unique_credits a WHERE a.state<>'missing'
+        CASE WHEN CAST(:minutes AS boolean) THEN s.w
+             ELSE 1.0 / count(*) OVER (PARTITION BY a.id) END AS weight
+ FROM unique_credits a JOIN selected s ON s.id=a.id WHERE a.state<>'missing'
 ), candidates AS (
  SELECT l.id, l.day, 1 AS priority, 'recording' AS entity_type, l.recording_mbid AS entity_mbid
  FROM selected l WHERE l.recording_mbid IS NOT NULL
@@ -127,15 +136,16 @@ WITH bounds AS (
  -- level wins, then one full count per DISTINCT genre per listen: votes never weight, and
  -- zero/negative-vote tags count. Repeated plays are separate listens; duplicate same-genre
  -- tags (e.g. several credited artists) collapse.
- SELECT DISTINCT id, day, genre_mbid::text AS key, label,
-        genre_mbid::text AS mbid, 'resolved' AS state, 1.0 AS weight
- FROM winning_votes
+ SELECT DISTINCT v.id, v.day, v.genre_mbid::text AS key, v.label,
+        v.genre_mbid::text AS mbid, 'resolved' AS state, s.w AS weight
+ FROM winning_votes v JOIN selected s ON s.id=v.id
 ), country_credits AS (
  SELECT DISTINCT a.id, a.mbid, c.country_code AS code
  FROM unique_credits a JOIN artist_countries c ON c.artist_mbid=CAST(a.mbid AS uuid)
  WHERE c.country_code = ANY(:country_codes)
 ), country_values AS (
- SELECT id, code, 1.0 / count(*) OVER (PARTITION BY id) AS weight FROM country_credits
+ SELECT c.id, c.code, s.w / count(*) OVER (PARTITION BY c.id) AS weight
+ FROM country_credits c JOIN selected s ON s.id=c.id
 ), album_history AS MATERIALIZED (
  -- Stable identity across date ranges: canonical albums come from ALL history, not the
  -- selected window. Read-only; raw listens are never rewritten. Only evaluated for albums.
@@ -175,7 +185,7 @@ WITH bounds AS (
    CASE WHEN coalesce(n.folded,'')='' THEN 'missing'
         WHEN coalesce(l.release_group_mbid::text,l.release_mbid::text,c.kid) IS NULL
           THEN 'unmapped'
-        ELSE 'resolved' END AS state, 1.0 AS weight
+        ELSE 'resolved' END AS state, l.w AS weight
  FROM selected l LEFT JOIN normalized n ON n.name=l.release_name
  LEFT JOIN normalized a ON a.name=l.artist_name
  LEFT JOIN canonical_albums c ON l.release_group_mbid IS NULL AND l.release_mbid IS NULL
@@ -188,7 +198,7 @@ WITH bounds AS (
    l.recording_mbid::text AS mbid,
    CASE WHEN coalesce(n.folded,'')='' THEN 'missing'
         WHEN l.recording_mbid IS NULL THEN 'unmapped' ELSE 'resolved' END AS state,
-   1.0 AS weight
+   l.w AS weight
  FROM selected l LEFT JOIN normalized n ON n.name=l.track_name
  LEFT JOIN normalized a ON a.name=l.artist_name
 )
@@ -319,7 +329,8 @@ FROM selected
 # country's artist listens sum to its /api/countries total for identical filters.
 COUNTRY_ARTISTS = """
 , credit_weights AS (
- SELECT id, mbid, code, 1.0 / count(*) OVER (PARTITION BY id) AS weight FROM country_credits
+ SELECT c.id, c.mbid, c.code, s.w / count(*) OVER (PARTITION BY c.id) AS weight
+ FROM country_credits c JOIN selected s ON s.id=c.id
 )
 SELECT w.mbid AS key, min(u.label) AS label, w.mbid AS mbid, NULL::text AS image_url,
        CASE WHEN bool_or(u.state='missing') THEN 'missing'
@@ -350,6 +361,25 @@ PIE_SLICES = f"""
  WHERE NOT ({PIE_THRESHOLD}) HAVING count(*)>0
  ORDER BY is_other, listens DESC, key
 """
+# Families whose values can be minutes; everything else (pies, evolution) always counts listens.
+MINUTES_FAMILIES = (
+    "heatmap",
+    "countries",
+    COUNTRY_ARTISTS_FAMILY,
+    "rankings/artists",
+    "rankings/albums",
+    "rankings/tracks",
+    "rankings/genres",
+)
+# Minutes share denominators: the minutes of the listens each dimension's coverage includes.
+# None = every selected listen.
+MINUTES_INCLUDED_SOURCE = {
+    "artists": "artist_values",
+    "genres": "genre_values",
+    "countries": "country_values",
+    "albums": None,
+    "tracks": None,
+}
 TABLES = {
     "artists": "artist_values",
     "albums": "album_values",
@@ -461,6 +491,7 @@ class SQLStatisticsQueries:
             "whitespace": WHITESPACE,
             "country_codes": COUNTRY_CODES,
             "country": filters.country_code,
+            "minutes": False,
         }
 
     def _coverage(self, c: Connection, params: dict[str, Any], generation: int) -> dict[str, Any]:
@@ -483,6 +514,8 @@ class SQLStatisticsQueries:
         if family not in SUPPORTED_FAMILIES:
             raise InvalidStatisticsRequest("Unsupported chart family")
         params = self._params(filters)
+        minutes = filters.metric == "minutes" and family in MINUTES_FAMILIES
+        params["minutes"] = minutes
         with self._connection() as c:
             snapshot = self._snapshot(c)
             if family in RECOVERY_FAMILIES:
@@ -497,6 +530,7 @@ class SQLStatisticsQueries:
                 params["tz"],
                 None if family.startswith(SHARE_FAMILIES) else filters.limit,
                 filters.country_code,
+                minutes,
                 snapshot["generation"],
             )
             cached = self.cache.get(key)
@@ -521,7 +555,8 @@ class SQLStatisticsQueries:
                         dict(r)
                         for r in c.execute(
                             text(
-                                COMMON + "SELECT day, count(*) AS listens FROM selected "
+                                COMMON
+                                + "SELECT day, round(sum(w))::bigint AS listens FROM selected "
                                 "GROUP BY day ORDER BY day"
                             ),
                             params,
@@ -531,7 +566,7 @@ class SQLStatisticsQueries:
             elif family == COUNTRY_ARTISTS_FAMILY:
                 if filters.country_code is None:
                     raise InvalidStatisticsRequest("Unsupported country code")
-                included = result["coverage"]["countries"]["included_listens"]
+                included = self._included(c, params, "countries", result["coverage"])
                 result["dimension"] = "artists"
                 result["items"] = [
                     {
@@ -548,7 +583,7 @@ class SQLStatisticsQueries:
                 ]
                 self._apply_artwork(c, result["items"], "artist", params)
             elif family == "countries":
-                included = result["coverage"]["countries"]["included_listens"]
+                included = self._included(c, params, "countries", result["coverage"])
                 result["countries"] = [
                     {
                         "code": r["code"],
@@ -569,7 +604,7 @@ class SQLStatisticsQueries:
             else:
                 kind, dimension = family.split("/")
                 result["dimension"] = dimension
-                included = result["coverage"][dimension]["included_listens"]
+                included = self._included(c, params, dimension, result["coverage"])
                 # Genre rankings alone use appearance counting; see genre_ranking_values.
                 source = (
                     "genre_ranking_values" if kind == "rankings" and dimension == "genres" else None
@@ -582,7 +617,8 @@ class SQLStatisticsQueries:
                 if source and dimension == "genres":
                     # Shares use total appearances (sum to 1); coverage unchanged.
                     included = c.execute(
-                        text(common + f"SELECT count(*) FROM {source}"), params
+                        text(common + f"SELECT coalesce(sum(weight),0)::float8 FROM {source}"),
+                        params,
                     ).scalar_one()
                 if kind == "evolution":
                     result.update(self._evolution(c, dimension, {**params, "included": included}))
@@ -634,7 +670,7 @@ class SQLStatisticsQueries:
                     )
                     if kind == "rankings" and dimension == "albums":
                         # Shares: named albums before LIMIT (one pass; coverage stays overall).
-                        included = int(rows[0]["ranked_total"]) if rows else 0
+                        included = float(rows[0]["ranked_total"]) if rows else 0
                     if kind == "rankings":
                         result["items"] = [
                             {
@@ -676,7 +712,22 @@ class SQLStatisticsQueries:
             item["image_url"] = covers.get(item["key"])
 
     @staticmethod
-    def _share(value: float, included: int) -> float:
+    def _included(
+        c: Connection, params: dict[str, Any], dimension: str, coverage: dict[str, Any]
+    ) -> float:
+        """Share denominator: included listens, or in minutes mode their total minutes."""
+        if not params["minutes"]:
+            return float(coverage[dimension]["included_listens"])
+        table = MINUTES_INCLUDED_SOURCE[dimension]
+        where = f" WHERE id IN (SELECT id FROM {table})" if table else ""
+        return float(
+            c.execute(
+                text(COMMON + f"SELECT coalesce(sum(w),0)::float8 FROM selected{where}"), params
+            ).scalar_one()
+        )
+
+    @staticmethod
+    def _share(value: float, included: float) -> float:
         return min(1.0, max(0.0, value / included)) if included else 0.0
 
     @staticmethod
