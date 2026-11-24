@@ -638,3 +638,64 @@ def test_run_stats_and_scan_state(repo):
     repo.finish_run(other, "failed")
     with pytest.raises(ValueError):
         repo.update_run_stats(10**9, {})
+
+
+def _listen(ts, artist, mapped=None):
+    tm = {"artist_name": artist, "track_name": f"t{ts}"}
+    if mapped:
+        tm["mbid_mapping"] = {"artists": mapped}
+    return {
+        "listened_at": T0 + ts,
+        "recording_msid": str(uuid.UUID(int=ts + 1)),
+        "track_metadata": tm,
+    }
+
+
+def _credits(repo):
+    with repo._engine.connect() as c:
+        rows = c.execute(
+            text(
+                "SELECT l.track_name, a.artist_name, a.artist_mbid::text FROM listen_artists a "
+                "JOIN listens l ON l.id = a.listen_id ORDER BY l.track_name, a.position"
+            )
+        ).all()
+    return [tuple(r) for r in rows]
+
+
+YUJU = "344d0612-8e74-4227-a4ec-9848a6534d86"
+OTHER_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+OTHER_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+
+
+def test_unmapped_names_alias_only_to_a_single_known_mbid(repo):
+    def mapped(name, mbid):
+        return [{"artist_credit_name": name, "artist_mbid": mbid}]
+
+    batch = [
+        _listen(1, "YUJU", mapped("YUJU", YUJU)),
+        _listen(2, "YUJU"),  # identical name: aliased (this batch)
+        _listen(10, "Yuju"),  # different case: never aliased
+        _listen(11, "LOONA", mapped("LOONA", OTHER_A)),
+        _listen(12, "Loona"),  # different artist by case: stays name-only
+        _listen(3, "YUJU feat. Mad Clown"),  # split, primary aliased, guest unknown
+        _listen(4, "Twin", mapped("Twin", OTHER_A)),
+        _listen(5, "Twin", mapped("Twin", OTHER_B)),
+        _listen(6, "Twin"),  # ambiguous: stays name-only
+        _listen(7, "Various Artists", mapped("Various Artists", OTHER_A)),
+        _listen(8, "Various Artists"),  # never aliased
+    ]
+    repo.ingest(USER, batch, "api", NOW)
+    credits = _credits(repo)
+    assert ("t2", "YUJU", YUJU) in credits
+    assert ("t10", "Yuju", None) in credits
+    assert ("t12", "Loona", None) in credits
+    assert ("t3", "YUJU", YUJU) in credits
+    assert ("t3", "Mad Clown", None) in credits
+    assert ("t6", "Twin", None) in credits
+    assert ("t8", "Various Artists", None) in credits
+    # later unmapped listen picks the alias up from stored credits; re-ingest is stable
+    repo.ingest(USER, [_listen(9, "YUJU")], "api", NOW)
+    repo.ingest(USER, batch, "api", NOW)
+    again = _credits(repo)
+    assert ("t9", "YUJU", YUJU) in again
+    assert set(credits) <= set(again)

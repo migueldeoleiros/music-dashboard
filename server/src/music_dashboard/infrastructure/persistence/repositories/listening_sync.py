@@ -24,6 +24,7 @@ from music_dashboard.domain.listening.entities import epoch_seconds
 from music_dashboard.domain.listening.feat_credit import split_feat
 
 from ..models import DataGeneration
+from ..statistics_queries import WHITESPACE
 
 CHECKPOINT_KEYS = (
     "cursor_max_ts",
@@ -172,6 +173,57 @@ def _parse(payload: Any, user: str) -> _Parsed:
         "release_group_mbid": mbid("release_group_mbid"),
     }
     return out
+
+
+# Case-SENSITIVE on purpose: "LOONA" and "Loona" can be different artists, so only identical
+# names (after Unicode normalization and trimming) may alias.
+_EXACT = "btrim(normalize({col}, NFKC), :whitespace)"
+
+_ALIAS_ARTISTS = """
+WITH known AS (
+  SELECT {fold_n} AS f, m FROM (
+    {stored}
+    SELECT e ->> 'n' AS n, (e ->> 'm')::uuid AS m
+    FROM snapshot_rows s CROSS JOIN LATERAL jsonb_array_elements(s.artists) e
+    WHERE e ->> 'm' IS NOT NULL
+  ) k
+), uniq AS (
+  SELECT f, min(m::text) AS m FROM known
+  WHERE f <> '' AND lower(f) <> 'various artists' GROUP BY f HAVING count(DISTINCT m) = 1
+), fixed AS (
+  SELECT s.listened_at, s.recording_msid, (
+    SELECT jsonb_agg(CASE WHEN t.e ->> 'm' IS NULL AND u.m IS NOT NULL
+        THEN jsonb_build_object('n', t.e ->> 'n', 'm', u.m) ELSE t.e END ORDER BY t.ord)
+    FROM jsonb_array_elements(s.artists) WITH ORDINALITY AS t(e, ord)
+    LEFT JOIN uniq u ON t.e ->> 'm' IS NULL AND u.f = {fold_t}
+  ) AS artists
+  FROM snapshot_rows s
+)
+UPDATE snapshot_rows s SET artists = x.artists FROM fixed x
+WHERE x.listened_at = s.listened_at AND x.recording_msid = s.recording_msid
+  AND x.artists IS DISTINCT FROM s.artists
+"""
+
+
+def alias_unmapped_artists(c: Connection, *, include_stored: bool) -> int:
+    """Give a name-only credit the MBID of an artist with that exact name, but only when exactly
+    one MBID is known for it (other stored listens and/or this batch; "Various Artists" never
+    aliases). Runs on the staged rows so the artist diff stays stable. The raw payload is
+    untouched; a rebuild re-derives it from raw alone (`include_stored=False`)."""
+    stored = (
+        "SELECT a.artist_name AS n, a.artist_mbid AS m FROM listen_artists a "
+        "JOIN listens l ON l.id = a.listen_id WHERE a.artist_mbid IS NOT NULL "
+        "AND NOT EXISTS (SELECT 1 FROM snapshot_rows s WHERE s.listened_at = l.listened_at "
+        "AND s.recording_msid = l.recording_msid) UNION"
+        if include_stored
+        else ""
+    )
+    sql = _ALIAS_ARTISTS.format(
+        stored=stored,
+        fold_n=_EXACT.format(col="n"),
+        fold_t=_EXACT.format(col="t.e ->> 'n'"),
+    )
+    return c.execute(text(sql), {"whitespace": WHITESPACE}).rowcount
 
 
 _API_MBID_KEYS = ("recording_mbid", "release_mbid", "release_group_mbid", "artist_mbids")
@@ -634,6 +686,7 @@ class SyncRepository:
             if len(good) + len(bad) >= _CHUNK:
                 flush()
         flush()
+        alias_unmapped_artists(c, include_stored=source != "rebuild")
         c.execute(text("ANALYZE snapshot_rows"))
         return valid, invalid
 
