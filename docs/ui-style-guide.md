@@ -52,6 +52,7 @@ uses `--text-muted`.
 | `client/src/styles/entity-list.css` | entity list, rankings, country panel/sheet |
 | `client/src/styles/ui.css` | icons, icon buttons, floating nav, full-row links, SongRow |
 | `client/src/styles/artist-history.css` | History and artist page layout |
+| `client/src/styles/skeleton.css` | skeleton shimmer, loading placeholders, enter animations |
 
 ## Breakpoints and touch rules
 
@@ -82,6 +83,7 @@ All in `client/src/components/ui/` (barrel `index.ts`).
 | `SongRow` | Image + full-width columns title \| artist \| album (stacked on mobile). Only History and artist recent songs. Props: `song: PublicSong`, `excludeArtistKey?: string`. Links itself to the primary artist. |
 | `Panel` | Section title + card frame (see Section titles). Props: `title, variant? 'default'\|'heatmap'\|'ranking', busy?`. |
 | `EntityList` | The `<ol>` wrapper for rows. |
+| `Skeleton`, `RowSkeleton`, `SongRowSkeleton`, `HeroSkeleton` | Loading placeholders (see Loading states). |
 | `Icon` | Inline SVG Material icon, `name: 'home' \| 'history' \| 'add' \| 'search'`, `size` (24). Add new icons to its path map. |
 | `IconButton` | Round 44px icon-only control. Props: `icon, label` (required name + tooltip), `href?` (renders `<a>`) or `onClick`. |
 | `FloatingNav` | Top-left single bubble (`position: fixed`, follows scroll; `--surface` + `--border`, `--radius-lg`) holding borderless IconButtons (`bare`), Home first. Vertical on wide viewports, horizontal at `max-width: 1632px`, i.e. once the page gutter is narrower than bubble width + left offset (`1500px` `.app` max-width + 2 × (54px bubble + 12px offset); derivation in `ui.css`). Page top padding is one constant (safe-area + one bubble height + gap) regardless of icon count; a 2-icon vertical bubble may overlap content. Safe-area insets respected. `items`: dashboard `['history']`, History `['home']`, artist `['home','history']`. No bottom-left bubble, no text nav links. |
@@ -113,6 +115,16 @@ All in `client/src/components/ui/` (barrel `index.ts`).
 - Every cover goes through `EntityImage` with the size for its role. Never use a bare `<img>`.
 - `image_url` for rankings, History feed and artist endpoints comes from the single server resolver (below); clients never guess covers.
 
+### Loading states (skeletons)
+Styles in `client/src/styles/skeleton.css`; primitives in `components/ui/Skeleton.tsx` (`Skeleton`, `RowSkeleton`, `SongRowSkeleton`, `HeroSkeleton`) and `features/dashboard/ChartSkeleton.tsx` (`ChartSkeleton`, `HeatmapSkeleton`, `ChartBlockSkeleton`, `RankingSkeleton`). Never hand-roll a shimmer or a "Loading…" paragraph.
+- **Same size as the content.** A skeleton must not cause layout shift. Charts: heights come from `components/charts/sizes.ts`, shared by the chart `Frame` and its skeleton (`--chart-h`, `--chart-h-narrow`); change a height there, never in one place only.
+- **Charts are lazy.** Evolution, pie, map and heatmap bodies use `React.lazy` (echarts loads in its own chunk) inside a `Suspense` whose fallback is the same skeleton as the pending-data state, so the placeholder does not flicker. Import chart components lazily from `components/charts`, never statically. Tests of chart output use `findBy*`/`waitFor`.
+- **Heatmap** shows the real week grid with dim cells (`buildRollingGrid([], from, to)`), then the colours fill in. Other charts show one `.skeleton-chart` block.
+- **Lists of unknown length**: rankings show a single `HeroSkeleton` (the #1 slot always exists). Real rows then mount with the `row-expand` animation (`.ranking-entities`, `.country-ranking`). Top countries uses three `RowSkeleton`s (no image).
+- **Flat lists** (History, artist recent songs): three `SongRowSkeleton`s via `FeedSkeleton`, on first load and appended below the list while loading more (`LoadMore skeleton`).
+- **Accessibility**: skeleton markup is `aria-hidden`. Each loading region has exactly one `role="status"` sr-only text ("Loading …"), and `Panel` sets `aria-busy`.
+- **Motion**: shimmer (`skeleton-shimmer`), heatmap pulse, `row-expand` (.35s), chart `fade-in` (.3s). All are covered by the global `prefers-reduced-motion` rule in `global.css`; add new animations to `skeleton.css`.
+
 ### Reuse-before-building checklist
 1. Is there a component above that does this? Use it; extend with an additive prop if needed.
 2. Rows: `CompactRow` (lists) or `SongRow` (songs). No new row markup.
@@ -122,6 +134,7 @@ All in `client/src/components/ui/` (barrel `index.ts`).
 6. Covers: `EntityImage` only.
 7. Panel title outside the card; no redundant subtext.
 8. Privacy: no exact listen timestamps anywhere.
+9. Loading: use the skeletons above, sized like the content.
 
 ## Server artwork resolver contract
 

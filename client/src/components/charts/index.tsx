@@ -25,6 +25,7 @@ import {
 } from './builders'
 import type { EChartsType } from 'echarts/core'
 import { echarts } from './echarts'
+import { EVOLUTION_HEIGHT, HEATMAP_COLUMN, HEATMAP_GUTTER, HEATMAP_HEIGHT, MAP_HEIGHT, MAP_NARROW_HEIGHT, PIE_HEIGHT } from './sizes'
 import { useECharts, type ChartHandle, type ChartSize, type Opt } from './useECharts'
 import type { ChartTheme } from './theme'
 import { formatMetric, useMetric } from '../../app/metric'
@@ -109,7 +110,7 @@ export function EvolutionChart({ data }: { data: EvolutionResponse }) {
     <Frame
       label={`Evolution of ${dimension}, ${series.length} series per ${unit}`}
       summary={`${series.length} series over ${buckets.length} ${unit} buckets from ${data.range.from} to ${data.range.to} (${data.range.tz}). Shown as each series' share of the bucket total (100%), not absolute counts.`}
-      height={360}
+      height={EVOLUTION_HEIGHT}
       narrowHeight={evolutionNarrowHeight(series.length)}
       build={build}
       onPointer={onPointer}
@@ -158,7 +159,7 @@ export function PieChart({ data }: { data: PieResponse }) {
     <Frame
       label={`Share of ${dimension}`}
       summary={`${slices.length} slices${slices[0] ? `; largest: ${slices[0].label} (${pct(slices[0].share)})` : ''}.`}
-      height={340}
+      height={PIE_HEIGHT}
       narrowHeight={pieNarrowHeight(slices.length)}
       build={build}
       table={
@@ -195,12 +196,12 @@ export function HeatmapChart({ data }: { data: HeatmapResponse }) {
   const active = useMemo(() => data.cells.filter((c) => c.listens > 0), [data.cells])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const build = useMemo(() => (t: ChartTheme) => buildHeatmapOption(data, t), [data, metric])
-  const heatWidth = useMemo(() => buildRollingGrid(data.cells, data.range.from, data.range.to).cols * 15 + 40, [data])
+  const heatWidth = useMemo(() => buildRollingGrid(data.cells, data.range.from, data.range.to).cols * HEATMAP_COLUMN + HEATMAP_GUTTER, [data])
   return (
     <Frame
       label="Daily listening heatmap, weeks start Monday"
       summary={`${formatMetric(total, metric)} ${unit} across ${active.length} active days from ${data.range.from} to ${data.range.to} (${data.range.tz}); busiest day ${formatMetric(max, metric)} ${unit}.`}
-      height={7 * 16 + 28}
+      height={HEATMAP_HEIGHT}
       scrollX={{ minWidth: heatWidth, scrollLabel: 'Daily listening heatmap, scroll sideways for earlier weeks', key: data }}
       build={build}
       legend={
@@ -296,8 +297,8 @@ export function CountryChart({ data, selectedCountry = null, onCountrySelect }: 
     <Frame
       label="Listens by artist country"
       summary={`${countries.length} countries${markerCount ? ` (${markerCount} shown as markers because they have no polygon)` : ''}${countries[0] ? `; top: ${countryName(countries[0].code)} (${pct(countries[0].share)})` : ''}. ${data.partial_credit_note}`}
-      height={380}
-      narrowHeight={280}
+      height={MAP_HEIGHT}
+      narrowHeight={MAP_NARROW_HEIGHT}
       handleRef={handleRef}
       overlay={<MapZoom handleRef={handleRef} />}
       build={build}

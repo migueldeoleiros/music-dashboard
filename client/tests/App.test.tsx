@@ -58,10 +58,11 @@ it('opens straight into content: heatmap first, concise card titles only, no her
   expect(regions[0]).toBe('Daily listening')
   expect(regions.indexOf('Period')).toBe(1)
   expect(regions).toEqual(expect.arrayContaining(['Rankings', 'Artist origins', 'Evolution', 'Shares', 'Top artists', 'Artist evolution', 'Genre shares']))
-  expect(screen.getAllByText('Evolution chart')).toHaveLength(2)
-  expect(screen.getAllByText('Pie chart')).toHaveLength(2)
-  expect(screen.getByText('Daily chart')).toBeTruthy()
-  expect(screen.getByText('Country chart')).toBeTruthy()
+  // Chart bodies are lazy-loaded, so they resolve after the data.
+  await waitFor(() => expect(screen.getAllByText('Evolution chart')).toHaveLength(2))
+  await waitFor(() => expect(screen.getAllByText('Pie chart')).toHaveLength(2))
+  expect(await screen.findByText('Daily chart')).toBeTruthy()
+  expect(await screen.findByText('Country chart')).toBeTruthy()
   expect(screen.queryByText(/^Unmapped$/)).toBeNull()
 })
 

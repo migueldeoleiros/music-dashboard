@@ -6,7 +6,8 @@ import { SongRow } from '../../components/ui/SongRow'
 import { HeatmapPanel } from '../dashboard/HeatmapPanel'
 import { RankingList } from '../dashboard/RankingList'
 import { browserTimezone, todayInZone } from '../dashboard/filters'
-import { FeedError, LoadMore } from './FeedParts'
+import { FeedError, FeedSkeleton, LoadMore } from './FeedParts'
+import { HeatmapSkeleton, RankingSkeleton } from '../dashboard/ChartSkeleton'
 import { usePagedFeed } from './usePagedFeed'
 import { formatMetric, metricParams, useMetric, type Metric } from '../../app/metric'
 import '../../styles/artist-history.css'
@@ -21,7 +22,7 @@ function Rankings({ artistKey, dimension }: { artistKey: string; dimension: 'alb
   return <Panel title={`Top ${dimension}`} variant="ranking">
     {feed.restarted && <p role="status">Listening data changed. Rankings reloaded.</p>}
     {!feed.loading && !feed.error && <RankingList data={data} excludeArtistKey={artistKey} />}
-    {feed.loading && <p role="status">Loading…</p>}
+    {feed.loading && <RankingSkeleton label={`Top ${dimension}`} />}
     <FeedError error={feed.error} retry={feed.retry} />
   </Panel>
 }
@@ -31,10 +32,11 @@ function Recent({ artistKey }: { artistKey: string }) {
   const items = feed.pages.flatMap(page => page.items)
   return <Panel title="Recent songs">
     {feed.restarted && <p role="status">Listening data changed. Recent songs reloaded.</p>}
+    {feed.loading && !items.length && <FeedSkeleton />}
     <ol className="entity-list">{items.map((song, index) => <SongRow key={index} song={song} excludeArtistKey={artistKey} />)}</ol>
     {!feed.loading && !feed.error && !items.length && <p className="entity-empty">No recent songs yet.</p>}
     <FeedError error={feed.error} retry={feed.retry} />
-    <LoadMore {...feed} onLoad={feed.loadMore} />
+    <LoadMore {...feed} onLoad={feed.loadMore} skeleton={items.length > 0} />
   </Panel>
 }
 
@@ -67,7 +69,7 @@ function Heatmap({ artistKey }: { artistKey: string }) {
     retry: false,
   })
   return <Panel title="Daily listening" variant="heatmap">
-    {query.isPending && <p role="status">Loading daily listening…</p>}
+    {query.isPending && <HeatmapSkeleton label="Daily listening" from={addDays(todayInZone(browserTimezone()), -364)} to={todayInZone(browserTimezone())} />}
     <FeedError error={query.error} retry={() => void query.refetch()} />
     {query.data && <HeatmapPanel data={query.data} />}
   </Panel>

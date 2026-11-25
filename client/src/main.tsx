@@ -8,6 +8,7 @@ import './styles/charts.css'
 import './styles/entity-list.css'
 import './styles/artist-history.css'
 import './styles/ui.css'
+import './styles/skeleton.css'
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 60_000, refetchOnWindowFocus: false } } })
 

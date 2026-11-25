@@ -1,6 +1,9 @@
+import { lazy, Suspense } from 'react'
 import type { components } from '../../api/schema'
-import { CountryChart } from '../../components/charts'
 import { EmptyState } from './ChartSection'
+import { ChartBlockSkeleton } from './ChartSkeleton'
+
+const CountryChart = lazy(() => import('../../components/charts').then(m => ({ default: m.CountryChart })))
 
 export type MapPanelProps = {
   data: components['schemas']['CountryResponse']
@@ -15,5 +18,6 @@ export type MapPanelProps = {
 
 // Extension point (C2 map / C3 country panel): forwards selection props to CountryChart.
 export function MapPanel({ data, selectedCountry, onCountrySelect }: MapPanelProps) {
-  return data.countries.length ? <CountryChart data={data} selectedCountry={selectedCountry} onCountrySelect={onCountrySelect} /> : <EmptyState />
+  if (!data.countries.length) return <EmptyState />
+  return <Suspense fallback={<ChartBlockSkeleton label="Artist origins" kind="map" />}><CountryChart data={data} selectedCountry={selectedCountry} onCountrySelect={onCountrySelect} /></Suspense>
 }
