@@ -99,7 +99,7 @@ function Dashboard() {
       <section id="origins" ref={originsRef} tabIndex={-1} className="dash-section" aria-label="Artist origins">
         <div className="origins-layout has-panel">
           <ChartPanel path="/api/countries" label="Artist origins" selectedCountry={selectedCountry} onCountrySelect={setSelectedCountry} {...sharedCounted} />
-          {selectedCountry ? <CountryArtistsPanel code={selectedCountry} filters={sharedCounted.filters} onClose={closeCountry} restoreFocusRef={originsRef} /> : <CountryRankingPanel filters={sharedCounted.filters} />}
+          {selectedCountry ? <CountryArtistsPanel code={selectedCountry} filters={sharedCounted.filters} onClose={closeCountry} restoreFocusRef={originsRef} /> : <CountryRankingPanel filters={sharedCounted.filters} onSelect={setSelectedCountry} />}
         </div>
       </section>
       {/* A single calendar day has no evolution to show: both charts are hidden (and not fetched). */}

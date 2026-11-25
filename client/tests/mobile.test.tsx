@@ -137,6 +137,18 @@ it('focus falls back to the provided element when the opener was not focusable (
   expect(document.activeElement).toBe(screen.getByText('fallback'))
 })
 
+it('App wiring: clicking a row in the country list opens that country artists', async () => {
+  stubMedia([])
+  window.history.replaceState(null, '', '?from=2026-01-05&to=2026-01-05')
+  render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>)
+  const ranking = await screen.findByRole('region', { name: 'Countries ranked by listens' })
+  const [row] = await within(ranking).findAllByRole('button')
+  fireEvent.click(row)
+  expect(await screen.findByRole('complementary')).toBeTruthy()
+  expect(screen.queryByRole('region', { name: 'Countries ranked by listens' })).toBeNull()
+  expect(vi.mocked(fetch).mock.calls.some(([url]) => /\/api\/countries\/[A-Z]{2}\/artists/.test(String(url)))).toBe(true)
+})
+
 it('App wiring: map selection opens the panel beside the map and survives a period change', async () => {
   stubMedia([])
   window.history.replaceState(null, '', '?from=2026-01-05&to=2026-01-05')

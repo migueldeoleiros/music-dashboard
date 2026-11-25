@@ -92,6 +92,7 @@ All in `client/src/components/ui/` (barrel `index.ts`).
 ### Rows and lists
 - Whole row is one link: the title anchor (`.row-link`) is stretched over the `<li>` (`::after { inset: 0 }`). Never nest anchors.
 - Multi-credit songs/albums: row links to the primary (first credited) artist. Other credited names are individual links (`.row-inline-link`, `position: relative; z-index: 1`) above the row link. Unresolved artists: plain text, no link. On an artist page, `SongRow` and `RankingList` take `excludeArtistKey` (the page's artist): credits equal to it render as plain text and the row link is dropped when it is the primary (no hover highlight); a different primary (feat artist page) stays linked. Hovering a linked `SongRow` highlights title, artist and album (`.song-cols > span`). Only collaboration rows have two hover behaviours.
+- Rows that act instead of navigate (country list: selects the country) pass `onSelect` to `EntityRow`: the label becomes a `button.row-link.row-button` stretched over the row, with the same hover/focus as linked rows. Never put `onClick` on the `<li>`.
 - Row look follows the dashboard: `.entity-row` padding, hairline separators, `--text` title, `--text-muted` secondary.
 
 ### Links and hover
