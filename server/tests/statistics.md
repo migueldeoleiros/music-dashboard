@@ -45,7 +45,7 @@ No raw/sync/cache tables are read to manufacture health freshness.
   bounds 0001-01-01 / 9999-12-31 trim empty edges to actual history (all-time).
   Final bucket labels are clipped to the exclusive requested end, with a partial
   flag computed against the natural calendar boundary. Empty DB yields no buckets.
-- Pies and evolution ignore `limit`. Pies: named entries with >=1% share of included listens (exactly 1% kept), remaining mass in Other, no cap; evolution: >2% (strict) or Other. Rankings
+- Pies and evolution ignore `limit`. Pies: named entries with >=1% share of included listens (exactly 1% kept), remaining mass in Other, no cap; evolution: the same >=1% rule (at most 100 series + Other). Rankings
   keep limit 1..100 (default 10). Other contains known tail only.
 - Evolution budget: <=120000 buckets and <=2000000 values (actual series × buckets),
   checked before allocating series arrays; each zero array is allocated once.

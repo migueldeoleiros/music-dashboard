@@ -367,20 +367,19 @@ WHERE w.code=:country GROUP BY w.mbid ORDER BY listens DESC, key LIMIT :limit
 # only reads image_url: keys, labels, totals and ordering never depend on artwork. Genres have
 # no artwork.
 ARTWORK_TYPES = {"artists": "artist", "albums": "album", "tracks": "track"}
-# Evolution shows every entity with a STRICTLY greater than 2% share of the included listens of
-# the selected range (no Top-N truncation first); the rest is one combined Other.
-# listens/included > 1/50  <=>  listens*50 > included. Rounding to 9 decimals absorbs float noise
-# from fractional weights so an exact 2% never qualifies by accident (or fails to tie).
-# Pies are wider: every named entity with a share of AT LEAST 1% (listens*100 >= included, so an
-# exact 1% is kept) gets a slice, with no fixed cap; the remaining mass is one combined Other.
+# Pies and evolution share one rule: every named entity with a share of AT LEAST 1% of the
+# included listens of the selected range (listens*100 >= included, so an exact 1% is kept) gets a
+# slice/series, with no Top-N truncation first; the remaining mass is one combined Other.
+# Rounding to 9 decimals absorbs float noise from fractional weights so an exact 1% ties.
 SHARE_FAMILIES = ("pies/", "evolution/")
-SHARE_THRESHOLD = "round(listens::numeric, 9) * 50 > :included"
-PIE_THRESHOLD = "round(listens::numeric, 9) * 100 >= :included"
+SHARE_THRESHOLD = "round(listens::numeric, 9) * 100 >= :included"
+# At most 100 entities can each hold >= 1%, so a share view has at most 100 named entries + Other.
+MAX_SHARE_ENTRIES = 100
 PIE_SLICES = f"""
- SELECT key, label, false AS is_other, listens FROM totals WHERE {PIE_THRESHOLD}
+ SELECT key, label, false AS is_other, listens FROM totals WHERE {SHARE_THRESHOLD}
  UNION ALL
  SELECT 'other', 'Other', true, sum(listens)::float8 FROM totals
- WHERE NOT ({PIE_THRESHOLD}) HAVING count(*)>0
+ WHERE NOT ({SHARE_THRESHOLD}) HAVING count(*)>0
  ORDER BY is_other, listens DESC, key
 """
 # Families whose values can be minutes; everything else (pies, evolution) always counts listens.
@@ -808,8 +807,10 @@ class SQLStatisticsQueries:
         ]
         if len(buckets) > MAX_BUCKETS:
             raise InvalidStatisticsRequest("Range exceeds the supported bucket budget")
-        # More than 49 entities cannot each exceed 2% of the total, so at most 49 + Other series.
-        series_count = min(extent["categories"], 49) + int(extent["categories"] > 49)
+        # More than 100 entities cannot each reach 1% of the total, so at most 100 + Other series.
+        series_count = min(extent["categories"], MAX_SHARE_ENTRIES) + int(
+            extent["categories"] > MAX_SHARE_ENTRIES
+        )
         if len(buckets) * series_count > MAX_EVOLUTION_VALUES:
             raise InvalidStatisticsRequest("Range exceeds the evolution value budget")
         rows = c.execute(

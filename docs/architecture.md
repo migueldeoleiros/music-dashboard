@@ -44,7 +44,7 @@ GET endpoints (prefix `/api`):
 | `/heatmap` | local daily all-listen cells, Monday-first |
 | `/countries` | artist-associated ISO code, weighted listens/share |
 | `/countries/{code}/artists` | RankingResponse of artists credited to one country; `{code}` is uppercase ISO alpha-2 from `COUNTRY_CODES` (anything else, incl. XW/XE/ZZ, is 400) |
-| `/evolution/{artists,genres}` | local half-open buckets, whole-range series with a >2% share of included listens + Other |
+| `/evolution/{artists,genres}` | local half-open buckets, whole-range series for every entry with a >=1% share of included listens (exactly 1% kept, no cap) + Other |
 | `/pies/{artists,genres}` | weighted slices for every named entry with a >=1% share (exactly 1% kept, no cap) + Other |
 | `/health` | mode/status, last_updated, sync_lag_seconds, generation, coverage |
 
@@ -56,9 +56,9 @@ country's item listens sum to its `/countries` listens, and `share` uses the sam
 (country-resolved included listens), so item shares sum to the country's share. The response
 cache key includes the code. Every chart request requires inclusive
 ISO local-date `from`, `to`, and supported case-sensitive IANA `tz`; optional `limit`
-is 1..100, default 10 and caps rankings only. Pies and evolution ignore it. Pies keep every
-entity whose share of the range's included listens is at least 1% (`listens*100 >= included`);
-evolution keeps entities strictly above 2% (`listens*50 > included`). Neither truncates to a Top-N
+is 1..100, default 10 and caps rankings only. Pies and evolution ignore it. Both keep every
+entity whose share of the range's included listens is at least 1% (`listens*100 >= included`),
+so evolution shows the same entities as the pie (at most 100 + Other). Neither truncates to a Top-N
 first; each folds the rest into one Other, so weighted totals are conserved. No all-time duration cap. Invalid dates, reversed dates,
 unknown timezone and invalid limits yield 400 `{code,message,details}`, never 422. Missing
 parameters also yield 400. Health requires no filters. No POST/PUT/DELETE/admin endpoints.
@@ -272,7 +272,7 @@ unchanged. Coverage stays unique covered listens, so ranking totals can exceed c
 
 `/pies/genres` and `/evolution/genres` are **unchanged**: they keep the vote-weighted policy
 above (nonpositive votes discarded when positives exist, equal shares otherwise, 1/N across
-resolved artists), their shares and 1% / 2% cutoffs use included listens, and their totals still
+resolved artists), their shares and 1% cutoff use included listens, and their totals still
 equal covered listens. The two views can therefore rank genres differently (e.g. a zero-vote
 tag appears in the ranking but contributes nothing to the charts when positives exist).
 
@@ -286,7 +286,7 @@ Albums prefer release-group, then release, then a normalized artist+album key. A
 listen joins an ID-backed album only when that exact pair maps to one known album across history.
 All listens count in heatmap. Omit unresolved genre only from genre views, unresolved country
 only from map. Genre/country weights sum to included count within tolerance. Other is known
-categories outside the view's threshold (pies <1%, evolution <=2%), never unknown metadata.
+categories outside the view's threshold (pies and evolution <1%), never unknown metadata.
 Evolution uses its own whole-range membership, ordered by total desc then key with Other last,
 zero-fills daily/weekly/monthly buckets, noncumulative, marks partial final bucket.
 

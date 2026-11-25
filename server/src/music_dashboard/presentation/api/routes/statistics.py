@@ -45,7 +45,7 @@ def endpoint(family: str) -> Any:
         filters: Annotated[StatisticsFilter, Depends(statistics_filter)],
         use_case: Annotated[GetStatistics, Depends(get_statistics)],
     ) -> Any:
-        # `limit` only caps rankings; pies (>= 1%) and evolution (> 2%) select by share.
+        # `limit` only caps rankings; pies and evolution both select by share (>= 1%).
         return run(use_case, family, filters)
 
     return get
