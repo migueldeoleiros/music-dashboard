@@ -68,9 +68,12 @@ def test_writer_can_execute_admission_and_downgrade_restores_300s(migrated_db, w
                 "'music_writer', 'public.public_refresh_request()', 'EXECUTE')"
             )
         ).scalar_one()
-        assert "300" in c.execute(
-            text("SELECT prosrc FROM pg_proc WHERE proname='public_refresh_request'")
-        ).scalar_one()
+        assert (
+            "300"
+            in c.execute(
+                text("SELECT prosrc FROM pg_proc WHERE proname='public_refresh_request'")
+            ).scalar_one()
+        )
 
 
 def test_admission_needs_read_write_and_default_is_read_only(api):

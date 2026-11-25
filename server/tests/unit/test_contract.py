@@ -23,9 +23,7 @@ def test_all_chart_families_and_get_only() -> None:
     additive = ("/api/artist", "/api/history")  # separate public event-feed contract
     assert sum(p.startswith(additive) for p in all_paths) == 6
     paths = {
-        p: ops
-        for p, ops in all_paths.items()
-        if p != "/api/refresh" and not p.startswith(additive)
+        p: ops for p, ops in all_paths.items() if p != "/api/refresh" and not p.startswith(additive)
     }
     assert len(paths) == 12
     assert len(all_paths) == 19

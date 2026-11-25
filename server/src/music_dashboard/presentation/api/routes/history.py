@@ -15,7 +15,8 @@ from music_dashboard.presentation.api.schemas.history import (
 from music_dashboard.presentation.api.schemas.statistics import ErrorResponse
 
 router = APIRouter(
-    prefix="/api", tags=["artist-history"],
+    prefix="/api",
+    tags=["artist-history"],
     responses={status: {"model": ErrorResponse} for status in (400, 404, 409, 503)},
 )
 Limit = Annotated[int, Query(ge=1, le=100)]
@@ -36,8 +37,11 @@ def artist_summary(artist_key: str, metric: Metric = "listens") -> Any:
 
 @router.get("/artists/{artist_key}/rankings/{dimension}", response_model=ArtistRankingPage)
 def artist_rankings(
-    artist_key: str, dimension: Literal["albums", "tracks"],
-    limit: Limit = 50, cursor: Cursor = None, metric: Metric = "listens",
+    artist_key: str,
+    dimension: Literal["albums", "tracks"],
+    limit: Limit = 50,
+    cursor: Cursor = None,
+    metric: Metric = "listens",
 ) -> Any:
     return artist_service().rankings(
         artist_key, dimension, limit=limit, cursor=cursor, minutes=metric == "minutes"
@@ -46,8 +50,10 @@ def artist_rankings(
 
 @router.get("/artists/{artist_key}/heatmap", response_model=ArtistHeatmap)
 def artist_heatmap(
-    artist_key: str, year: Annotated[int | None, Query(ge=1, le=9999)] = None,
-    tz: Annotated[str, Query(max_length=100)] = "UTC", metric: Metric = "listens",
+    artist_key: str,
+    year: Annotated[int | None, Query(ge=1, le=9999)] = None,
+    tz: Annotated[str, Query(max_length=100)] = "UTC",
+    metric: Metric = "listens",
 ) -> Any:
     return artist_service().heatmap(artist_key, year=year, tz=tz, minutes=metric == "minutes")
 
@@ -69,7 +75,8 @@ def artist_credits(
 
 @router.get("/history", response_model=HistoryPage)
 def public_history(
-    tz: Annotated[str, Query(max_length=100)] = "UTC", limit: Limit = 50,
+    tz: Annotated[str, Query(max_length=100)] = "UTC",
+    limit: Limit = 50,
     cursor: Cursor = None,
 ) -> Any:
     from music_dashboard.application.public_history import PublicHistory

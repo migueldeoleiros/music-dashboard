@@ -40,21 +40,31 @@ class PublicHistory:
         state = cursor_store.read(cursor) if cursor is not None else None
         if state is not None and (
             not isinstance(state, _HistoryCursor)
-            or state.timezone != timezone or state.limit != limit
+            or state.timezone != timezone
+            or state.limit != limit
         ):
             raise HTTPException(409, "Feed cursor changed; reload feed")
         batch = history_repository().fetch(
-            timezone, limit,
+            timezone,
+            limit,
             reference=state.reference if state else None,
             generation=state.generation if state else None,
             boundary=state.boundary if state else None,
         )
         next_cursor = None
         if batch.boundary is not None:
-            next_cursor = cursor_store.issue(_HistoryCursor(
-                timezone, limit, batch.generation, batch.reference, batch.boundary,
-            ))
+            next_cursor = cursor_store.issue(
+                _HistoryCursor(
+                    timezone,
+                    limit,
+                    batch.generation,
+                    batch.reference,
+                    batch.boundary,
+                )
+            )
         return HistoryPage(
-            items=batch.items, next_cursor=next_cursor,
-            generation=batch.generation, timezone=timezone,
+            items=batch.items,
+            next_cursor=next_cursor,
+            generation=batch.generation,
+            timezone=timezone,
         )

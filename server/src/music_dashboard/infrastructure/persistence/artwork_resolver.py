@@ -150,9 +150,7 @@ def resolve_song_artwork(
     pending = [
         s.artist
         for s in songs
-        if s.artist
-        and not (s.track and s.track in tracks)
-        and not (s.album and s.album in albums)
+        if s.artist and not (s.track and s.track in tracks) and not (s.album and s.album in albums)
     ]
     artists = resolve_artwork(c, "artist", pending, params) if pending else {}
     return [

@@ -90,7 +90,9 @@ class SQLPublicHistory:
                     raise HTTPException(409, "Listening data changed; reload feed")
                 reference = reference or meta["reference"]
                 params: dict[str, Any] = {
-                    "reference": reference, "tz": tz, "fetch_limit": limit + 1,
+                    "reference": reference,
+                    "tz": tz,
+                    "fetch_limit": limit + 1,
                 }
                 if boundary is not None:
                     params.update(last_at=boundary[0], last_id=boundary[1])
@@ -99,9 +101,11 @@ class SQLPublicHistory:
                 visible = rows[:limit]
                 credits: dict[int, list[ArtistCredit]] = {}
                 if visible:
-                    artists = conn.execute(
-                        text(CREDITS_SQL), {"ids": [row["id"] for row in visible]}
-                    ).mappings().all()
+                    artists = (
+                        conn.execute(text(CREDITS_SQL), {"ids": [row["id"] for row in visible]})
+                        .mappings()
+                        .all()
+                    )
                     if len(artists) > 10000:
                         raise HTTPException(503, "History temporarily unavailable")
                     for artist in artists:
@@ -133,17 +137,19 @@ class SQLPublicHistory:
                         image_url=url,
                         title=(row["track_name"] or "").strip() or "[Missing title]",
                         album=(row["release_name"] or "").strip() or None,
-                        artists=credits.get(row["id"]) or [ArtistCredit(
-                            key=None,
-                            label=(row["artist_name"] or "").strip() or "[Missing artist]",
-                        )],
+                        artists=credits.get(row["id"])
+                        or [
+                            ArtistCredit(
+                                key=None,
+                                label=(row["artist_name"] or "").strip() or "[Missing artist]",
+                            )
+                        ],
                         group=row["heading"],
                     )
                     for row, url in zip(visible, covers, strict=True)
                 ]
                 next_boundary = (
-                    (visible[-1]["listened_at"], visible[-1]["id"])
-                    if len(rows) > limit else None
+                    (visible[-1]["listened_at"], visible[-1]["id"]) if len(rows) > limit else None
                 )
                 return HistoryBatch(items, current_generation, reference, next_boundary)
         except SQLAlchemyError:
