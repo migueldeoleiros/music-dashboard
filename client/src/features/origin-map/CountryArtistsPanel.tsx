@@ -49,7 +49,8 @@ function Panel({ code, filters, onClose, restoreFocusRef }: { code: string; filt
   useEffect(() => {
     const active = document.activeElement
     const opener = active instanceof HTMLElement && active !== document.body ? active : null
-    ref.current?.focus()
+    // preventScroll: moving focus in must not make the browser scroll the page to the panel.
+    ref.current?.focus({ preventScroll: true })
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); onCloseRef.current() }
     }

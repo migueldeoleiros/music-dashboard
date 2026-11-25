@@ -134,6 +134,16 @@ it('CountryArtistsPanel renders nothing without a code', () => {
   expect(container.innerHTML).toBe('')
 })
 
+it('CountryArtistsPanel: moving focus in never scrolls the page', () => {
+  stubApi(okFetch)
+  const focus = vi.spyOn(HTMLElement.prototype, 'focus')
+  renderPanel(<CountryArtistsPanel code="US" filters={{ ...range, tz: 'UTC' }} onClose={() => {}} />)
+  const panel = screen.getByRole('complementary')
+  const call = focus.mock.calls.findIndex((_, i) => focus.mock.contexts[i] === panel)
+  expect(call).toBeGreaterThanOrEqual(0)
+  expect(focus.mock.calls[call][0]).toEqual({ preventScroll: true })
+})
+
 it('CountryArtistsPanel: loading, list, focus in, Escape closes and returns focus', async () => {
   stubApi(okFetch)
   renderPanel(<Harness />)
