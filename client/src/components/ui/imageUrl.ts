@@ -39,15 +39,13 @@ function isLocal(src: string): boolean {
 }
 
 /**
- * Final `src` to load, or null for "show the placeholder". Mock mode never loads external URLs;
- * otherwise only http(s) and local sources are accepted.
+ * Final `src` to load, or null for "show the placeholder". Only http(s) and local sources are accepted.
  */
-export function resolveImageSrc(src: string | null | undefined, size: ImageSize, opts: { mock?: boolean; dpr?: number } = {}): string | null {
+export function resolveImageSrc(src: string | null | undefined, size: ImageSize, opts: { dpr?: number } = {}): string | null {
   if (!src) return null
   const local = localArtworkUrl(src, size, opts.dpr)
   if (local) return local
   if (isLocal(src)) return src
-  if (opts.mock) return null
   if (!/^https?:\/\//i.test(src)) return null
   return sizedImageUrl(src, size, opts.dpr)
 }

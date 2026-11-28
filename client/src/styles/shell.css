@@ -50,6 +50,12 @@ html:has(.custom-dialog[open]) { overflow: hidden; }
 .card-title { margin: 0; padding-inline: .15rem; font-size: .75rem; font-weight: 600; line-height: 1.3; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); }
 .card { min-width: 0; position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: clamp(.85rem, 1.6vw, 1.25rem); }
 .card-heatmap { padding-block: clamp(.75rem, 1.4vw, 1rem); }
+/* Totals: freestanding on the page background (no card); bold number with the title-style label to its right. */
+.summary-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin: 0; padding-inline: .15rem; }
+.summary-stat { display: flex; flex-direction: row-reverse; justify-content: flex-end; align-items: baseline; gap: .5rem; min-width: 0; }
+.summary-stat dt { padding-inline: 0; }
+.summary-value { margin: 0; font-size: clamp(1.6rem, 3vw, 2.25rem); font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--text); overflow-wrap: anywhere; }
+@media (max-width: 720px) { .summary-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 1.25rem; } }
 /* Map + country panel: panel appears beside the map on wide screens (sheet styles live in entity-list.css). */
 .origins-layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
 .origins-layout > * { min-width: 0; }

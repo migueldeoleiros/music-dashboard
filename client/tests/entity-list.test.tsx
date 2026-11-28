@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { mockCountryArtists } from '../src/api/mock'
+import { mockCountryArtists } from './support/mock'
 import type { components } from '../src/api/schema'
 import { EntityImage } from '../src/components/ui/EntityImage'
 import { hueIndex, initials, resolveImageSrc, sizedImageUrl } from '../src/components/ui/imageUrl'
@@ -31,7 +31,7 @@ it('resolveImageSrc maps server WebP copies to the size variant', () => {
   const key = 'a'.repeat(32)
   expect(resolveImageSrc(`/artwork/${key}.webp`, 'sm')).toBe(`/artwork/${key}-120.webp`)
   expect(resolveImageSrc(`/artwork/${key}.webp`, 'sm', { dpr: 2 })).toBe(`/artwork/${key}-250.webp`)
-  expect(resolveImageSrc(`/artwork/${key}.webp`, 'hero', { dpr: 2, mock: true })).toBe(`/artwork/${key}-1000.webp`)
+  expect(resolveImageSrc(`/artwork/${key}.webp`, 'hero', { dpr: 2 })).toBe(`/artwork/${key}-1000.webp`)
   expect(resolveImageSrc('/artwork/../etc.webp', 'md')).toBe('/artwork/../etc.webp') // not a key: untouched local path
 })
 
@@ -44,7 +44,7 @@ it('helpers: initials, hue, resolve', () => {
   expect(hueIndex('x')).toBeGreaterThanOrEqual(1)
   expect(resolveImageSrc('javascript:alert(1)', 'md')).toBeNull()
   expect(resolveImageSrc('//evil.example/a.png', 'md')).toBeNull()
-  expect(resolveImageSrc('/local.png', 'md', { mock: true })).toBe('/local.png')
+  expect(resolveImageSrc('/local.png', 'md', {})).toBe('/local.png')
 })
 
 it('EntityImage renders lazy img and falls back to initials on error', () => {
@@ -62,14 +62,6 @@ it('EntityImage decorative image has empty alt; placeholder without src is hidde
   const { container } = render(<><EntityImage src="https://example.com/a.png" label="A" size="sm" decorative /><EntityImage label="Zed Zed" size="sm" decorative /></>)
   expect(container.querySelector('img')?.getAttribute('alt')).toBe('')
   expect(container.querySelector('[aria-hidden="true"].entity-image--placeholder')?.textContent).toBe('ZZ')
-})
-
-it('mock mode never loads external URLs', () => {
-  vi.stubEnv('VITE_MOCK_API', 'true')
-  const { container } = render(<><EntityImage src={DZ} label="Blue Harbor" size="hero" /><EntityImage src="/art/local.png" label="Local" size="md" /></>)
-  const srcs = [...container.querySelectorAll('img')].map(img => img.getAttribute('src'))
-  expect(srcs).toEqual(['/art/local.png'])
-  expect(screen.getByRole('img', { name: 'Blue Harbor' }).textContent).toBe('BH')
 })
 
 const range = { from: '2026-01-05', to: '2026-01-05' }

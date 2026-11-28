@@ -8,10 +8,15 @@ from music_dashboard.application.get_statistics import GetStatistics
 from music_dashboard.domain.statistics.models import StatisticsFilter
 from music_dashboard.domain.statistics.policies import (
     COUNTRY_ARTISTS_FAMILY,
+    SUMMARY_FAMILY,
     InvalidStatisticsRequest,
     StatisticsUnavailable,
 )
-from music_dashboard.presentation.api.dependencies import get_statistics, statistics_filter
+from music_dashboard.presentation.api.dependencies import (
+    get_statistics,
+    statistics_filter,
+    summary_filter,
+)
 from music_dashboard.presentation.api.schemas.statistics import (
     CountryResponse,
     ErrorResponse,
@@ -19,6 +24,7 @@ from music_dashboard.presentation.api.schemas.statistics import (
     HeatmapResponse,
     PieResponse,
     RankingResponse,
+    SummaryResponse,
 )
 
 router = APIRouter(prefix="/api", tags=["statistics"], responses={400: {"model": ErrorResponse}})
@@ -79,6 +85,22 @@ for family, response in (
         response_model=response,
         operation_id=family.replace("/", "_"),
     )
+
+
+def summary(
+    filters: Annotated[StatisticsFilter, Depends(summary_filter)],
+    use_case: Annotated[GetStatistics, Depends(get_statistics)],
+) -> Any:
+    return run(use_case, SUMMARY_FAMILY, filters)
+
+
+router.add_api_route(
+    "/summary",
+    summary,
+    methods=["GET"],
+    response_model=SummaryResponse,
+    operation_id="summary",
+)
 
 router.add_api_route(
     "/countries/{code}/artists",

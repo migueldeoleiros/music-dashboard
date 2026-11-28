@@ -3,7 +3,7 @@ import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { App } from '../src/app/App'
 import { installDialogStub } from './dialog'
-import { mockChart } from '../src/api/mock'
+import { mockChart, mockSummary } from './support/mock'
 import type { ChartPath } from '../src/api/client'
 
 vi.mock('../src/components/ui/SyncStatus', () => ({ SyncStatus: () => <p>Sync status</p> }))
@@ -22,7 +22,8 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     const parsed = new URL(url, 'http://localhost')
     const filters = { from: parsed.searchParams.get('from') ?? '', to: parsed.searchParams.get('to') ?? '', tz: parsed.searchParams.get('tz') ?? '' }
-    return new Response(JSON.stringify(mockChart(parsed.pathname as ChartPath, filters)), { status: 200 })
+    const body = parsed.pathname === '/api/summary' ? mockSummary(filters) : mockChart(parsed.pathname as ChartPath, filters)
+    return new Response(JSON.stringify(body), { status: 200 })
   }))
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
 })
@@ -75,30 +76,30 @@ it('does not show a metadata coverage indicator', async () => {
 it('keeps the heatmap on its own rolling-365-day window and query, independent of the period', async () => {
   window.history.replaceState(null, '', '?')
   showApp(); await screen.findByText('Daily chart')
-  await waitFor(() => expect(calls()).toHaveLength(10))
+  await waitFor(() => expect(calls()).toHaveLength(11))
   expect(pressed()).toEqual(['7 days'])
   const heatmapCalls = () => calls().filter(url => url.pathname === '/api/heatmap')
   expect(heatmapCalls()).toHaveLength(1)
   expect(Object.fromEntries(heatmapCalls()[0].searchParams)).toMatchObject({ from: '2025-11-22', to: '2026-11-21', tz: 'UTC' })
   const total = calls().length
   fireEvent.click(screen.getByRole('button', { name: 'All time' }))
-  await waitFor(() => expect(calls().length).toBe(total + 9))
+  await waitFor(() => expect(calls().length).toBe(total + 10))
   fireEvent.click(screen.getByRole('button', { name: 'Today' }))
-  await waitFor(() => expect(calls().length).toBe(total + 9 + 7)) // a single day hides (and does not fetch) both evolution charts
+  await waitFor(() => expect(calls().length).toBe(total + 10 + 8)) // a single day hides (and does not fetch) both evolution charts
   expect(heatmapCalls()).toHaveLength(1)
   expect(calls().slice(total).every(url => url.pathname !== '/api/heatmap')).toBe(true)
 })
 
 it('selects live presets, keeps shared queries consistent, and persists preset intent without dates or tz', async () => {
   window.history.replaceState(null, '', '?')
-  showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(10))
+  showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(11))
   expect(screen.queryByRole('dialog')).toBeNull()
   const period = screen.getByRole('region', { name: 'Period' })
   expect([...period.querySelectorAll('.preset-row button[aria-pressed]')].map(button => button.textContent)).toEqual(['Today', '7 days', '30 days', 'This week', 'This month', 'This year', 'All time', 'Custom'])
   fireEvent.click(screen.getByRole('button', { name: 'All time' }))
   await waitFor(() => expect(pressed()).toEqual(['All time']))
   expect(window.location.search).toBe('?preset=all')
-  await waitFor(() => expect(calls().filter(url => url.searchParams.get('from') === '0001-01-01')).toHaveLength(9))
+  await waitFor(() => expect(calls().filter(url => url.searchParams.get('from') === '0001-01-01')).toHaveLength(10))
   expect(document.body.textContent).not.toContain('0001')
   fireEvent.click(screen.getByRole('button', { name: 'This week' }))
   expect(window.location.search).toBe('?preset=week')
@@ -109,7 +110,7 @@ it('selects live presets, keeps shared queries consistent, and persists preset i
 })
 
 it('hides both evolution charts for a single calendar day (Today or a one-day custom range) and shows them for multiple days', async () => {
-  showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(10))
+  showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(11))
   await waitFor(() => expect(screen.getAllByText('Evolution chart')).toHaveLength(2))
   expect(screen.getByRole('heading', { name: 'Artist evolution' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Today' }))
@@ -133,7 +134,7 @@ it('hides both evolution charts for a single calendar day (Today or a one-day cu
 
 it('reveals from/to only for Custom, hides 0001 from All time, and applies a custom range', async () => {
   window.history.replaceState(null, '', '?')
-  showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(10))
+  showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(11))
   fireEvent.click(screen.getByRole('button', { name: 'All time' }))
   fireEvent.click(screen.getByRole('button', { name: 'Custom' }))
   expect(pressed()).toEqual(['All time']) // draft does not change the applied period
@@ -179,7 +180,7 @@ it('reloading the bare page defaults to 7 days', async () => {
 
 it('applies a custom range with an empty From as all time and rejects an inverted range', async () => {
   window.history.replaceState(null, '', '?')
-  showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(10))
+  showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(11))
   fireEvent.click(screen.getByRole('button', { name: 'Custom' }))
   fireEvent.change(screen.getByLabelText('From'), { target: { value: '' } })
   fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
@@ -205,7 +206,7 @@ it('keeps explicit legacy mixed links fixed Custom even when dates match a prese
 it('uses the browser timezone automatically and shows no timezone control', async () => {
   vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockReturnValue({ timeZone: 'Asia/Tokyo' } as Intl.ResolvedDateTimeFormatOptions)
   window.history.replaceState(null, '', '?')
-  showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(10))
+  showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(11))
   expect(window.location.search).toBe('')
   expect(calls().every(url => url.searchParams.get('tz') === 'Asia/Tokyo')).toBe(true)
   expect(screen.queryByLabelText(/timezone/i)).toBeNull()
@@ -308,7 +309,7 @@ it('shows loading and network errors per view', async () => {
 it('switches rankings, map and heatmap to minutes without touching pies or evolution', async () => {
   window.localStorage.removeItem('music-metric')
   window.history.replaceState(null, '', '?')
-  showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(10))
+  showApp(); await screen.findByText('Daily chart'); await waitFor(() => expect(calls()).toHaveLength(11))
   expect(calls().some(url => url.searchParams.has('metric'))).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: 'Minutes' }))
   await waitFor(() => expect(calls().some(url => url.pathname === '/api/rankings/artists' && url.searchParams.get('metric') === 'minutes')).toBe(true))
@@ -317,4 +318,26 @@ it('switches rankings, map and heatmap to minutes without touching pies or evolu
   expect(pressed()).toEqual(['7 days'])
   fireEvent.click(screen.getByRole('button', { name: 'Listens' }))
   window.localStorage.removeItem('music-metric')
+})
+
+it('shows freestanding totals between the controls and the rankings, from the selected range only', async () => {
+  window.history.replaceState(null, '', '?from=2026-01-05&to=2026-01-05')
+  showApp()
+  const totals = await screen.findByRole('list', { name: 'Listening totals' }).catch(() => screen.findByLabelText('Listening totals'))
+  expect(within(totals).getAllByRole('term').map(term => term.textContent)).toEqual(['Minutes', 'Plays', 'Tracks', 'Artists'])
+  await waitFor(() => expect(within(totals).getAllByRole('definition').map(value => value.textContent)).toEqual(['13', '4', '3', '2']))
+  expect(totals.closest('.card')).toBeNull()
+  const rankings = screen.getByRole('region', { name: 'Rankings' })
+  expect(totals.compareDocumentPosition(rankings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  const summary = calls().filter(url => url.pathname === '/api/summary')
+  expect(summary).toHaveLength(1)
+  expect([...summary[0].searchParams.keys()].sort()).toEqual(['from', 'to', 'tz'])
+})
+
+it('shows zeros for an empty range and dashes while loading', async () => {
+  window.history.replaceState(null, '', '?from=2025-02-03&to=2025-02-04')
+  showApp()
+  const totals = screen.getByLabelText('Listening totals')
+  expect(within(totals).getAllByRole('definition').map(value => value.textContent)).toEqual(['—', '—', '—', '—'])
+  await waitFor(() => expect(within(totals).getAllByRole('definition').map(value => value.textContent)).toEqual(['0', '0', '0', '0']))
 })

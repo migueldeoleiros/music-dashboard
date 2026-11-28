@@ -12,7 +12,6 @@ const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')
 const artist = (n: number) => `1111111${n % 10}-0000-4000-8000-000000000000`
 
 it('a 10-row list issues ONE credits request; every row with a resolvable primary artist is a link', async () => {
-  vi.stubEnv('VITE_MOCK_API', 'false')
   const items = Array.from({ length: 10 }, (_, i) => ({ key: id(i), label: `Album ${i}`, mbid: id(i), metadata_state: 'resolved', listens: 10 - i, share: 0.1, image_url: null })) as components['schemas']['RankedEntity'][]
   // Rows 3 and 7 are unresolvable (ambiguous/empty credits); row 5 is a collaboration (primary links the row).
   const credits: Record<string, { key: string | null; label: string }[]> = {}

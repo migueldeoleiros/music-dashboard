@@ -1241,6 +1241,77 @@
         ],
         "title": "RefreshStatus",
         "type": "object"
+      },
+      "SummaryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "artists": {
+            "description": "Distinct credited artists",
+            "minimum": 0.0,
+            "title": "Artists",
+            "type": "integer"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/DimensionCoverage"
+          },
+          "fixture": {
+            "description": "True only for clearly marked synthetic stub responses",
+            "title": "Fixture",
+            "type": "boolean"
+          },
+          "generation": {
+            "description": "Combined ingestion/enrichment invalidation generation",
+            "minimum": 0.0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "last_updated": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "UTC ingestion freshness; null before import",
+            "title": "Last Updated"
+          },
+          "minutes": {
+            "description": "Listening minutes; recordings without a length use the average known length",
+            "minimum": 0.0,
+            "title": "Minutes",
+            "type": "number"
+          },
+          "plays": {
+            "minimum": 0.0,
+            "title": "Plays",
+            "type": "integer"
+          },
+          "range": {
+            "$ref": "#/components/schemas/DateRange"
+          },
+          "tracks": {
+            "description": "Distinct tracks",
+            "minimum": 0.0,
+            "title": "Tracks",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "range",
+          "coverage",
+          "last_updated",
+          "generation",
+          "fixture",
+          "minutes",
+          "plays",
+          "tracks",
+          "artists"
+        ],
+        "title": "SummaryResponse",
+        "type": "object"
       }
     }
   },
@@ -3045,6 +3116,74 @@
         "summary": "Post Refresh",
         "tags": [
           "refresh"
+        ]
+      }
+    },
+    "/api/summary": {
+      "get": {
+        "operationId": "summary",
+        "parameters": [
+          {
+            "description": "Inclusive local start date",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "description": "Inclusive local start date",
+              "format": "date",
+              "title": "From",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Inclusive local end date",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "description": "Inclusive local end date",
+              "format": "date",
+              "title": "To",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Supported IANA timezone, canonicalized",
+            "in": "query",
+            "name": "tz",
+            "required": true,
+            "schema": {
+              "description": "Supported IANA timezone, canonicalized",
+              "title": "Tz",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "Summary",
+        "tags": [
+          "statistics"
         ]
       }
     }

@@ -1,14 +1,5 @@
 # Dashboard client
 
-## Preview without a backend
-
-```sh
-npm ci
-npm run dev:mock -- --port 18140
-```
-
-Open http://localhost:18140/. Use `?fixture=full` or `?fixture=empty` to change the mock coverage (default: `partial`). For the January 5 fixture, use `?from=2026-01-05&to=2026-01-05`. Mock mode makes no requests to music services. Leave `VITE_MOCK_API` off for live builds.
-
 `npm run dev` proxies `/api` to port 8000. `npm run build` builds the static client for Compose.
 
 ## Display rules

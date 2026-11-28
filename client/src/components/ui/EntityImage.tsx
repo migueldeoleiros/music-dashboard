@@ -15,11 +15,10 @@ export type EntityImageProps = {
   decorative?: boolean
 }
 
-const isMock = () => import.meta.env.VITE_MOCK_API === 'true'
 const dpr = () => (typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1)
 
 export function EntityImage({ src, label, size, shape = 'rounded', decorative = false }: EntityImageProps) {
-  const url = resolveImageSrc(src, size, { mock: isMock(), dpr: dpr() })
+  const url = resolveImageSrc(src, size, { dpr: dpr() })
   const [failed, setFailed] = useState<string | null>(null)
   const cls = `entity-image entity-image--${size}${shape === 'circle' ? ' entity-image--circle' : ''}`
   if (!url || failed === url) {

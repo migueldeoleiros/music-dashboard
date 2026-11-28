@@ -4,7 +4,7 @@ import type { Filters } from '../features/dashboard/filters'
 type Schemas = components['schemas']
 export type CountryArtistsPath = '/api/countries/{code}/artists'
 // Code-free, query-only chart routes. The path-param route has its own typed fetcher.
-export type ChartPath = Exclude<keyof paths, '/api/health' | '/api/refresh' | CountryArtistsPath | '/api/history' | '/api/artist-credits' | `/api/artists/${string}`>
+export type ChartPath = Exclude<keyof paths, '/api/health' | '/api/refresh' | '/api/summary' | CountryArtistsPath | '/api/history' | '/api/artist-credits' | `/api/artists/${string}`>
 export const COUNTRY_ARTISTS_LIMIT = 50
 export type ChartResponse<P extends ChartPath | CountryArtistsPath> = paths[P]['get']['responses'][200]['content']['application/json']
 export type ChartData = Schemas['RankingResponse'] | Schemas['HeatmapResponse'] | Schemas['CountryResponse'] | Schemas['EvolutionResponse'] | Schemas['PieResponse']
@@ -21,29 +21,20 @@ function isApiError(value: unknown): value is Schemas['ErrorResponse'] {
 export async function fetchChart<P extends ChartPath>(path: P, filters: Filters, signal?: AbortSignal): Promise<ChartResponse<P>> {
   // Only rankings are capped. Pies and evolution select series by share (>= 1%) on the server, so no limit is sent.
   const limit = path.startsWith('/api/rankings/') ? 10 : undefined
-  if (import.meta.env.VITE_MOCK_API === 'true') {
-    const { mockChart } = await import('./mock')
-    return mockChart(path, filters, limit)
-  }
   const query = new URLSearchParams(limit === undefined ? { ...filters } : { ...filters, limit: String(limit) })
   return fetchJson<ChartResponse<P>>(`${path}?${query}`, signal)
 }
 
+export async function fetchSummary(filters: Pick<Filters, 'from' | 'to' | 'tz'>, signal?: AbortSignal): Promise<Schemas['SummaryResponse']> {
+  return fetchJson<Schemas['SummaryResponse']>(`/api/summary?${new URLSearchParams(filters)}`, signal)
+}
+
 export async function fetchCountryArtists(code: string, filters: Filters, signal?: AbortSignal): Promise<ChartResponse<CountryArtistsPath>> {
-  if (import.meta.env.VITE_MOCK_API === 'true') {
-    const { mockCountryArtists } = await import('./mock')
-    return mockCountryArtists(code, filters)
-  }
   const query = new URLSearchParams({ ...filters, limit: String(COUNTRY_ARTISTS_LIMIT) })
   return fetchJson<ChartResponse<CountryArtistsPath>>(`/api/countries/${encodeURIComponent(code)}/artists?${query}`, signal)
 }
 
 export async function fetchHealth(signal?: AbortSignal): Promise<Schemas['HealthResponse']> {
-  if (import.meta.env.VITE_MOCK_API === 'true') {
-    const { mockChart } = await import('./mock')
-    const sample = mockChart('/api/heatmap', { from: '2026-01-05', to: '2026-01-05', tz: 'UTC' })
-    return { mode: 'fixture', status: 'ok', coverage: sample.coverage, generation: sample.generation, last_updated: sample.last_updated, sync_lag_seconds: null }
-  }
   return fetchJson<Schemas['HealthResponse']>('/api/health', signal)
 }
 

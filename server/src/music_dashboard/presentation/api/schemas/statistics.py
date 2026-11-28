@@ -68,6 +68,15 @@ class RankingResponse(AggregateResponse):
     items: list[RankedEntity]
 
 
+class SummaryResponse(AggregateResponse):
+    minutes: NonNegative = Field(
+        description="Listening minutes; recordings without a length use the average known length"
+    )
+    plays: int = Field(ge=0)
+    tracks: int = Field(ge=0, description="Distinct tracks")
+    artists: int = Field(ge=0, description="Distinct credited artists")
+
+
 class HeatmapCell(ContractModel):
     day: date
     listens: int = Field(ge=0)

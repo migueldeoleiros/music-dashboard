@@ -40,7 +40,6 @@ it('hover rule covers all song columns inside (hover: hover)', () => {
 })
 
 async function ranking(excludeArtistKey?: string) {
-  vi.stubEnv('VITE_MOCK_API', 'false')
   const items = [0, 1].map(i => ({ key: `00000000-0000-4000-8000-00000000000${i}`, label: `Album ${i}`, mbid: null, metadata_state: 'resolved', listens: 5 - i, share: 0.1, image_url: null })) as components['schemas']['RankedEntity'][]
   const credits = { [items[0].key]: [{ key: A, label: 'Main' }, { key: B, label: 'Feat' }], [items[1].key]: [{ key: B, label: 'Other' }, { key: A, label: 'Guest' }] }
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ artists: [], credits }), { status: 200 })))

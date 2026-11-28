@@ -1,8 +1,8 @@
-import fixtures from './fixtures/aggregate-responses.json'
-import type { components } from './schema'
-import { ApiError, type ChartPath, type ChartResponse, type ChartData, type CountryArtistsPath } from './client'
-import type { Filters } from '../features/dashboard/filters'
-import { validateFilters } from '../features/dashboard/filters'
+import fixtures from './aggregate-responses.json'
+import type { components } from '../../src/api/schema'
+import { ApiError, type ChartPath, type ChartResponse, type ChartData, type CountryArtistsPath } from '../../src/api/client'
+import type { Filters } from '../../src/features/dashboard/filters'
+import { validateFilters } from '../../src/features/dashboard/filters'
 
 type Scenario = 'partial' | 'full' | 'empty'
 // Foundation fixtures are illustrative aggregates, not an analytics engine.
@@ -65,6 +65,13 @@ export function mockCountryArtists(code: string, filters: Filters, scenario?: Sc
     return { key: artist.key, label: artist.label, mbid: artist.key, metadata_state: 'resolved' as const, listens, share: included ? listens / included : 0, image_url: null }
   })
   return { range: base.range, coverage: base.coverage, last_updated: base.last_updated, generation: base.generation, fixture: base.fixture, dimension: 'artists', items }
+}
+
+// Totals for the one sample day; any other range (or the empty scenario) is genuinely empty.
+export function mockSummary(filters: Filters, scenario?: Scenario): components['schemas']['SummaryResponse'] {
+  const base = mockChart('/api/heatmap', { from: filters.from, to: filters.to, tz: filters.tz }, 10, scenario)
+  const populated = base.coverage.listens.total_listens > 0
+  return { range: base.range, coverage: base.coverage, last_updated: base.last_updated, generation: base.generation, fixture: base.fixture, minutes: populated ? 12.6 : 0, plays: populated ? 4 : 0, tracks: populated ? 3 : 0, artists: populated ? 2 : 0 }
 }
 
 export type Coverage = components['schemas']['Coverage']

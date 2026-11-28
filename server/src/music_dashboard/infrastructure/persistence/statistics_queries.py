@@ -340,6 +340,15 @@ RANKING_RECOVERY = {
     "tracks": ("track_ranking_values", TRACK_RANKING),
 }
 
+SUMMARY = """
+SELECT coalesce(sum(w), 0)::float8 AS minutes,
+       count(*) AS plays,
+       (SELECT count(DISTINCT key) FROM track_values
+        WHERE state<>'missing' OR mbid IS NOT NULL) AS tracks,
+       (SELECT count(DISTINCT key) FROM artist_values) AS artists
+FROM selected
+"""
+
 COVERAGE = """
 SELECT count(*) AS total,
  (SELECT count(DISTINCT id) FROM artist_values) AS artists,
@@ -535,7 +544,9 @@ class SQLStatisticsQueries:
         if family not in SUPPORTED_FAMILIES:
             raise InvalidStatisticsRequest("Unsupported chart family")
         params = self._params(filters)
-        minutes = filters.metric == "minutes" and family in MINUTES_FAMILIES
+        minutes = (
+            filters.metric == "minutes" and family in MINUTES_FAMILIES
+        ) or family == "summary"
         params["minutes"] = minutes
         with self._connection() as c:
             snapshot = self._snapshot(c)
@@ -549,7 +560,7 @@ class SQLStatisticsQueries:
                 params["from_date"],
                 params["to_date"],
                 params["tz"],
-                None if family.startswith(SHARE_FAMILIES) else filters.limit,
+                None if family.startswith(SHARE_FAMILIES) or family == "summary" else filters.limit,
                 filters.country_code,
                 minutes,
                 snapshot["generation"],
@@ -568,7 +579,11 @@ class SQLStatisticsQueries:
                 "last_updated": snapshot["last_updated"],
                 "fixture": False,
             }
-            if family == "heatmap":
+            if family == "summary":
+                # Totals come from `selected` (one row per listen) so credit joins cannot inflate
+                # plays/minutes; identities reuse the ranking keys, uncapped.
+                result.update(dict(c.execute(text(COMMON + SUMMARY), params).mappings().one()))
+            elif family == "heatmap":
                 # Sparse daily cells keep all-time valid; missing dates mean zero.
                 result.update(
                     week_starts_on="monday",

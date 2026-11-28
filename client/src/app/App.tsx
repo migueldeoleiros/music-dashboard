@@ -6,6 +6,7 @@ import { CountryArtistsPanel } from '../features/origin-map/CountryArtistsPanel'
 import { CountryRankingPanel } from '../features/origin-map/CountryRankingPanel'
 import { FloatingNav } from '../components/ui/FloatingNav'
 import { SyncStatus } from '../components/ui/SyncStatus'
+import { SummaryStats } from '../features/dashboard/SummaryStats'
 import { MetricToggle } from '../features/dashboard/MetricToggle'
 import { useMetric } from './metric'
 import { ArtistPage } from '../features/artist-history/ArtistPage'
@@ -93,8 +94,8 @@ function Dashboard() {
     <ChartPanel path="/api/heatmap" label="Daily listening" variant="heatmap" {...heatmap} />
     <Controls filters={filters} period={period} onChange={apply}><MetricToggle /></Controls>
     {timezoneNotice && <p className="notice" role="status">{timezoneNotice}</p>}
-    {import.meta.env.VITE_MOCK_API === 'true' && <p className="notice">Standalone synthetic preview — no API or music-service requests. <a href="?from=2026-01-05&to=2026-01-05&tz=UTC&fixture=partial">Load foundation sample</a> · <a href="?from=2026-01-05&to=2026-01-05&tz=UTC&fixture=full">100% coverage</a> · <a href="?from=2026-01-05&to=2026-01-05&tz=UTC&fixture=empty">Empty sample</a></p>}
     {error ? <p className="error" role="alert">{error} Adjust the period above.</p> : <>
+      <SummaryStats filters={filters} onTimezoneRejected={fallbackTimezone} />
       <section id="rankings" className="dash-section" aria-label="Rankings"><div className="grid-4">{(['tracks', 'artists', 'albums', 'genres'] as const).map(dimension => <ChartPanel key={dimension} path={`/api/rankings/${dimension}`} label={`Top ${dimension}`} {...sharedCounted} />)}</div></section>
       <section id="origins" ref={originsRef} tabIndex={-1} className="dash-section" aria-label="Artist origins">
         <div className="origins-layout has-panel">

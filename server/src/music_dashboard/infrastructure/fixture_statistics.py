@@ -46,6 +46,8 @@ class FixtureStatisticsQueries:
             result.update(dimension="artists", items=[])
         elif kind == "rankings":
             result.update(dimension=dimension, items=[])
+        elif kind == "summary":
+            result.update(minutes=0, plays=0, tracks=0, artists=0)
         elif kind == "heatmap":
             result.update(week_starts_on="monday", cells=[])
         elif kind == "countries":

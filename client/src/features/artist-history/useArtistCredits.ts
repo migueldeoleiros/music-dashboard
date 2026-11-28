@@ -22,7 +22,7 @@ export function useArtistCredits(dimension: 'albums' | 'tracks', keys: string[],
     retry: retryCredits,
     retryDelay: creditsRetryDelay,
     staleTime: 300_000,
-    enabled: active && unique.length > 0 && import.meta.env.VITE_MOCK_API !== 'true',
+    enabled: active && unique.length > 0,
   })
   return query.data ?? NO_CREDITS
 }

@@ -40,6 +40,14 @@ LocalDate = Annotated[
 ]
 
 
+def summary_filter(
+    from_date: Annotated[LocalDate, Query(alias="from", description="Inclusive local start date")],
+    to_date: Annotated[LocalDate, Query(alias="to", description="Inclusive local end date")],
+    tz: Annotated[str, Query(description="Supported IANA timezone, canonicalized")],
+) -> StatisticsFilter:
+    return statistics_filter(from_date, to_date, tz)
+
+
 def statistics_filter(
     from_date: Annotated[LocalDate, Query(alias="from", description="Inclusive local start date")],
     to_date: Annotated[LocalDate, Query(alias="to", description="Inclusive local end date")],

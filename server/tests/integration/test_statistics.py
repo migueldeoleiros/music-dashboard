@@ -30,6 +30,7 @@ from music_dashboard.presentation.api.schemas.statistics import (
     HeatmapResponse,
     PieResponse,
     RankingResponse,
+    SummaryResponse,
 )
 
 pytestmark = pytest.mark.integration
@@ -977,3 +978,43 @@ def test_localized_credit_name_does_not_split_the_album(identity):
         c.execute(text("UPDATE data_generation SET ingestion_generation=ingestion_generation+1"))
     items, _ = albums(q, "2026-01-01", "2026-01-31")
     assert {k: v["listens"] for k, v in items.items()} == {RG: 2}
+
+
+def test_summary_totals_are_uncapped_and_not_inflated_by_credits(stats):
+    q, writer = stats
+    with writer.begin() as c:
+        c.execute(
+            text("""
+          INSERT INTO listens(user_name,listened_at,recording_msid,artist_name,track_name)
+          SELECT 'summary-wide',timestamptz '2026-03-05T12:00Z',
+                 md5('summary-'||g)::uuid,'Summary artist '||g,'Summary track '||g
+          FROM generate_series(1,25) g
+        """)
+        )
+    base = q.query("summary", filters("2026-03-05"))
+    SummaryResponse.model_validate(base)
+    assert (base["plays"], base["tracks"], base["artists"]) == (25, 25, 25)
+    assert base["plays"] == base["coverage"]["listens"]["total_listens"]
+    seeded = q.query("summary", filters("2026-01-05"))
+    listens = seeded["coverage"]["listens"]["total_listens"]
+    assert seeded["plays"] == listens
+    empty = q.query("summary", filters("2030-01-01"))
+    assert (empty["plays"], empty["tracks"], empty["artists"], empty["minutes"]) == (0, 0, 0, 0)
+
+
+def test_summary_multi_credit_listen_counts_once(stats):
+    q, writer = stats
+    with writer.begin() as c:
+        c.execute(
+            text("""
+          WITH l AS (
+            INSERT INTO listens(user_name,listened_at,recording_msid,artist_name,track_name)
+            VALUES ('summary-credits',timestamptz '2026-04-05T12:00Z',
+                    md5('summary-credits')::uuid,'Duo A & Duo B','Duo song')
+            RETURNING id)
+          INSERT INTO listen_artists(listen_id,position,artist_name)
+          SELECT id,0,'Duo A' FROM l UNION ALL SELECT id,1,'Duo B' FROM l
+        """)
+        )
+    data = q.query("summary", filters("2026-04-05"))
+    assert (data["plays"], data["tracks"], data["artists"]) == (1, 1, 2)

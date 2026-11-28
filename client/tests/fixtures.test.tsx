@@ -1,6 +1,6 @@
 import { cleanup } from '@testing-library/react'
 import { afterEach, expect, it } from 'vitest'
-import { mockChart } from '../src/api/mock'
+import { mockChart } from './support/mock'
 import { ApiError, type ChartPath } from '../src/api/client'
 
 const filters = { from: '2026-01-05', to: '2026-01-05', tz: 'UTC' }

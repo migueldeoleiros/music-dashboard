@@ -25,8 +25,8 @@ def test_all_chart_families_and_get_only() -> None:
     paths = {
         p: ops for p, ops in all_paths.items() if p != "/api/refresh" and not p.startswith(additive)
     }
-    assert len(paths) == 12
-    assert len(all_paths) == 19
+    assert len(paths) == 13
+    assert len(all_paths) == 20
     assert "/api/countries/{code}/artists" in paths
     for path, operations in paths.items():
         assert set(operations) == {"get"}
@@ -43,6 +43,8 @@ def test_all_chart_families_and_get_only() -> None:
         if path != "/api/health":
             params = {p["name"] for p in operations["get"]["parameters"]}
             expected = {"from", "to", "tz", "limit", "metric"}
+            if path == "/api/summary":  # fixed semantics: no limit or metric
+                expected = {"from", "to", "tz"}
             expected |= {"code"} if "{code}" in path else set()
             assert params == expected
             assert "422" not in operations["get"]["responses"]

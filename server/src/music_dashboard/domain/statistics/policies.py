@@ -21,7 +21,9 @@ FAMILIES = frozenset(
 # Path-param family: route /api/countries/{code}/artists. The code travels in
 # StatisticsFilter.country_code, so FAMILIES (code-free) stays unchanged.
 COUNTRY_ARTISTS_FAMILY = "countries/artists"
-SUPPORTED_FAMILIES = FAMILIES | {COUNTRY_ARTISTS_FAMILY}
+# Whole-range totals; fixed semantics (no limit or metric), so not part of FAMILIES.
+SUMMARY_FAMILY = "summary"
+SUPPORTED_FAMILIES = FAMILIES | {COUNTRY_ARTISTS_FAMILY, SUMMARY_FAMILY}
 DIMENSIONS = ("artists", "albums", "tracks", "genres", "countries", "listens")
 CACHE_TTL_SECONDS = 30.0
 CACHE_MAX_ENTRIES = 128
